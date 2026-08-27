@@ -221,7 +221,7 @@ jobs:
           retention-days: 3
   windows:
     name: Windows EXE + MSIX + Portable
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_windows && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.build_windows && needs.android.result != 'failure' }}
     needs: [quality, android]
     runs-on: windows-latest
     timeout-minutes: 35
