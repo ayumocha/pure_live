@@ -248,7 +248,7 @@ try {
             throw 'Windows install manifest is empty.'
         }
         $windowsSourcePrefix = $windowsSourceFull.TrimEnd('\') + '\'
-        $manifestSourceMarker = '\build\windows\x64\runner\Release\'
+        $manifestSourceMarker = "\build\windows\x64\runner\$configurationDirectory\"
         foreach ($entry in $manifestEntries) {
             # Flutter may invoke CMake through its short/substituted P: path,
             # while this script runs from the long workspace path. Resolve the
