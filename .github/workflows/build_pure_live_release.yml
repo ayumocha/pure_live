@@ -1,4 +1,4 @@
-﻿# main 浠撳簱涓撶敤璇峰嬁淇敼姝ゆ枃浠?name: PureLive All-Platform Release
+# main 浠撳簱涓撶敤璇峰嬁淇敼姝ゆ枃浠?name: PureLive All-Platform Release
 on:
   workflow_dispatch:
     inputs:
@@ -6,27 +6,27 @@ on:
         description: Build Android Release APKs for all ABIs
         required: true
         type: boolean
-        default: true
+        default: false
       build_windows:
         description: Build Windows EXE, MSIX and portable ZIP
         required: true
         type: boolean
-        default: true
+        default: false
       build_linux:
         description: Build Linux x64 portable archive
         required: true
         type: boolean
-        default: true 
+        default: false
       build_macos:
         description: Build macOS universal application archive
         required: true
         type: boolean
-        default: true
+        default: false
       build_ios:
         description: Build unsigned iOS app and TrollStore IPA
         required: true
         type: boolean
-        default: true
+        default: false
       run_quality:
         description: Run analyze, tests and public interface probes first
         required: true
@@ -36,7 +36,7 @@ on:
         description: Create a GitHub Release and update releases.json
         required: true
         type: boolean
-        default: true
+        default: false
       release_tag:
         description: Release tag (e.g. v1.0.0) 鈥?required if create_release is true
         required: true
@@ -267,15 +267,12 @@ jobs:
           dart run enven `
             --env-files .env,.env.prod `
             --class-name AppConfig
-      - name: Install fastforge and Inno Setup
+      - name: Install pinned fastforge and Inno Setup
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          git clone https://github.com/SlotSun/fastforge.git
-          Set-Location fastforge
-          dart pub global activate melos
-          melos run activate
-          choco install innosetup -y
+          choco install innosetup --version=6.7.1 -y
+          dart pub global activate fastforge 0.6.0
       - name: Copy Chinese language pack
         shell: pwsh
         run: |
@@ -285,7 +282,7 @@ jobs:
             Copy-Item $source $target -Force
           }
       - name: Install Fastforge
-        run: dart pub global activate fastforge
+        run: dart pub global activate fastforge 0.6.0
       - name: Get version
         id: version
         shell: pwsh
