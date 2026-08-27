@@ -69,6 +69,16 @@ class WebSearchRoomParser {
     if (_matchesHost(host, 'yy.com')) {
       return _firstSegment(segments, Sites.yySite, RegExp(r'^\d+$'));
     }
+    if (_matchesHost(host, 'xiaohongshu.com')) {
+      if (segments.length == 2 && segments.first.toLowerCase() == 'livestream') {
+        return _target(Sites.xhsSite, segments[1], RegExp(r'^\d{6,30}$'));
+      }
+      if (segments.length == 3 &&
+          segments[0].toLowerCase() == 'user' &&
+          segments[1].toLowerCase() == 'profile') {
+        return _target(Sites.xhsSite, segments[2], RegExp(r'^[0-9a-fA-F]{8,64}$'));
+      }
+    }
     return null;
   }
 

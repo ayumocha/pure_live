@@ -3,6 +3,8 @@ import 'dart:async';
 
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/common/consts/app_consts.dart';
+import 'package:pure_live/modules/search/web_search_room_parser.dart';
+import 'package:pure_live/routes/app_navigation.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:pure_live/common/global/initialized.dart';
 import 'package:pure_live/player/utils/player_consts.dart';
@@ -100,14 +102,25 @@ class _MyAppState extends State<MyApp> with DesktopWindowMixin {
       final handler = ShareHandler.instance;
       await handler.getInitialSharedMedia();
       _sharedMediaSubscription = handler.sharedMediaStream.listen((SharedMedia media) async {
-        final path = media.content?.trim().toLowerCase() ?? '';
+        final rawContent = media.content?.trim() ?? '';
+        final path = rawContent.toLowerCase();
         if (path.isEmpty) return;
         if (path.endsWith('.m3u') || path.endsWith('.txt') || path.contains('.m3u8')) {
           await IptvImportManager().importFromSharedMedia(media);
         } else if (path.endsWith('.xml') || path.endsWith('.gz') || path.endsWith('.json')) {
           await EpgImportManager().importFromSharedMedia(media);
         } else {
-          ToastUtil.show(i18n("unsupported_file_format"));
+          // 分享的直播间链接（文本 + URL）进入对应平台房间；识别失败的分享
+          // 仍然给出提示，不吞掉用户操作。
+          final urlMatch = RegExp(r'https?://[^\s<>"]+').firstMatch(rawContent);
+          final target = urlMatch == null ? null : WebSearchRoomParser.parse(urlMatch.group(0)!);
+          if (target != null && Sites.isSupported(target.platform)) {
+            await AppNavigator.offAndToRoomDetail(
+              liveRoom: LiveRoom(roomId: target.roomId, platform: target.platform),
+            );
+          } else {
+            ToastUtil.show(i18n("unsupported_file_format"));
+          }
         }
       });
     }

@@ -197,6 +197,49 @@ class WebSearchController extends GetxController {
     }
   }
 
+  /// 粘贴直播间链接（支持全部已接入平台的 URL 识别），识别后直接进入房间；
+  /// 无法识别的链接交给当前 WebView 打开，仍可复用导航识别。
+  Future<void> promptOpenRoomLink() async {
+    final input = TextEditingController();
+    final picked = await Get.dialog<String>(
+      AlertDialog(
+        title: Text(i18n('web_search_open_link')),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: InputDecoration(hintText: i18n('web_search_link_hint')),
+          onSubmitted: (value) => Navigator.of(Get.context!).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(Get.context!).pop(),
+            child: Text(i18n('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(Get.context!).pop(input.text),
+            child: Text(i18n('confirm')),
+          ),
+        ],
+      ),
+    );
+    if (picked == null || picked.trim().isEmpty) return;
+
+    final target = WebSearchRoomParser.parse(picked);
+    if (target == null) {
+      ToastUtil.show(i18n('web_search_link_not_supported'));
+      return;
+    }
+
+    webViewController?.stopLoading();
+    webViewController?.dispose();
+    showWebView.value = false;
+    await Future.delayed(const Duration(milliseconds: 300));
+    AppNavigator.offAndToRoomDetail(
+      liveRoom: LiveRoom(roomId: target.roomId, platform: target.platform),
+    );
+  }
+
   void closePage() {
     showWebView.value = false;
     webViewController?.stopLoading();

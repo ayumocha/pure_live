@@ -94,6 +94,14 @@ class LiveRoom {
       hasTotalViewers: false,
       onlineAvailability: AudienceOnlineAvailability.unsupported,
     ),
+    // Xiaohongshu SSR exposes a single displayCountInfo value that mixes the
+    // live heat/visibility scale; the platform does not declare an explicit
+    // concurrent head count, so it is treated as popularity.
+    'xhs': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
   };
 
   static const AudiencePlatformCapability _unknownAudienceCapability = AudiencePlatformCapability(
@@ -390,7 +398,7 @@ class LiveRoom {
       return audienceMetricType!;
     }
     return switch (normalizedPlatformId) {
-      'bilibili' || 'douyu' || 'huya' || 'cc' || 'yy' => AudienceMetricType.popularity,
+      'bilibili' || 'douyu' || 'huya' || 'cc' || 'yy' || 'xhs' => AudienceMetricType.popularity,
       'kuaishou' || 'twitch' || 'soop' => AudienceMetricType.onlineViewers,
       'douyin' => AudienceMetricType.totalViewers,
       _ => AudienceMetricType.unknown,

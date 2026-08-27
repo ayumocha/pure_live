@@ -40,6 +40,14 @@ class WebSearchPage extends GetView<WebSearchController> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: IconButton(
+              icon: const Icon(Icons.link),
+              tooltip: i18n('web_search_open_link'),
+              onPressed: controller.promptOpenRoomLink,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: IconButton(
               icon: const Icon(Icons.close),
               tooltip: i18n('close'),
               onPressed: () => controller.closePage(),
