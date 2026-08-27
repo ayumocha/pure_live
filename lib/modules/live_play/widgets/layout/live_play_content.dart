@@ -53,6 +53,9 @@ class LivePlayLayout extends StatelessWidget {
   }
 
   Widget _buildPortraitLayout(BuildContext context, BoxConstraints constraints) {
+    // layout-invariant: live-play-portrait-stack
+    // 竖屏（宽度 <= 680）：视频 + 分辨率条 + 弹幕自上而下堆叠，弹幕区占剩余
+    // 高度；全屏/沉浸模式不走此分支。重构本布局时保留该标记。
     final panelColor = Theme.of(context).colorScheme.surface;
 
     return Column(
@@ -76,6 +79,9 @@ class LivePlayLayout extends StatelessWidget {
   }
 
   Widget _buildDesktopLayout(BuildContext context) {
+    // layout-invariant: live-play-desktop-panel
+    // 桌面宽屏：视频占主区 + 固定 340px 右侧面板（分辨率条 + 弹幕）；面板宽度
+    // 与内容策略是本布局的对外契约。重构本布局时保留该标记。
     const panelWidth = 340.0;
     final panelColor = Theme.of(context).colorScheme.surface;
 
@@ -195,6 +201,9 @@ class LivePlayContent extends StatelessWidget {
       return _buildNormalContent(context);
     }
 
+    // layout-invariant: live-play-video-only-layout
+    // 非 normal 模式（如音频卡片/无面板场景）只保留纯视频层并扩展至父容器，
+    // 不渲染头部、分辨率条与弹幕面板。重构本布局时保留该标记。
     return ColoredBox(
       color: Colors.black,
       child: LivePlayVideo(controller: controller, expandToParent: true),
