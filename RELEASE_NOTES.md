@@ -1,3 +1,33 @@
+# Pure Live v3.0.7
+
+v3.0.7 build 4095 是**小红书直播接入 + Windows 正式发布版**。本轮正式交付 Windows x64 便携 ZIP；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
+
+## 新增：小红书直播平台（方案 A：链接观看）
+
+- 新增平台入口与站点注册（`xhs`）：红色"书"字图标、i18n、平台栏/平台设置自动可见。
+- 小红书未向客户端开放免签名的列表与实时弹幕接口（`live-room.xiaohongshu.com` 系列 API 要求浏览器级 `x-s` 签名，纯 HTTP 客户端实测被 406 拒绝），因此采用"链接观看"接入：
+  - 支持链接形态：`livestream/{房间号}`、`livestream/{动态段}/{房间号}`（dynpath 动态路径）、`user/profile/{主播ID}`、`xhslink.com` 短链（自动跟随重定向）、分享文本内链接提取。
+  - 免签名 SSR 解析 `__INITIAL_STATE__.liveStream`：直播状态（`success`/`fail`/`end`）、标题（含"回放"视为下播）、封面、主播昵称/头像、人数（热度口径）、`pullConfig` 多档清晰度（h264/h265 master_url，AVC 优先）。
+  - 无 `pullConfig` 时按 `deeplink.flvUrl` 构造 flv/m3u8 单档回退；未开播/已结束房间**不再生成假直链**。
+- 收藏/历史/刷新/录制全链路可用：`LiveSiteRoomRefresher` + `LiveSiteRecordRoomResolver` 严格模式（结构错误向上抛、平台明确下播才返回 offline）。
+- 未开播房间支持一键加入关注（工具箱弹窗"主播未开播…要现在加入关注吗？"），开播后从关注列表进入；收藏身份以"平台 + 房间号"保持稳定。
+- 网页搜索页新增右上角链接按钮，粘贴任意已接入平台链接直接打开直播间。
+
+## 修复与兼容
+
+- 工具箱链接解析：新增小红书分支、dynpath 双段链接识别、短链跟随、文本链接提取；剪贴板自动识别加入 xiaohongshu/xhslink。
+- 未开播/已结束房间与"无法解析"明确区分（不再下发必然播放失败的假直链）。
+- `build_local_release.ps1`：Windows 打包清单根路径按配置目录解析（支持 Debug 配置），Release 行为不变。
+- 更新工具箱"支持解析列表"帮助文本与 README 平台说明。
+
+## 验证范围（Windows x64）
+
+- 确定性回归：SSR 解析（live/fail/end/回放/undefined）、pullConfig 多档与 deeplink 回退、未开播无假直链、严格刷新、dynpath/短链/文本链接识别、收藏有效性、既有平台不回归（共 24 项）。
+- 完整静态分析（`flutter analyze` 零问题）+ 本机 Windows x64 Debug 实机验证（真实直播间跳转/解析/关注流程）+ 正式 Release 构建与内容核验。
+- 未操作手机；Android 与 Linux/macOS/iOS 未在本轮构建，源码保留。小红书列表/搜索/实时弹幕未接入（无免签名接口），以"链接观看 + 关注"方式覆盖主要场景。
+
+---
+
 # Pure Live v3.0.14
 
 v3.0.14 build 4102 是 Android 播放器来源隔离、解码恢复与录制故障分层修正版。本轮只构建 `arm64-v8a` Release APK；其他平台继续使用既有安装包。

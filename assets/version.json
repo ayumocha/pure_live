@@ -1,23 +1,23 @@
 {
-  "version": "3.0.6",
-  "build_number": 4094,
-  "version_num": 300064094,
+  "version": "3.0.7",
+  "build_number": 4095,
+  "version_num": 300074095,
   "android_abis": [
     "armeabi-v7a",
     "arm64-v8a",
     "x86_64"
   ],
-  "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+  "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
   "prerelease": false,
-  "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6",
+  "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7",
   "platforms": {
     "android": {
-      "version": "3.0.6",
-      "build_number": 4094,
-      "version_num": 300064094,
-      "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6",
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7",
       "android_abis": [
         "armeabi-v7a",
         "arm64-v8a",
@@ -25,37 +25,37 @@
       ]
     },
     "windows": {
-      "version": "3.0.6",
-      "build_number": 4094,
-      "version_num": 300064094,
-      "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6",
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7",
       "windows_msix_available": true
     },
     "linux": {
-      "version": "3.0.6",
-      "build_number": 4094,
-      "version_num": 300064094,
-      "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6"
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     },
     "macos": {
-      "version": "3.0.6",
-      "build_number": 4094,
-      "version_num": 300064094,
-      "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6"
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     },
     "ios": {
-      "version": "3.0.6",
-      "build_number": 4094,
-      "version_num": 300064094,
-      "version_desc": "version: 3.0.6\n版本更新：\n- 优化windows的画中画只能区分横竖屏。\n- 添加刘海屏适配。\n- 备份添加cookie和webdav等用户数据。\n- 优化Iptv的竖屏显示。\n- 修复快手直播源获取错误。",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.0.6"
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     }
   }
 }
