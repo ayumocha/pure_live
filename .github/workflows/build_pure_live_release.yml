@@ -81,6 +81,10 @@ jobs:
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - name: Verify Flutter SDK
         run: flutter --version
+      - name: Dump dispatch inputs
+        run: |
+          echo "event: ${{ github.event_name }}"
+          cat "$GITHUB_EVENT_PATH" | jq '.inputs' || cat "$GITHUB_EVENT_PATH"
       - name: Resolve packages
         run: flutter pub get
       - name: Generate production AppConfig
