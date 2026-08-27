@@ -212,12 +212,11 @@ jobs:
   windows:
     name: Windows EXE + MSIX + Portable
     if: >-
-      ${{ always() &&
-        github.event_name == 'workflow_dispatch' &&
+      ${{ github.event_name == 'workflow_dispatch' &&
         inputs.build_windows &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped')
+        (needs.android.result == 'success' || needs.android.result == 'skipped')
       }}
-    needs: quality
+    needs: [quality, android]
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
@@ -390,23 +389,17 @@ jobs:
     name: Linux x64 portable
     if: >-
       ${{
-        always() &&
         (
-          (
-            github.event_name == 'workflow_dispatch' &&
-            inputs.build_linux
-          ) ||
-          (
-            github.event_name == 'push' &&
-            startsWith(github.ref_name, 'stage-linux-')
-          )
-        ) &&
+          github.event_name == 'workflow_dispatch' &&
+          inputs.build_linux
+        ) ||
         (
-          needs.quality.result == 'success' ||
-          needs.quality.result == 'skipped'
+          github.event_name == 'push' &&
+          startsWith(github.ref_name, 'stage-linux-')
         )
-      }}
-    needs: quality
+      }} &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped')
+    needs: [quality, android, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -509,26 +502,20 @@ jobs:
     name: Apple platform packages
     if: >-
       ${{
-        always() &&
         (
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.build_macos || inputs.build_ios)
+        ) ||
+        (
+          github.event_name == 'push' &&
           (
-            github.event_name == 'workflow_dispatch' &&
-            (inputs.build_macos || inputs.build_ios)
-          ) ||
-          (
-            github.event_name == 'push' &&
-            (
-              startsWith(github.ref_name, 'stage-macos-') ||
-              startsWith(github.ref_name, 'stage-ios-')
-            )
+            startsWith(github.ref_name, 'stage-macos-') ||
+            startsWith(github.ref_name, 'stage-ios-')
           )
-        ) &&
-        (
-          needs.quality.result == 'success' ||
-          needs.quality.result == 'skipped'
         )
-      }}
-    needs: quality
+      }} &&
+      (needs.linux.result == 'success' || needs.linux.result == 'skipped')
+    needs: [quality, android, windows, linux]
     runs-on: macos-15
     timeout-minutes: 90
     steps:
