@@ -4,6 +4,7 @@ import 'package:dio/dio.dart' as dio;
 import 'package:flutter/services.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/modules/live_play/dialogs/live_dlna_dialog.dart';
+import 'package:pure_live/plugins/event_bus.dart';
 
 class LiveUrlTool {
   static Future<List<String>> parseLiveUrl(String url) async {
@@ -168,10 +169,11 @@ class LiveUrlTool {
       SmartDialog.showLoading(msg: "");
       final detail = await Sites.of(platform).liveSite.getRoomDetail(roomId: roomId, platform: platform);
 
-      // 未开播/已结束的房间没有可消费的直链，明确提示而不是继续走清晰度。
+      // 未开播/已结束的房间没有可消费的直链，明确提示而不是继续走清晰度；
+      // 主播信息仍然有效，支持一键加入关注，开播后即可进入观看。
       if (detail.liveStatus != LiveStatus.live) {
         SmartDialog.dismiss(status: SmartStatus.loading);
-        ToastUtil.show(i18n("toolbox_live_offline"));
+        await _promptFollowOffline(detail);
         return;
       }
 
@@ -296,7 +298,7 @@ class LiveUrlTool {
 
       if (detail.liveStatus != LiveStatus.live) {
         SmartDialog.dismiss(status: SmartStatus.loading);
-        ToastUtil.show(i18n("toolbox_live_offline"));
+        await _promptFollowOffline(detail);
         return;
       }
 
@@ -367,7 +369,7 @@ class LiveUrlTool {
 
       if (detail.liveStatus != LiveStatus.live) {
         SmartDialog.dismiss(status: SmartStatus.loading);
-        ToastUtil.show(i18n("toolbox_live_offline"));
+        await _promptFollowOffline(detail);
         return;
       }
 
@@ -431,6 +433,37 @@ class LiveUrlTool {
     } catch (e) {
       SmartDialog.dismiss(status: SmartStatus.loading);
       ToastUtil.show(i18n("toolbox_get_url_failed"));
+    }
+  }
+  /// 未开播/已结束：链接本身仍有效（主播信息完整），提示用户加入关注，
+  /// 开播后即可从关注列表进入观看。
+  static Future<void> _promptFollowOffline(LiveRoom detail) async {
+    final hostName = (detail.nick ?? '').trim();
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        title: Text(i18n('toolbox_live_offline_title')),
+        content: Text(
+          i18n('toolbox_live_offline_confirm_msg', args: {'name': hostName.isEmpty ? '' : '“$hostName”'}),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(Get.context!).pop(false),
+            child: Text(i18n('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(Get.context!).pop(true),
+            child: Text(i18n('follow')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    if (SettingsService.to.fav.addRoom(detail)) {
+      EventBus.instance.emit('changeFavorite', true);
+      ToastUtil.show(i18n('toolbox_live_offline_followed'));
+    } else if (SettingsService.to.fav.isFavorite(detail)) {
+      ToastUtil.show(i18n('followed'));
     }
   }
 }
