@@ -393,7 +393,7 @@ jobs:
           retention-days: 3
   linux:
     name: Linux x64 portable
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.build_linux || github.event_name == 'push' && startsWith(github.ref_name, 'stage-linux-')) && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' && inputs.build_linux || github.event_name == 'push' && startsWith(github.ref_name, 'stage-linux-')) && needs.windows.result != 'failure' }}
     needs: [quality, android, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -495,7 +495,7 @@ jobs:
           retention-days: 3
   apple:
     name: Apple platform packages
-    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.build_macos || inputs.build_ios) || github.event_name == 'push' && (startsWith(github.ref_name, 'stage-macos-') || startsWith(github.ref_name, 'stage-ios-'))) && (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' && (inputs.build_macos || inputs.build_ios) || github.event_name == 'push' && (startsWith(github.ref_name, 'stage-macos-') || startsWith(github.ref_name, 'stage-ios-'))) && needs.linux.result != 'failure' }}
     needs: [quality, android, windows, linux]
     runs-on: macos-15
     timeout-minutes: 90
