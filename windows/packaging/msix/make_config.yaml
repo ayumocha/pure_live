@@ -1,4 +1,4 @@
-display_name: 纯粹直播
+﻿display_name: 绾补鐩存挱
 msix_version: 3.0.6.4094
 publisher: "O=puretech.com, S=Some-State, C=CN"
 identity_name: com.mystyle.purelive
@@ -9,4 +9,5 @@ install_certificate: "false"
 certificate_path: ${MSIX_CERT_PATH}
 certificate_password: ${MSIX_CERT_PASSWORD}
 signtool_options: /td SHA256
+
 

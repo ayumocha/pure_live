@@ -1,4 +1,4 @@
-# main 浠撳簱涓撶敤璇峰嬁淇敼姝ゆ枃浠?name: PureLive All-Platform Release
+﻿# main 娴犳挸绨辨稉鎾舵暏鐠囧嘲瀣佹穱顔芥暭濮濄倖鏋冩禒?name: PureLive All-Platform Release
 on:
   workflow_dispatch:
     inputs:
@@ -38,7 +38,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Release tag (e.g. v1.0.0) 鈥?required if create_release is true
+        description: Release tag (e.g. v1.0.0) 閳?required if create_release is true
         required: true
         type: string
         default: 'v3.0.7'
@@ -66,7 +66,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
           distribution: zulu
           java-version: "25"
@@ -108,7 +108,7 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
           distribution: zulu
           java-version: "25"
@@ -766,7 +766,7 @@ jobs:
           sha256sum --check "$(basename "$checksum_file")"
       - name: Read version description
         id: version
-        uses: juliangruber/read-file-action@v1
+        uses: juliangruber/read-file-action@271ff311a4947af354c6abcd696a306553b9ec18
         with:
           path: assets/version.json
       - name: Generate BUILD_METADATA.json
@@ -829,33 +829,32 @@ jobs:
         run: |
           set -euo pipefail
           cat << EOF > release_body.txt
-          # 绾补鐩存挱 ${{ inputs.release_tag }}
-          |鐗堟湰|涓嬭浇鍦板潃|
+          # 缁绢垳琛ラ惄瀛樻尡 ${{ inputs.release_tag }}
+          |閻楀牊婀皘娑撳娴囬崷鏉挎絻|
           |---|---|
-          |TV鐗坾[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|
-          |Windows/macOS/Android/iOS鐗坾[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|
-          ### 馃枼锔?Windows 鐗?          - **Portable ZIP**锛氳В鍘嬪嵆鐢紝鏃犻渶瀹夎
-          - **EXE 瀹夎鍖?*锛氶€傚悎鎵€鏈夌敤鎴?          - **MSIX 鍖?*锛氱幇浠ｅ簲鐢ㄦ牸寮忥紝鏀寔骞插噣鍗歌浇
-          - 閫傞厤锛歐indows 10/11 x64
-          ### 馃崕 macOS 鐗?          - macOS 妗岄潰鐗?          - Universal锛欰pple Silicon + Intel
+          |TV閻楀澗[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|
+          |Windows/macOS/Android/iOS閻楀澗[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|
+          ### 棣冩灱閿?Windows 閻?          - **Portable ZIP**閿涙俺袙閸樺宓嗛悽顭掔礉閺冪娀娓剁€瑰顥?          - **EXE 鐎瑰顥婇崠?*閿涙岸鈧倸鎮庨幍鈧張澶屾暏閹?          - **MSIX 閸?*閿涙氨骞囨禒锝呯安閻劍鐗稿蹇ョ礉閺€顖涘瘮楠炴彃鍣ｉ崡姝屾祰
+          - 闁倿鍘ら敍姝恑ndows 10/11 x64
+          ### 棣冨磿 macOS 閻?          - macOS 濡楀矂娼伴悧?          - Universal閿涙pple Silicon + Intel
           - ZIP / DMG
-          ### 馃摫 Android 鐗?          - Android 8.0+锛圓PI 26锛孎FmpegKit 褰曞埗渚濊禆瑕佹眰锛?          - ARM64-v8a
+          ### 棣冩懌 Android 閻?          - Android 8.0+閿涘湏PI 26閿涘瓗FmpegKit 瑜版洖鍩楁笟婵婄鐟曚焦鐪伴敍?          - ARM64-v8a
           - ARMv7
           - x86_64
-          - 缁熶竴 SHA256 鏍￠獙鏂囦欢锛歔**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/${{ inputs.release_tag }}/ANDROID_SHA256SUM.txt)
-          ### 馃惂 Linux 鐗?          - Linux x64
+          - 缂佺喍绔?SHA256 閺嶏繝鐛欓弬鍥︽閿涙瓟**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/${{ inputs.release_tag }}/ANDROID_SHA256SUM.txt)
+          ### 棣冩儌 Linux 閻?          - Linux x64
           - Portable tar.gz
-          ### 馃崕 iOS 鐗?          - unsigned iOS device application
+          ### 棣冨磿 iOS 閻?          - unsigned iOS device application
           - TrollStore / ad-hoc IPA
           - ARM64
-          ### 馃敡 Build Metadata
+          ### 棣冩暋 Build Metadata
           [**BUILD_METADATA.json**](https://github.com/liuchuancong/pure_live/releases/download/${{ inputs.release_tag }}/BUILD_METADATA.json)
-          ### 馃摑 鏈鏇存柊
+          ### 棣冩憫 閺堫剚顐奸弴瀛樻煀
           ${{ fromJson(steps.version.outputs.content).version_desc }}
           EOF
           echo "body_path=$(pwd)/release_body.txt" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.release_tag }}
           name: ${{ inputs.release_tag }}
@@ -953,4 +952,5 @@ jobs:
           git commit -m "chore: update releases.json for ${{ inputs.release_tag }} [skip ci]"
           git pull --rebase origin master
           git push origin master
+
 
