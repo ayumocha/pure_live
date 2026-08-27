@@ -235,13 +235,16 @@ jobs:
           $ErrorActionPreference = "Stop"
           $certBase64 = "$env:CERTIFICATE".Trim() -replace '\s+', ''
           if ([string]::IsNullOrEmpty($certBase64)) {
-            Write-Error "CERTIFICATE secret is empty!"
+            Write-Host "CERTIFICATE secret is empty; Windows MSIX signing will be skipped."
+            "FINAL_CERT_PATH=" >> $env:GITHUB_ENV
+            exit 0
           }
           $certBytes = [System.Convert]::FromBase64String($certBase64)
           $certPath = Join-Path (Get-Location) "certificate.pfx"
           [IO.File]::WriteAllBytes($certPath, $certBytes)
           "FINAL_CERT_PATH=$certPath" >> $env:GITHUB_ENV
       - name: Update MSIX make_config.yaml
+        if: ${{ env.FINAL_CERT_PATH != '' }}
         shell: pwsh
         env:
           CERT_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
@@ -308,9 +311,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $targets = if ("$env:FINAL_CERT_PATH") { "exe,msix" } else { "exe" }
           fastforge package `
             --platform windows `
-            --targets exe,msix
+            --targets $targets
       - name: Locate Windows release bundle
         id: bundle
         shell: pwsh
@@ -812,28 +816,31 @@ jobs:
         run: |
           set -euo pipefail
           cat << EOF > release_body.txt
-          # 缁绢垳琛ラ惄瀛樻尡 ${{ inputs.release_tag }}
-          |閻楀牊婀皘娑撳娴囬崷鏉挎絻|
-          |---|---|
-          |TV閻楀澗[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|
-          |Windows/macOS/Android/iOS閻楀澗[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|
-          ### 棣冩灱閿?Windows 閻?          - **Portable ZIP**閿涙俺袙閸樺宓嗛悽顭掔礉閺冪娀娓剁€瑰顥?          - **EXE 鐎瑰顥婇崠?*閿涙岸鈧倸鎮庨幍鈧張澶屾暏閹?          - **MSIX 閸?*閿涙氨骞囨禒锝呯安閻劍鐗稿蹇ョ礉閺€顖涘瘮楠炴彃鍣ｉ崡姝屾祰
-          - 闁倿鍘ら敍姝恑ndows 10/11 x64
-          ### 棣冨磿 macOS 閻?          - macOS 濡楀矂娼伴悧?          - Universal閿涙pple Silicon + Intel
-          - ZIP / DMG
-          ### 棣冩懌 Android 閻?          - Android 8.0+閿涘湏PI 26閿涘瓗FmpegKit 瑜版洖鍩楁笟婵婄鐟曚焦鐪伴敍?          - ARM64-v8a
-          - ARMv7
-          - x86_64
-          - 缂佺喍绔?SHA256 閺嶏繝鐛欓弬鍥︽閿涙瓟**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/${{ inputs.release_tag }}/ANDROID_SHA256SUM.txt)
-          ### 棣冩儌 Linux 閻?          - Linux x64
-          - Portable tar.gz
-          ### 棣冨磿 iOS 閻?          - unsigned iOS device application
-          - TrollStore / ad-hoc IPA
-          - ARM64
-          ### 棣冩暋 Build Metadata
-          [**BUILD_METADATA.json**](https://github.com/liuchuancong/pure_live/releases/download/${{ inputs.release_tag }}/BUILD_METADATA.json)
-          ### 棣冩憫 閺堫剚顐奸弴瀛樻煀
+          # 纯粹直播 ${{ inputs.release_tag }}
+
+          **小红书直播接入 + Windows 正式发布版**（build 与源码提交见 BUILD_METADATA.json / assets/version.json）。
+
+          ## 各平台产物
+
+          | 平台 | 产物 |
+          | --- | --- |
+          | Windows x64 | PureLive-*-windows-x64-portable.zip（解压即用；数据保存在安装目录 AppData） |
+          | Linux x64 | PureLive-*-linux-x64.tar.gz |
+          | macOS | PureLive-*-macos-universal.zip / .dmg（Apple Silicon + Intel Universal） |
+          | iOS | PureLive-*-ios-arm64-unsigned-app.zip（未签名）/ -trollstore.ipa（TrollStore / ad-hoc） |
+          | 元数据 | BUILD_METADATA.json（提交、运行、构建选项与产物清单） |
+
+          > Android 正式包需要仓库签名 Secrets（keystore）；未配置时 workflows 勾选 build_android 不会构建正式签名包。
+
+          ## 本次更新
+
           ${{ fromJson(steps.version.outputs.content).version_desc }}
+
+          ## 平台边界说明
+
+          - 小红书直播为“链接观看”接入：列表/分类浏览、原生搜索与实时弹幕未接入（其接口要求浏览器级签名，纯客户端不可直连），详见 docs/STAGE_UPDATE_3_0_7.md。
+          - Linux/macOS/iOS 由 GitHub Actions 全平台流水线构建；Windows 由流水线或本机构建后上传（本轮为正式构建产物）。
+          EOF
           EOF
           echo "body_path=$(pwd)/release_body.txt" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
