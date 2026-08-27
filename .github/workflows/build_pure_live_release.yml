@@ -382,9 +382,11 @@ jobs:
 
           $msixFile = Get-ChildItem $distDir -Recurse -Filter "*.msix" | Select-Object -First 1
           if (!$msixFile) {
-            Write-Error "Windows MSIX package not found."
+            # 无签名证书时只产出 EXE + 便携 ZIP（MSIX 需要 CERTIFICATE secrets）。
+            Write-Host "No MSIX package produced (signing disabled)."
+          } else {
+            Copy-Item $msixFile.FullName "PureLive-$version-windows-x64.msix" -Force
           }
-          Copy-Item $msixFile.FullName "PureLive-$version-windows-x64.msix" -Force
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -393,7 +395,7 @@ jobs:
             PureLive-*-windows-x64-setup.exe
             PureLive-*-windows-x64.msix
             PureLive-*-windows-x64-portable.zip
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 3
   linux:
     name: Linux x64 portable
