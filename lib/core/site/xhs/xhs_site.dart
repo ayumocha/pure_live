@@ -137,7 +137,9 @@ class XhsSite extends LiveSite implements LiveSiteRoomRefresher, LiveSiteRecordR
     final displayCount = _asMap(liveStream['displayCountInfo'])?['displayCount'];
     final watching = _displayCountText(displayCount);
 
-    final resolvedFlv = _resolveFlvUrl(roomId, deeplink);
+    // 未开播/已结束（liveStatus != "success"，如 "fail"/"end"/not_found）
+    // 或标题为回放时没有可消费的流，不构造回退地址以免下发假直链。
+    final resolvedFlv = effectiveStatus ? _resolveFlvUrl(roomId, deeplink) : '';
     final resolvedM3u8 = resolvedFlv.isEmpty ? '' : resolvedFlv.replaceFirst(RegExp(r'\.flv$'), '.m3u8');
 
     return LiveRoom(

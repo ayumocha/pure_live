@@ -19,6 +19,17 @@ const String _offlineHtml = r'''
 <html><body><script>window.__INITIAL_STATE__={"liveStream":{"pageStatus":"success","liveStatus":"fail","errorMessage":"","roomData":{"hostInfo":{"avatar":"","nickName":"主播一号"},"roomInfo":{}},"displayCountInfo":{"displayCount":"0","displayType":2},"roomId":"570426783767794211"}}</script></body></html>
 ''';
 
+/// 实测"已结束"房间的 SSR 结构（liveStatus=end）：保留标题/封面/主播
+/// 信息供展示，但没有 roomId/pullConfig/deeplink。
+const String _endedHtml = r'''
+<html><body><script>window.__INITIAL_STATE__={"liveStream":{"pageStatus":"success","liveStatus":"end","errorMessage":"","roomData":{"hostInfo":{"avatar":"https://sns-avatar-qc.xhscdn.com/avatar/e1.jpg","nickName":"阿紫Demo🍯"},"roomInfo":{"roomTitle":"这是啥造型？？？","roomCover":"https://sns-na-i4.xhscdn.com/alpha_image/c1.jpg","displayPraiseCount":"123"}},"displayCountInfo":{"displayCount":"0","displayType":2}}}</script></body></html>
+''';
+
+/// 在播但只有 deeplink（无 pullConfig）：允许单档回退。
+const String _deeplinkOnlyHtml = r'''
+<html><body><script>window.__INITIAL_STATE__={"liveStream":{"pageStatus":"success","liveStatus":"success","roomData":{"hostInfo":{"nickName":"主播"},"roomInfo":{"roomId":570426783767794211,"roomTitle":"测试","deeplink":"xhsdiscover://live_audience?room_id=570426783767794211&flvUrl=http%3A%2F%2Flive.xhscdn.com%2Flive%2F570426783767794211.flv"}},"displayCountInfo":{"displayCount":"88","displayType":2}}}</script></body></html>
+''';
+
 const String _replayHtml = r'''
 <html><body><script>window.__INITIAL_STATE__={"liveStream":{"pageStatus":"success","liveStatus":"success","errorMessage":"","roomData":{"hostInfo":{"nickName":"主播一号"},"roomInfo":{"roomId":570426783767794211,"roomTitle":"2026-08-20 直播间回放","deeplink":"xhsdiscover://live?room_id=570426783767794211&flvUrl=http%3A%2F%2Flive.xhscdn.com%2Flive%2F570426783767794211.flv"}},"displayCountInfo":{"displayCount":"0","displayType":2}}}</script></body></html>
 ''';
@@ -82,12 +93,30 @@ void main() {
       expect(qualities.single.quality, '超清');
     });
 
-    test('liveStatus=fail 视为下播（平台明确无直播）', () {
+    test('liveStatus=fail 视为下播（平台明确无直播），且不下发回退直链', () {
       final state = XhsSite.parseInitialState(_offlineHtml)!;
       final room =
           XhsSite.roomFromLiveStream(state['liveStream'] as Map<String, dynamic>, inputRoomId: '570426783767794211');
       expect(room.liveStatus, LiveStatus.offline);
       expect(room.status, isFalse);
+      final data = room.data as Map<String, dynamic>;
+      expect(data['flvUrl'], isEmpty);
+      expect(data['m3u8Url'], isEmpty);
+      expect(XhsSite.qualitiesFromData(room.data), isEmpty);
+    });
+
+    test('liveStatus=end（已结束房间）保留展示信息、无流地址', () {
+      final state = XhsSite.parseInitialState(_endedHtml)!;
+      final room =
+          XhsSite.roomFromLiveStream(state['liveStream'] as Map<String, dynamic>, inputRoomId: '570426543649405789');
+      expect(room.liveStatus, LiveStatus.offline);
+      expect(room.title, '这是啥造型？？？');
+      expect(room.nick, '阿紫Demo🍯');
+      expect(room.avatar, isNotEmpty);
+      expect(room.cover, isNotEmpty);
+      final data = room.data as Map<String, dynamic>;
+      expect(data['flvUrl'], isEmpty);
+      expect(XhsSite.qualitiesFromData(room.data), isEmpty);
     });
 
     test('标题含回放视为下播', () {
@@ -130,17 +159,17 @@ void main() {
       expect(urls, ['https://pull-xhs-avc.example/stream.m3u8']);
     });
 
-    test('无 pullConfig 时生成 deeplink 单档并返回 flv+m3u8', () {
-      final offline = XhsSite.roomFromLiveStream(
-        XhsSite.parseInitialState(_offlineHtml)!['liveStream'] as Map<String, dynamic>,
+    test('在播但无 pullConfig 时用 deeplink 单档并返回 flv+m3u8', () {
+      final room = XhsSite.roomFromLiveStream(
+        XhsSite.parseInitialState(_deeplinkOnlyHtml)!['liveStream'] as Map<String, dynamic>,
         inputRoomId: '570426783767794211',
       );
-      final qualities = XhsSite.qualitiesFromData(offline.data);
+      expect(room.liveStatus, LiveStatus.live);
+      final qualities = XhsSite.qualitiesFromData(room.data);
       expect(qualities, hasLength(1));
       expect(qualities.single.id, 'deeplink');
-      // offline 房间 deeplink 缺 flvUrl：按 roomId 构造标准回退。
-      final urls = XhsSite.urlsFromPlayQuality(offline.data, qualities.single);
-      expect(urls.first, 'http://live-source-play.xhscdn.com/live/570426783767794211.flv');
+      final urls = XhsSite.urlsFromPlayQuality(room.data, qualities.single);
+      expect(urls.first, 'http://live.xhscdn.com/live/570426783767794211.flv');
       expect(urls.last, endsWith('.m3u8'));
     });
   });

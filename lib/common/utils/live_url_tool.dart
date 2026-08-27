@@ -168,6 +168,13 @@ class LiveUrlTool {
       SmartDialog.showLoading(msg: "");
       final detail = await Sites.of(platform).liveSite.getRoomDetail(roomId: roomId, platform: platform);
 
+      // 未开播/已结束的房间没有可消费的直链，明确提示而不是继续走清晰度。
+      if (detail.liveStatus != LiveStatus.live) {
+        SmartDialog.dismiss(status: SmartStatus.loading);
+        ToastUtil.show(i18n("toolbox_live_offline"));
+        return;
+      }
+
       // 3. 获取清晰度列表
       final qualities = await Sites.of(platform).liveSite.getPlayQualites(detail: detail);
       SmartDialog.dismiss(status: SmartStatus.loading);
@@ -287,6 +294,12 @@ class LiveUrlTool {
 
       final detail = await Sites.of(platform).liveSite.getRoomDetail(roomId: roomId, platform: platform);
 
+      if (detail.liveStatus != LiveStatus.live) {
+        SmartDialog.dismiss(status: SmartStatus.loading);
+        ToastUtil.show(i18n("toolbox_live_offline"));
+        return;
+      }
+
       final qualities = await Sites.of(platform).liveSite.getPlayQualites(detail: detail);
       SmartDialog.dismiss(status: SmartStatus.loading);
 
@@ -351,6 +364,12 @@ class LiveUrlTool {
     try {
       SmartDialog.showLoading(msg: "");
       final detail = await Sites.of(platform).liveSite.getRoomDetail(roomId: roomId, platform: platform);
+
+      if (detail.liveStatus != LiveStatus.live) {
+        SmartDialog.dismiss(status: SmartStatus.loading);
+        ToastUtil.show(i18n("toolbox_live_offline"));
+        return;
+      }
 
       final qualities = await Sites.of(platform).liveSite.getPlayQualites(detail: detail);
       SmartDialog.dismiss(status: SmartStatus.loading);
