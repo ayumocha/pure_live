@@ -3,6 +3,105 @@
     {
       "assets": [
         {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789566",
+          "contentType": "application/json",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:1f618b32d288e5ca24aebee876cc3f098fed5f85b93cfd5a169e44bc295d5b3f",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk-",
+          "label": "",
+          "name": "BUILD_METADATA.json",
+          "size": 1472,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:16Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/BUILD_METADATA.json"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789562",
+          "contentType": "application/octet-stream",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:b92eba1691aa321f8728de21370b15da1905b09e473cd34a1ed0654a98a21bbf",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk6",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-ios-arm64-trollstore.ipa",
+          "size": 58687496,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:20Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-ios-arm64-trollstore.ipa"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789565",
+          "contentType": "application/zip",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:46b3be5f0726bf6994353d22ab6be018dd5387f4ed1b10ef8df333c676395d5f",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk9",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-ios-arm64-unsigned-app.zip",
+          "size": 57848940,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:19Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-ios-arm64-unsigned-app.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789567",
+          "contentType": "application/gzip",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:e285d47d76e1a3ab82ba552db24e6ee5b17e6b19c2f2961ce5752ce5799328cb",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk_",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-linux-x64.tar.gz",
+          "size": 37760571,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:18Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-linux-x64.tar.gz"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789564",
+          "contentType": "application/x-apple-diskimage",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:0a2f87fe572c927deeb5b381ca2d491338f8145a3e00faf01e22009952a8f211",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk8",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-macos-universal.dmg",
+          "size": 113561992,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:21Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-macos-universal.dmg"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789563",
+          "contentType": "application/zip",
+          "createdAt": "2026-08-27T19:46:16Z",
+          "digest": "sha256:75221e089e38cdb5a275bf60b5ecd926b750b128fcf1903b8f162d0103c67e9a",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwbk7",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-macos-universal.zip",
+          "size": 100952342,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T19:46:21Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-macos-universal.zip"
+        }
+      ],
+      "author": {
+        "id": "MDM6Qm90NDE4OTgyODI=",
+        "login": "github-actions[bot]"
+      },
+      "body": "# 缁绢垳琛ラ惄瀛樻尡 v3.0.7\n|閻楀牊婀皘娑撳娴囬崷鏉挎絻|\n|---|---|\n|TV閻楀澗[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|\n|Windows/macOS/Android/iOS閻楀澗[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|\n### 棣冩灱閿?Windows 閻?          - **Portable ZIP**閿涙俺袙閸樺宓嗛悽顭掔礉閺冪娀娓剁€瑰顥?          - **EXE 鐎瑰顥婇崠?*閿涙岸鈧倸鎮庨幍鈧張澶屾暏閹?          - **MSIX 閸?*閿涙氨骞囨禒锝呯安閻劍鐗稿蹇ョ礉閺€顖涘瘮楠炴彃鍣ｉ崡姝屾祰\n- 闁倿鍘ら敍姝恑ndows 10/11 x64\n### 棣冨磿 macOS 閻?          - macOS 濡楀矂娼伴悧?          - Universal閿涙pple Silicon + Intel\n- ZIP / DMG\n### 棣冩懌 Android 閻?          - Android 8.0+閿涘湏PI 26閿涘瓗FmpegKit 瑜版洖鍩楁笟婵婄鐟曚焦鐪伴敍?          - ARM64-v8a\n- ARMv7\n- x86_64\n- 缂佺喍绔?SHA256 閺嶏繝鐛欓弬鍥︽閿涙瓟**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/v3.0.7/ANDROID_SHA256SUM.txt)\n### 棣冩儌 Linux 閻?          - Linux x64\n- Portable tar.gz\n### 棣冨磿 iOS 閻?          - unsigned iOS device application\n- TrollStore / ad-hoc IPA\n- ARM64\n### 棣冩暋 Build Metadata\n[**BUILD_METADATA.json**](https://github.com/liuchuancong/pure_live/releases/download/v3.0.7/BUILD_METADATA.json)\n### 棣冩憫 閺堫剚顐奸弴瀛樻煀\nversion: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）\n",
+      "isDraft": false,
+      "isPrerelease": false,
+      "name": "v3.0.7",
+      "publishedAt": "2026-08-27T19:46:22Z",
+      "tagName": "v3.0.7",
+      "url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
+    },
+    {
+      "assets": [
+        {
           "apiUrl": "https://api.github.com/repos/liuchuancong/pure_live/releases/assets/531999619",
           "contentType": "text/plain",
           "createdAt": "2026-08-27T08:39:37Z",
