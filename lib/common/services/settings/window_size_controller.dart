@@ -204,7 +204,15 @@ class WindowSizeController extends GetxController {
       'storedWidth': (windowSize['storedWidth'] ?? 1280.0).toDouble(),
       'storedHeight': (windowSize['storedHeight'] ?? 720.0).toDouble(),
       'rememberPipPosition': windowSize['rememberPipPosition'] ?? player['rememberPipPosition'] ?? true,
-      'windowsPip': pip,
+      // 备份契约：通用画中画几何保持 5 键结构；竖屏专有几何走独立顶层字段
+      // （windowsPipPortrait*），不混入 windowsPip 对象避免旧客户端误解。
+      'windowsPip': {
+        'displayId': pip['displayId'],
+        'windowsPipWidth': pip['windowsPipWidth'],
+        'windowsPipHeight': pip['windowsPipHeight'],
+        'windowsPipX': pip['windowsPipX'],
+        'windowsPipY': pip['windowsPipY'],
+      },
       'windowsPipDisplayId': pip['displayId'],
       'windowsPipWidth': pip['windowsPipWidth'],
       'windowsPipHeight': pip['windowsPipHeight'],
