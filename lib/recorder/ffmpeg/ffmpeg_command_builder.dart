@@ -185,7 +185,7 @@ class FFmpegCommandBuilder {
     String? filePrefix,
     Map<String, String>? headers,
   }) {
-    final ua = headers?['user-agent'];
+    final ua = _findHeaderValue(headers, 'user-agent');
     final headerStr = _buildHeader(headers);
     String fileNamePattern;
     if (filePrefix != null && filePrefix.isNotEmpty) {
@@ -263,5 +263,14 @@ class FFmpegCommandBuilder {
         .map((e) => '${e.key}: ${e.value}')
         .join('\r\n');
     return lines.isEmpty ? '' : '$lines\r\n';
+  }
+
+  /// 大小写不敏感地查找请求头（平台解析器可能使用任意大小写 key）。
+  static String? _findHeaderValue(Map<String, String>? headers, String name) {
+    if (headers == null) return null;
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == name) return entry.value;
+    }
+    return null;
   }
 }

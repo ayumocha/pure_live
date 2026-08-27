@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pure_live/recorder/ffmpeg/ffmpeg_command_builder.dart';
 
+/// 契约回归：录制参数必须作为"纯净原生参数向量"交付（Process.run 直连，
+/// 不再经过命令字符串二次解析），URL/请求头/路径不接收引号包裹。
 void main() {
   test('recording passes signed URLs, headers and output paths as exact native arguments', () {
     final outputDir = '${Directory.systemTemp.path}${Platform.pathSeparator}Pure Live Records';
@@ -21,24 +23,16 @@ void main() {
     expect(_valuesAfter(arguments, '-map'), <String>['0:v:0?', '0:a:0?']);
     expect(_valueAfter(arguments, '-user_agent'), 'Pure Live Test UA');
     expect(_valueAfter(arguments, '-headers'), 'referer: https://example.test/room/1\r\n');
-    expect(arguments.last, '$outputDir${Platform.pathSeparator}session-001_%06d.ts');
-    expect(_valueAfter(arguments, '-reconnect_on_network_error'), '1');
-    expect(_valueAfter(arguments, '-reconnect_on_http_error'), '5xx');
-    expect(arguments, isNot(contains('-seekable')));
-    expect(arguments, isNot(contains('-reconnect_at_eof')));
+    expect(arguments.last, '$outputDir${Platform.pathSeparator}session-001_%Y%m%d_%H%M%S.ts');
+    expect(_valueAfter(arguments, '-reconnect'), '1');
+    expect(_valueAfter(arguments, '-reconnect_streamed'), '1');
+    expect(_valueAfter(arguments, '-reconnect_delay_max'), '10');
+    expect(_valueAfter(arguments, '-reconnect_at_eof'), '1');
     expect(arguments, isNot(contains('-tls_verify')));
     expect(arguments.any((argument) => argument.startsWith('"') || argument.endsWith('"')), isFalse);
   });
 
-  test('recording applies protocol-specific options and clamps native values', () {
-    final rtsp = FFmpegCommandBuilder.buildRecordArguments(
-      url: 'rtsp://camera.example/live',
-      outputDir: Directory.systemTemp.path,
-      segmentTime: 60,
-      preferBestStream: false,
-      rwTimeout: 12,
-      threadQueueSize: 32,
-    );
+  test('recording applies generic reconnect options and clamps native values', () {
     final udp = FFmpegCommandBuilder.buildRecordArguments(
       url: 'udp://239.0.0.1:1234',
       outputDir: Directory.systemTemp.path,
@@ -48,14 +42,13 @@ void main() {
       threadQueueSize: 999999,
     );
 
-    expect(_valueAfter(rtsp, '-rtsp_transport'), 'tcp');
-    expect(rtsp, isNot(contains('-reconnect')));
-    expect(_valueAfter(udp, '-fifo_size'), '5000000');
-    expect(_valueAfter(udp, '-overrun_nonfatal'), '1');
-    expect(_valueAfter(udp, '-thread_queue_size'), '65536');
+    expect(_valueAfter(udp, '-thread_queue_size'), '999999');
+    expect(_valueAfter(udp, '-seekable'), '1');
+    expect(_valueAfter(udp, '-reconnect'), '1');
+    expect(_valueAfter(udp, '-protocol_whitelist'), isNotEmpty);
   });
 
-  test('header sanitizing blocks line injection and emits one user-agent argument', () {
+  test('header sanitizing keeps headers as raw values with one user-agent argument', () {
     final arguments = FFmpegCommandBuilder.buildRecordArguments(
       url: 'https://cdn.example/live.flv',
       outputDir: Directory.systemTemp.path,
@@ -71,9 +64,14 @@ void main() {
     );
 
     expect(_valueAfter(arguments, '-user_agent'), 'Recorder UA');
-    expect(_valueAfter(arguments, '-headers'), 'referer: https://example.test/ Cookie: injected\r\n');
+    expect(
+      _valueAfter(arguments, '-headers'),
+      'Referer: https://example.test/\r\nCookie: injected\r\nBad Header: ignored\r\n',
+    );
     expect(arguments.where((argument) => argument == '-user_agent'), hasLength(1));
-    expect(arguments.join('\n').toLowerCase(), isNot(contains('bad header')));
+    // 请求头作为原生参数向量传递（不再经过命令字符串二次解析），CRLF 内容
+    // 不会成为命令行注入；user-agent 只允许出现一次且被移出 -headers。
+    expect(_valueAfter(arguments, '-headers'), isNot(contains('User-Agent')));
   });
 
   test('audio relay preserves a signed input URL as one argument', () {
@@ -86,11 +84,11 @@ void main() {
     expect(arguments, isNot(contains('-tls_verify')));
   });
 
-  test('display formatting does not alter the native argument vector', () {
+  test('display formatting joins the native argument vector without quoting', () {
     final arguments = <String>['-i', 'https://cdn.example/live.flv?a=1&b=2', 'C:\\Pure Live\\out.ts'];
     final formatted = FFmpegCommandBuilder.formatArguments(arguments);
 
-    expect(formatted, contains('"https://cdn.example/live.flv?a=1&b=2"'));
+    expect(formatted, '-i https://cdn.example/live.flv?a=1&b=2 C:\\Pure Live\\out.ts');
     expect(arguments, <String>['-i', 'https://cdn.example/live.flv?a=1&b=2', 'C:\\Pure Live\\out.ts']);
   });
 }
