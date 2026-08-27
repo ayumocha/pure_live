@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/utils/live_url_tool.dart';
 import 'package:pure_live/modules/search/web_search_room_parser.dart';
 import 'package:pure_live/plugins/utils.dart';
 import 'package:pure_live/core/common/log.dart';
@@ -197,8 +198,9 @@ class WebSearchController extends GetxController {
     }
   }
 
-  /// 粘贴直播间链接（支持全部已接入平台的 URL 识别），识别后直接进入房间；
-  /// 无法识别的链接交给当前 WebView 打开，仍可复用导航识别。
+  /// 粘贴直播间链接（支持全部已接入平台的 URL 识别；文本中携带的链接、
+  /// xhslink.com 等短链也会跟随到最终页面），识别后直接进入房间；
+  /// 无法识别的输入给出提示，不吞掉用户操作。
   Future<void> promptOpenRoomLink() async {
     final input = TextEditingController();
     final picked = await Get.dialog<String>(
@@ -225,8 +227,9 @@ class WebSearchController extends GetxController {
     );
     if (picked == null || picked.trim().isEmpty) return;
 
-    final target = WebSearchRoomParser.parse(picked);
-    if (target == null) {
+    // LiveUrlTool 负责从贴入文本中提取 URL、跟随短链并识别全部接入平台。
+    final parseResult = await LiveUrlTool.parseLiveUrl(picked);
+    if (parseResult.length < 2 || parseResult[0].isEmpty || !Sites.isSupported(parseResult[1])) {
       ToastUtil.show(i18n('web_search_link_not_supported'));
       return;
     }
@@ -236,7 +239,7 @@ class WebSearchController extends GetxController {
     showWebView.value = false;
     await Future.delayed(const Duration(milliseconds: 300));
     AppNavigator.offAndToRoomDetail(
-      liveRoom: LiveRoom(roomId: target.roomId, platform: target.platform),
+      liveRoom: LiveRoom(roomId: parseResult[0], platform: parseResult[1]),
     );
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pure_live/core/site/xhs/xhs_site.dart';
+import 'package:pure_live/common/utils/live_url_tool.dart';
 import 'package:pure_live/core/sites.dart';
 import 'package:pure_live/common/models/live_room.dart';
 import 'package:pure_live/modules/search/web_search_room_parser.dart';
@@ -180,6 +181,31 @@ void main() {
     test('其他平台不回归', () {
       expect(WebSearchRoomParser.parse('https://live.bilibili.com/123')!.platform, Sites.bilibiliSite);
       expect(WebSearchRoomParser.parse('https://live.douyin.com/123')!.platform, Sites.douyinSite);
+    });
+  });
+
+  group('LiveUrlTool 小红书链接（工具箱解析入口）', () {
+    test('直播间页', () async {
+      final result = await LiveUrlTool.parseLiveUrl('https://www.xiaohongshu.com/livestream/570426783767794211');
+      expect(result, ['570426783767794211', Sites.xhsSite]);
+    });
+
+    test('主播主页', () async {
+      final result =
+          await LiveUrlTool.parseLiveUrl('https://www.xiaohongshu.com/user/profile/6a90256f000000001302240d');
+      expect(result, ['6a90256f000000001302240d', Sites.xhsSite]);
+    });
+
+    test('整段分享文本中提取链接', () async {
+      final result = await LiveUrlTool.parseLiveUrl(
+        '我在小红书直播：https://www.xiaohongshu.com/livestream/570426783767794211?source=share 快来看！',
+      );
+      expect(result, ['570426783767794211', Sites.xhsSite]);
+    });
+
+    test('抖音等既有平台不回归', () async {
+      final result = await LiveUrlTool.parseLiveUrl('https://live.douyin.com/123456');
+      expect(result, ['123456', Sites.douyinSite]);
     });
   });
 

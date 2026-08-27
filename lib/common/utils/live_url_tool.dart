@@ -95,12 +95,54 @@ class LiveUrlTool {
 
       return [id, Sites.soopSite];
     }
+    // 小红书短链跳转（App 分享出来的 xhslink.com 短链）
+    if (realUrl.contains("xhslink.com")) {
+      final finalUrl = await _getFinalRedirectUrl(realUrl);
+      if (finalUrl.isNotEmpty) {
+        return await parseLiveUrl(finalUrl);
+      }
+      return [];
+    }
+
+    // 小红书直播（直播间页 / 主播主页，均可在免签名 SSR 解析）
+    if (realUrl.contains("xiaohongshu.com")) {
+      final liveMatch = RegExp(r"livestream/(\d{6,30})").firstMatch(realUrl);
+      if (liveMatch != null) {
+        return [liveMatch.group(1)!, Sites.xhsSite];
+      }
+      final profileMatch = RegExp(r"user/profile/([0-9a-fA-F]{8,64})").firstMatch(realUrl);
+      if (profileMatch != null) {
+        return [profileMatch.group(1)!, Sites.xhsSite];
+      }
+    }
+
     if (realUrl.contains("yy.com/")) {
       final regExp = RegExp(r'(?:www\.)?yy\.com/([^/?]+)');
       final roomId = regExp.firstMatch(realUrl)?.group(1) ?? "";
       return [roomId, Sites.yySite];
     }
     return [];
+  }
+
+  /// 跟随（多重）重定向拿到最终 URL，用于 xhslink.com 等短链。
+  static Future<String> _getFinalRedirectUrl(String url) async {
+    try {
+      final resp = await dio.Dio().get(
+        url,
+        options: dio.Options(
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+          },
+          followRedirects: true,
+          maxRedirects: 10,
+        ),
+      );
+      return resp.realUri.toString();
+    } catch (e) {
+      log(e.toString(), name: "_getFinalRedirectUrl");
+      return "";
+    }
   }
 
   /// 获取直播播放直链
