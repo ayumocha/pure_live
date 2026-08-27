@@ -735,6 +735,8 @@ jobs:
         run: |
           find artifacts -type f -print | sort
       - name: Verify Android SHA256SUM
+        # Android 构建未选中时跳过校验（无 ANDROID_SHA256SUM.txt 不是错误）。
+        if: ${{ inputs.build_android }}
         shell: bash
         run: |
           set -euo pipefail
