@@ -70,8 +70,19 @@ class WebSearchRoomParser {
       return _firstSegment(segments, Sites.yySite, RegExp(r'^\d+$'));
     }
     if (_matchesHost(host, 'xiaohongshu.com')) {
-      if (segments.length == 2 && segments.first.toLowerCase() == 'livestream') {
-        return _target(Sites.xhsSite, segments[1], RegExp(r'^\d{6,30}$'));
+      if (segments.isNotEmpty && segments.first.toLowerCase() == 'livestream') {
+        // 实测形态：/livestream/{roomId} 与 /livestream/{dynpath}/{roomId}，
+        // 房间号是最后一段纯数字。
+        String? numeric;
+        for (final segment in segments.reversed) {
+          if (RegExp(r'^\d{6,30}$').hasMatch(segment)) {
+            numeric = segment;
+            break;
+          }
+        }
+        if (numeric != null) {
+          return _target(Sites.xhsSite, numeric, RegExp(r'^\d{6,30}$'));
+        }
       }
       if (segments.length == 3 &&
           segments[0].toLowerCase() == 'user' &&

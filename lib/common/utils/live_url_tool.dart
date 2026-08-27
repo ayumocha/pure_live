@@ -107,7 +107,9 @@ class LiveUrlTool {
 
     // 小红书直播（直播间页 / 主播主页，均可在免签名 SSR 解析）
     if (realUrl.contains("xiaohongshu.com")) {
-      final liveMatch = RegExp(r"livestream/(\d{6,30})").firstMatch(realUrl);
+      // 实测形态：/livestream/{roomId} 与 /livestream/{dynpath}/{roomId}
+      // （dynpath 为平台动态路径段，房间号固定在最后一段数字）。
+      final liveMatch = RegExp(r"livestream/(?:[^/]+/)?(\d{6,30})").firstMatch(realUrl);
       if (liveMatch != null) {
         return [liveMatch.group(1)!, Sites.xhsSite];
       }

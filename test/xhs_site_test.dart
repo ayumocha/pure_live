@@ -193,6 +193,14 @@ void main() {
       expect(target.roomId, '570426783767794211');
     });
 
+    test('dynpath 双段直播间页', () {
+      final target = WebSearchRoomParser.parse(
+          'https://www.xiaohongshu.com/livestream/dynpathqfHVkF07/570426672222681397');
+      expect(target, isNotNull);
+      expect(target!.platform, Sites.xhsSite);
+      expect(target.roomId, '570426672222681397');
+    });
+
     test('主播主页', () {
       final target =
           WebSearchRoomParser.parse('https://www.xiaohongshu.com/user/profile/6a90256f000000001302240d');
@@ -217,6 +225,12 @@ void main() {
     test('直播间页', () async {
       final result = await LiveUrlTool.parseLiveUrl('https://www.xiaohongshu.com/livestream/570426783767794211');
       expect(result, ['570426783767794211', Sites.xhsSite]);
+    });
+
+    test('dynpath 双段直播间链接', () async {
+      final result = await LiveUrlTool.parseLiveUrl(
+          'https://www.xiaohongshu.com/livestream/dynpathqfHVkF07/570426672222681397');
+      expect(result, ['570426672222681397', Sites.xhsSite]);
     });
 
     test('主播主页', () async {
