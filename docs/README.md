@@ -4,6 +4,7 @@
 
 ## 开发与发布
 
+- [接手交接说明（v3.0.7）](HANDOFF_3_0_7.md)：当前提交/版本/发布状态、策略不变量、Actions 语义坑、本机工具链与待办——接手前先读。
 - [维护范围与问题处置策略](../MAINTENANCE_POLICY.md)：Android/Windows 维护边界、Issue 分流、Bug 来源判定、上游 Issue 优先级、验证和回滚标准。
 - [上游同步审查策略](../UPSTREAM_REVIEW_POLICY.md)：三方差异、全入站文件审查、语义变更台账、冲突处置与合并门禁。
 - [Bug 根因分析模板](BUG_TRIAGE_TEMPLATE.md)：复现基线、来源分类、首次错误状态、影响矩阵与分层证据模板。

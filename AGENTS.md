@@ -1,5 +1,12 @@
 # Repository Guidelines
 
+## Current fork state (read first when taking over)
+
+- Handoff document: [`docs/HANDOFF_3_0_7.md`](docs/HANDOFF_3_0_7.md) — current commit/version/release state, the Xiaohongshu (`xhs`) platform integration, **policy markers you must not break**, GitHub Actions semantics pitfalls, local toolchain paths and the three non-obvious Windows environment workarounds.
+- Released line: `3.0.7+4095` (GitHub Release `v3.0.7` in `ayumocha/pure_live`). `RELEASE_NOTES.md` entries above v3.0.7 are unreleased forward-looking notes — increment from the `pubspec.yaml` baseline instead.
+- New platform since the last handoff: **Xiaohongshu live (`xhs`, link-watching mode)** — see `docs/STAGE_UPDATE_3_0_7.md` for its protocol facts and explicit capability boundary (no list/search/realtime danmaku: those APIs require browser-grade signing).
+- Before editing UI layout, window settings, player adapters or workflows, run `tool/validate_build_policy.ps1` first: it asserts layout invariant markers, player geometry red lines, workflow markers and version consistency.
+
 ## Project structure
 
 - `lib/core/`: streaming-site adapters, danmaku protocols, IPTV parsing and shared domain logic.
