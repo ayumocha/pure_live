@@ -7,7 +7,7 @@
 | fork | `e33795ccf8cd51ac5548ff960fa389282d8d6171` |
 | upstream | `9b376ec9ef25b532296871073a39075f6f9db397` |
 | merge base | `a218922bf837b22a6075db54c296912fa60b2584` |
-| 审查后上游后继候选 | `b3b0a6ce19eb976aedd8bf57e896ba4dae05ff96` |
+| 审查后上游后继候选 | `1362c20445a01acc425151f1302d82a8fbce7b71` |
 
 ## semantic_change_ledger / quality_assessment
 
@@ -3258,7 +3258,14 @@
 
 ## 候选适配清单
 
-适配提交 `b3b0a6ce19eb976aedd8bf57e896ba4dae05ff96`：在上述逐项结论内执行身份/配置迁移、关闭未配对网络同步、维护工作流、依赖固定及确定性回归，不增加另一套斗鱼恢复机制。
+候选内的全部适配提交（处置 adapt；按本节根因/边界及新增确定性测试验收）：
+
+```text
+b3b0a6ce19eb976aedd8bf57e896ba4dae05ff96 fix(integration): adapt upstream candidate for maintenance fork
+1362c20445a01acc425151f1302d82a8fbce7b71 test(audit): construct synthetic key marker at runtime
+```
+
+适配提交 `1362c20445a01acc425151f1302d82a8fbce7b71`：在上述逐项结论内执行身份/配置迁移、关闭未配对网络同步、维护工作流、依赖固定及确定性回归，不增加另一套斗鱼恢复机制。
 
 ```text
 M	.env.prod
