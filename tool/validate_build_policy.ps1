@@ -692,9 +692,24 @@ if ($msixConfig -notmatch "(?m)^msix_version:\s*$([regex]::Escape($windowsDispla
 if ($versionFeed.version -ne $displayVersion -or [int]$versionFeed.build_number -ne $buildNumber) {
     throw 'assets/version.json top-level version must match pubspec.yaml.'
 }
-if ($versionFeed.platforms.android.version -ne $displayVersion -or
-    [int]$versionFeed.platforms.android.build_number -ne $buildNumber) {
-    throw 'assets/version.json Android version must match the current application version.'
+foreach ($platformName in @('android', 'windows', 'linux', 'macos', 'ios')) {
+    $platform = $versionFeed.platforms.$platformName
+    if (-not $platform -or [string]$platform.version -notmatch '^\d+\.\d+\.\d+$' -or
+        [int]$platform.build_number -le 0) {
+        throw "assets/version.json is missing a valid $platformName platform version."
+    }
+    $platformVersion = [version]$platform.version
+    $platformBuildNumber = [int]$platform.build_number
+    if ($platformVersion -gt [version]$displayVersion -or
+        ($platformVersion -eq [version]$displayVersion -and $platformBuildNumber -gt $buildNumber)) {
+        throw "assets/version.json $platformName version exceeds pubspec.yaml."
+    }
+    $versionParts = $platform.version.Split('.')
+    $expectedVersionNum = [long]("$($versionParts[0])$($versionParts[1].PadLeft(2, '0'))$($versionParts[2].PadLeft(2, '0'))$platformBuildNumber")
+    if ([long]$platform.version_num -ne $expectedVersionNum -or
+        $platform.download_url -ne "https://github.com/ayumocha/pure_live/releases/tag/v$($platform.version)") {
+        throw "assets/version.json $platformName version fields disagree."
+    }
 }
 if ($versionFeed.download_url -ne "https://github.com/ayumocha/pure_live/releases/tag/$releaseTag") {
     throw 'assets/version.json must advertise the maintained repository release.'

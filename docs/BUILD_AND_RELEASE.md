@@ -1,6 +1,8 @@
 # 本地构建、测试与发布
 
-This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate, not a verified release. The linked 3.2.0 acceptance reports are historical fork evidence; they do not attest to this candidate. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
+The accepted upstream-sync candidate and blocked-mirror fix have been merged into master. Version 3.0.8+4096 is being prepared for release; current evidence is recorded in [the sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md). The linked 3.2.0 acceptance reports are historical fork evidence. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
+
+本次用户明确选择 Windows 与 macOS：Windows 在本机生成 EXE/ZIP，完成后仅调度 macOS 托管构建。Android 因当前仓库尚无正式签名 Secrets，由用户选择暂缓；Linux/iOS 本轮不构建。未发布平台的更新清单保持旧版，不能因源码版本递增而宣告存在新安装包。
 
 
 本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.5`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。

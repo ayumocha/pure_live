@@ -1,6 +1,10 @@
 # 2026-09-25 独立分支同步结果
 
-本次按用户选择，在 `codex/sync-upstream-20260925` 完整合入冻结上游 `9b376ec9ef25b532296871073a39075f6f9db397`，真实 merge 为 `a7c36b93`。`master` 保持 `e33795cc`，旧斗鱼补丁保存在 `codex/backup-douyu-recovery-20260925` 的 `b9f270b8`。候选版本 `3.0.8+4096`，Flutter `3.47.5`；候选未发布。
+本次按用户选择，在 `codex/sync-upstream-20260925` 完整合入冻结上游 `9b376ec9ef25b532296871073a39075f6f9db397`，真实 merge 为 `a7c36b93`。独立验证阶段 `master` 保持 `e33795cc`，旧斗鱼补丁保存在 `codex/backup-douyu-recovery-20260925` 的 `b9f270b8`。版本 `3.0.8+4096`，Flutter `3.47.5`。
+
+用户验收镜像修复候选后明确要求合入主分支并更新 GitHub Release。已将 `master` 从 `e33795cc` 快进至 `e6f20091` 并推送，保留完整提交历史，应用代码与已验收的 `b0dfb22f` 构建一致。正式发布校验与产物正在准备，以下候选证据不替代发布门禁。
+
+正式发布范围由用户明确为 **Windows + macOS**。仓库 Secrets 与 Environments 均为空，Android 正式签名不可用，用户选择暂缓 Android。本机补齐固定 Inno Setup `6.7.1` 以生成 Windows 安装程序：官方安装器 SHA-256 为 `4d11e8050b6185e0d49bd9e8cc661a7a59f44959a621d31d11033124c4e8a7b0`，Authenticode 校验有效，安装在当前用户工具目录。平台构建仍串行执行。
 
 逐项审查见 [完整审计](UPSTREAM_AUDIT_9b376ec9ef25.md)：从共同祖先盘点 1,255 个上游提交、1,950 个文件；正式 merge 前对经审查的上游后继 `1362c204` 运行并通过强制合并门禁。审计中的历史上游报告不作为本次测试证据。
 
@@ -67,6 +71,6 @@
 
 ## 使用与回退边界
 
-未启动用户正在使用的播放器，未安装应用、读取真实配置、操作手机/ADB 或发布 Release。真实 Windows 斗鱼长时间观看尚未采样；Android、Linux 和 Apple 原生构建未验证。新的 SQLite/Hive 数据不能声明可被旧版无损降级，试用应使用独立数据副本；源码回退点不等于数据降级工具。
+独立候选验证阶段未启动用户正在使用的播放器，未安装应用、读取真实配置、操作手机/ADB 或发布 Release。当时 Android、Linux 和 Apple 原生构建未验证；后续发布结果单独记录。Windows 候选随后由用户验收，但代理未进行长时间播放采样。新的 SQLite/Hive 数据不能声明可被旧版无损降级；源码回退点不等于数据降级工具。
 
 FFmpeg helper 真实 ZIP 验证遗留临时目录 `C:\Users\ayu\AppData\Local\Temp\ffmpeg-real-archive-uhokd2xa`。递归清理由自动审批以 `blocked by policy` 拒绝，已停止清理，未绕过；不影响同步与构建。

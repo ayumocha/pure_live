@@ -7,17 +7,17 @@
     "arm64-v8a",
     "x86_64"
   ],
-  "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-  "prerelease": true,
+  "version_desc": "version: 3.0.8\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 移除被拦截的 GitHub 镜像，并修正官方更新源设置。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- Windows x64 与 macOS 提供正式安装包；Android、Linux、iOS 暂沿用 v3.0.7。\n- 暂缓启用未认证的局域网远程同步。",
+  "prerelease": false,
   "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8",
   "platforms": {
     "android": {
-      "version": "3.0.8",
-      "build_number": 4096,
-      "version_num": 300084096,
-      "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-      "prerelease": true,
-      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8",
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
+      "prerelease": false,
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7",
       "android_abis": [
         "armeabi-v7a",
         "arm64-v8a",
@@ -28,34 +28,34 @@
       "version": "3.0.8",
       "build_number": 4096,
       "version_num": 300084096,
-      "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-      "prerelease": true,
+      "version_desc": "version: 3.0.8\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 移除被拦截的 GitHub 镜像，并修正官方更新源设置。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- Windows x64 与 macOS 提供正式安装包；Android、Linux、iOS 暂沿用 v3.0.7。\n- 暂缓启用未认证的局域网远程同步。",
+      "prerelease": false,
       "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8",
-      "windows_msix_available": true
+      "windows_msix_available": false
     },
     "linux": {
-      "version": "3.0.8",
-      "build_number": 4096,
-      "version_num": 300084096,
-      "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-      "prerelease": true,
-      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8"
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
+      "prerelease": false,
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     },
     "macos": {
       "version": "3.0.8",
       "build_number": 4096,
       "version_num": 300084096,
-      "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-      "prerelease": true,
+      "version_desc": "version: 3.0.8\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 移除被拦截的 GitHub 镜像，并修正官方更新源设置。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- Windows x64 与 macOS 提供正式安装包；Android、Linux、iOS 暂沿用 v3.0.7。\n- 暂缓启用未认证的局域网远程同步。",
+      "prerelease": false,
       "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8"
     },
     "ios": {
-      "version": "3.0.8",
-      "build_number": 4096,
-      "version_num": 300084096,
-      "version_desc": "version: 3.0.8（独立同步候选，未发布）\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- 暂缓启用未认证的局域网远程同步。",
-      "prerelease": true,
-      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8"
+      "version": "3.0.7",
+      "build_number": 4095,
+      "version_num": 300074095,
+      "version_desc": "version: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）",
+      "prerelease": false,
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     }
   }
 }

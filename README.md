@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/ayumocha/pure_live/releases/latest">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/liuchuancong/pure_live">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/ayumocha/pure_live">
   </a>
   <a href="https://github.com/ayumocha/pure_live/actions/workflows/feature-build.yml">
     <img alt="Manual Build" src="https://github.com/ayumocha/pure_live/actions/workflows/feature-build.yml/badge.svg">
@@ -22,7 +22,7 @@
     <img alt="Stars" src="https://img.shields.io/github/stars/liuchuancong/pure_live?color=yellow">
   </a>
   <a href="https://github.com/ayumocha/pure_live/releases">
-    <img alt="Downloads" src="https://img.shields.io/github/downloads/liuchuancong/pure_live/total?style=flat-square">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/ayumocha/pure_live/total?style=flat-square">
   </a>
   <a href="LICENSE">
     <img alt="License" src="https://img.shields.io/github/license/liuchuancong/pure_live?color=blue">
@@ -56,7 +56,7 @@
 <!-- stable-doc-index:end -->
 
 - **最新稳定版**：[v3.0.7](https://github.com/ayumocha/pure_live/releases/tag/v3.0.7)
-- **Independent upstream-sync candidate:** `3.0.8+4096` is unpublished; the latest public release remains v3.0.7. Historical 3.0.7 descriptions and prior device/build evidence do not validate this candidate. Flutter SDK: 3.47.5.
+- **当前主分支**：已合入经用户验收的 `3.0.8+4096`，正在准备正式发布。采用上游斗鱼恢复机制，移除被拦截镜像，并修复官方更新源设置；Flutter SDK 为 `3.47.5`。本轮验证与交付记录见 [同步报告](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。
 
 **v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
 
