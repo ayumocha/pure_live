@@ -15,6 +15,15 @@ void main() {
     expect(urls.toSet(), hasLength(urls.length));
   });
 
+  test('download sources exclude the blocked mirror in both modes', () {
+    for (final originOnly in [false, true]) {
+      expect(
+        getMirrorUrls(origin, githubOriginOnly: originOnly).map((url) => Uri.parse(url).host),
+        isNot(contains('v6.gh-proxy.org')),
+      );
+    }
+  });
+
   test('blank release asset does not render unusable mirror actions', () {
     expect(getMirrorUrls(''), isEmpty);
   });

@@ -50,9 +50,11 @@ class ReleaseHistoryRepository {
     final raw = VersionUtil.mirror.rawUrl(releaseAssetPath);
     final mirrors = VersionUtil.mirror.mirrors(releaseAssetPath);
 
-    final sourceUrls = SettingsService.to.app.useGitHubOriginForUpdates.v
-        ? <String>[raw, ...mirrors]
-        : <String>[...mirrors, raw];
+    final sourceUrls = selectSourceUrls(
+      raw: raw,
+      mirrors: mirrors,
+      githubOriginOnly: SettingsService.to.app.useGitHubOriginForUpdates.v,
+    );
 
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
     final urls = sourceUrls
@@ -68,6 +70,15 @@ class ReleaseHistoryRepository {
       throw StateError('No release history source responded');
     }
     return url;
+  }
+
+  static List<String> selectSourceUrls({
+    required String raw,
+    required List<String> mirrors,
+    required bool githubOriginOnly,
+  }) {
+    if (githubOriginOnly) return <String>[raw];
+    return <String>{...mirrors, raw}.toList(growable: false);
   }
 
   List<ReleaseModel> parse(Object? decoded) {

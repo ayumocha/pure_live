@@ -35,7 +35,6 @@ class GitHubMirror {
     'https://ghproxy.link/',
     'https://gh-proxy.net/',
     'https://gitproxy.click/',
-    'https://v6.gh-proxy.org/',
 
     // 🟠 仅下载可用（API 被限，raw 文件正常）
     'https://ghproxy.net/',

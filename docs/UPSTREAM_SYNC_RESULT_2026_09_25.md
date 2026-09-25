@@ -47,6 +47,16 @@ Windows x64 Debug 构建及打包成功（未签名、未生成安装器）：
 
 已完成的独立证据包括：合并门禁、工作流语义/发布索引测试、扫描器回归、合并后全仓审计（0 errors、2 warnings：公开 TLS fixture 及空 catch 清单）、本地原生资产哈希与 Android AAR ELF 对齐核验。FFmpeg 提取 helper 的 7 项离线测试和真实固定 ZIP 提取通过。
 
+## 镜像拦截修复（后续候选）
+
+用户在上述 Windows 候选上收到卡巴斯基对 `v6.gh-proxy.org` 的网站拦截提示。修复基线为 `c2f7adea3644ed2fce77737a63563e37d0b91a5f`；该地址由上游 `163fc4159af0cedd5604b013d3c6f1e018f0ae41` 引入，属于 `upstream-existing`。启动时 `StartupController.loadHuyaUa → HuyaSite.getHuYaUA → GitHubMirror.mirrors → RaceHttp.fetchJson` 会并发请求候选源，因而即使正在观看斗鱼，也可能访问该域名。截图证明网站被拦截，不能据此认定可执行文件感染或杀毒软件误报；没有当时的进程网络日志。
+
+另一个 `upstream-existing` 问题是 `ReleaseHistoryRepository._resolveSourceUrl` 在“官方更新源”开启时仍构造 `[raw, ...mirrors]`，设置尚未约束候选列表，竞速请求就已访问镜像。版本检查随后加载发布附件表，也会走该路径。
+
+本次最小修复从公共 raw 镜像表及维护探测脚本移除被拦截域名，并使发布记录遵守官方源开关。版本检查和安装包下载的既有源选择继续保留；虎牙配置与字体下载使用公共镜像表，因此同样排除该域名。该开关仍只控制更新，其他镜像模式保持可用；不修改用户配置或杀毒软件设置。沿用未发布的 `3.0.8+4096`，仅更新独立分支 Windows 候选。
+
+7 个受影响测试文件共 **34 项通过**，包含源列表排除、官方源失败时不请求镜像的本地 HTTP 回归、更新页面与下载流程。单次 Analyze 为 0 errors、0 warnings、1 条既有 unnecessary_import info；质量记录 `local-artifacts/build-records/20260925T064147381Z-quality-focused.json`，日志 `mirror-fix-focused.log`。策略门禁、PowerShell 语法和 `git diff --check` 通过；独立只读 Review 无阻塞。测试覆盖生产源选择函数及其 HTTP 竞速调用，未通过真实用户设置运行整个应用。旧 ZIP 的 `kernel_blob.bin` 仍可检出该域名（2 次），应改用完成核验后的新包。
+
 ## 使用与回退边界
 
 未启动用户正在使用的播放器，未安装应用、读取真实配置、操作手机/ADB 或发布 Release。真实 Windows 斗鱼长时间观看尚未采样；Android、Linux 和 Apple 原生构建未验证。新的 SQLite/Hive 数据不能声明可被旧版无损降级，试用应使用独立数据副本；源码回退点不等于数据降级工具。
