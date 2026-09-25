@@ -56,3 +56,16 @@
 - 接近满幅信号出现削波，符合手动增益限制，UI 已明确提示；未宣称自动限幅。
 - 未对用户实际声卡/扬声器试听，也未验证 Android/macOS/iOS/Linux 的原生增益。
   本轮不改已发布资产或其他平台更新源。
+
+## Windows 候选包
+
+- 源码提交：`0b4f7032295dcc18eb17d975b8b0184d50bb2444`，干净工作树构建。
+- 命令：`tool/build_local_release.ps1 -Target WindowsX64 -Configuration Release -SkipQuality -SkipInstaller -CandidateLabel loudness`。
+  使用上述定向测试证据，候选包不冒充完整正式发布门禁。
+- 产物：`local-artifacts/3.0.8-4096-loudness/PureLive-3.0.8-4096-windows-x64-portable.zip`，76,648,377 字节。
+- ZIP SHA-256：`23014677fa083270009f5cb0357691f8bada7acba612bb75ff477945dfe9deed`。
+- ZIP CRC、内置响度补偿翻译及用户数据排除检查通过；包内唯一 MPV DLL 的哈希与上述音频验证相同。
+- 构建成功，耗时 88.575 秒，结束后活跃重型进程为 0；记录
+  `local-artifacts/build-records/20260925T091549363Z-build-windowsx64-release.json`。
+  原有 CMake CMP0175 / MSBuild MSB8028 构建警告仍存在，未阻塞本次打包。
+- 未启动或安装候选客户端，未合并到 master，也未上传或替换 GitHub Release。
