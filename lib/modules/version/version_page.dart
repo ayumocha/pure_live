@@ -247,11 +247,7 @@ class VersionPage extends GetView<VersionController> {
   }
 
   Widget _buildDownloadSection(BuildContext context, {required String title, required String urls}) {
-    final githubOriginOnly = SettingsService.to.app.useGitHubOriginForUpdates.v;
-    final mirrorUrls = getMirrorUrls(
-      urls,
-      githubOriginOnly: githubOriginOnly,
-    ).where((url) => versionDownloadUri(url) != null).toList(growable: false);
+    final mirrorUrls = getMirrorUrls(urls).where((url) => versionDownloadUri(url) != null).toList(growable: false);
 
     if (mirrorUrls.isEmpty) {
       return const SizedBox.shrink();
@@ -331,9 +327,7 @@ class VersionPage extends GetView<VersionController> {
                             : () => _showActionDialog(context, title, mirrorUrls[i], i + 1),
                         icon: const Icon(Remix.link_m, size: 14),
                         label: Text(
-                          githubOriginOnly
-                              ? i18n('github_origin_source')
-                              : i18n("download_source", args: {"num": "${i + 1}"}),
+                          i18n('github_origin_source'),
                           style: AppTextStyles.t12.copyWith(fontWeight: FontWeight.w600),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,

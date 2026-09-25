@@ -88,59 +88,229 @@ void main() {
     expect(unverifiable.startupStatusKey.value, 'startup_apply_failed');
   });
 
-  test('startup reconciliation repairs a missing native entry and exposes in-flight state', () async {
-    await HivePrefUtil.setBool('enableStartUp', true);
-    var nativeEnabled = false;
-    final enableGate = Completer<bool>();
-    final controller = StartupController(
-      readStartupState: () => nativeEnabled,
-      enableStartupAction: () async {
-        final result = await enableGate.future;
-        if (result) nativeEnabled = true;
-        return result;
-      },
-      disableStartupAction: () {
-        nativeEnabled = false;
-        return true;
-      },
+  test('new installation defaults off and startup only reads the native entry', () async {
+    var nativeReads = 0;
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () {
+          nativeReads++;
+          return false;
+        },
+        enableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+        disableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+      ),
     );
 
-    final operation = controller.setupLaunchAtStartup();
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.isApplyingStartup.value, isTrue);
-    enableGate.complete(true);
-    expect(await operation, isTrue);
-    expect(controller.isApplyingStartup.value, isFalse);
-    expect(controller.enableStartUp.value, isTrue);
+    expect(controller.enableStartUp.value, isFalse);
+    expect(await controller.setupLaunchAtStartup(), isTrue);
+    expect(nativeReads, 1);
+    expect(nativeWrites, 0);
+    expect(controller.enableStartUp.value, isFalse);
   });
 
-  test('backup-style reactive writes still reconcile the native startup entry', () async {
+  test('legacy saved true does not recreate a missing native entry', () async {
+    await HivePrefUtil.setBool('enableStartUp', true);
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () => false,
+        enableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+        disableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+      ),
+    );
+
+    expect(controller.enableStartUp.value, isTrue);
+    expect(await controller.setupLaunchAtStartup(), isTrue);
+    expect(controller.isApplyingStartup.value, isFalse);
+    expect(controller.enableStartUp.value, isFalse);
+    expect(nativeWrites, 0);
+    await HivePrefUtil.flush();
+    expect(HivePrefUtil.getBool('enableStartUp'), isFalse);
+  });
+
+  test('existing native entry remains enabled without any startup write', () async {
     await HivePrefUtil.setBool('enableStartUp', false);
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () => true,
+        enableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+        disableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+      ),
+    );
+
+    expect(await controller.setupLaunchAtStartup(), isTrue);
+    expect(controller.enableStartUp.value, isTrue);
+    expect(nativeWrites, 0);
+    await HivePrefUtil.flush();
+    expect(HivePrefUtil.getBool('enableStartUp'), isTrue);
+  });
+
+  test('failed startup read leaves saved state intact and never writes', () async {
+    await HivePrefUtil.setBool('enableStartUp', true);
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () => throw StateError('read failed'),
+        enableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+        disableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+      ),
+    );
+
+    expect(await controller.setupLaunchAtStartup(), isFalse);
+    expect(controller.enableStartUp.value, isTrue);
+    expect(nativeWrites, 0);
+  });
+
+  test('backup and direct reactive writes do not authorize native startup', () async {
     var nativeEnabled = false;
-    var enableCalls = 0;
-    final controller = Get.put<StartupController>(
-      _NoNetworkStartupController(
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
         readStartupState: () => nativeEnabled,
         enableStartupAction: () {
-          enableCalls++;
+          nativeWrites++;
           nativeEnabled = true;
           return true;
         },
         disableStartupAction: () {
+          nativeWrites++;
           nativeEnabled = false;
           return true;
         },
       ),
     );
 
+    expect(await controller.setupLaunchAtStartup(), isTrue);
     controller.fromJson({'enableStartUp': true});
-    await _waitFor(() => !controller.isApplyingStartup.value && enableCalls == 1);
+    expect(controller.enableStartUp.value, isFalse);
+    expect(nativeWrites, 0);
+    await HivePrefUtil.flush();
+    expect(HivePrefUtil.getBool('enableStartUp'), isNot(isTrue));
 
-    expect(nativeEnabled, isTrue);
-    expect(controller.enableStartUp.value, isTrue);
-    expect(controller.startupStatusKey.value, isEmpty);
+    controller.enableStartUp.value = true;
+    expect(nativeWrites, 0);
+    expect(nativeEnabled, isFalse);
     await HivePrefUtil.flush();
     expect(HivePrefUtil.getBool('enableStartUp'), isTrue);
+
+    // A direct reactive assignment also cannot authorize startup on relaunch.
+    expect(await controller.setupLaunchAtStartup(), isTrue);
+    expect(controller.enableStartUp.value, isFalse);
+    expect(nativeWrites, 0);
+    await HivePrefUtil.flush();
+    expect(HivePrefUtil.getBool('enableStartUp'), isFalse);
+  });
+
+  test('legacy backup parsing keeps boolean validation and defaults off', () {
+    expect(StartupController.parseConfig({})['enableStartUp'], isFalse);
+    expect(StartupController.extractConfig(null)['enableStartUp'], isFalse);
+    expect(StartupController.extractConfig({'startup': <String, dynamic>{}})['enableStartUp'], isFalse);
+    expect(StartupController.parseConfig({'enableStartUp': true})['enableStartUp'], isTrue);
+    expect(() => StartupController().fromJson({'enableStartUp': 'bad'}), throwsA(isA<TypeError>()));
+  });
+
+  test('explicit toggle writes and commits only the verified native state', () async {
+    var nativeEnabled = false;
+    var enableCalls = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () => nativeEnabled,
+        enableStartupAction: () {
+          enableCalls++;
+          nativeEnabled = true;
+          return true;
+        },
+        disableStartupAction: () => false,
+      ),
+    );
+
+    expect(await controller.setupLaunchAtStartup(), isTrue);
+    expect(await controller.toggleStartup(), isTrue);
+    expect(enableCalls, 1);
+    expect(controller.enableStartUp.value, isTrue);
+    controller.fromJson({'enableStartUp': false});
+    expect(controller.enableStartUp.value, isTrue);
+    expect(enableCalls, 1);
+  });
+
+  test('a late startup read cannot overwrite a later explicit request', () async {
+    final startupRead = Completer<bool>();
+    var nativeEnabled = false;
+    var reads = 0;
+    var enableCalls = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () {
+          reads++;
+          return reads == 1 ? startupRead.future : nativeEnabled;
+        },
+        enableStartupAction: () {
+          enableCalls++;
+          nativeEnabled = true;
+          return true;
+        },
+        disableStartupAction: () => false,
+      ),
+    );
+
+    final startupSync = controller.setupLaunchAtStartup();
+    expect(await controller.setStartupEnabled(true), isTrue);
+    startupRead.complete(false);
+    expect(await startupSync, isFalse);
+    expect(enableCalls, 1);
+    expect(controller.enableStartUp.value, isTrue);
+    expect(controller.startupStatusKey.value, isEmpty);
+  });
+
+  test('a startup read finishing after disposal cannot change the saved state', () async {
+    final startupRead = Completer<bool>();
+    var nativeWrites = 0;
+    final controller = Get.put(
+      StartupController(
+        readStartupState: () => startupRead.future,
+        enableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+        disableStartupAction: () {
+          nativeWrites++;
+          return true;
+        },
+      ),
+    );
+
+    final startupSync = controller.setupLaunchAtStartup();
+    Get.delete<StartupController>(force: true);
+    startupRead.complete(true);
+    expect(await startupSync, isFalse);
+    expect(controller.enableStartUp.value, isFalse);
+    expect(nativeWrites, 0);
   });
 
   test('latest request wins while each caller reports its own requested target', () async {
@@ -180,17 +350,6 @@ void main() {
     expect(requests, [true, false]);
     expect(controller.enableStartUp.value, isFalse);
   });
-}
-
-class _NoNetworkStartupController extends StartupController {
-  _NoNetworkStartupController({
-    required super.readStartupState,
-    required super.enableStartupAction,
-    required super.disableStartupAction,
-  });
-
-  @override
-  Future<void> loadHuyaUa() async {}
 }
 
 Future<void> _waitFor(bool Function() condition) async {

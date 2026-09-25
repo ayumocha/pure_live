@@ -27,9 +27,16 @@ class _Loader extends AssetLoader {
   Future<Map<String, dynamic>> load(String path, Locale locale) async => data;
 }
 
+class _AppSettings extends AppSettingsController {
+  // The widget fixture exercises the switch without queuing filesystem writes
+  // inside Flutter's fake async clock.
+  @override
+  final enableAutoCheckUpdate = true.obs;
+}
+
 class _Settings extends SettingsService {
   @override
-  final app = AppSettingsController();
+  final app = _AppSettings();
 
   @override
   final font = FontSettingsController();
@@ -79,11 +86,13 @@ void main() {
     Size size = const Size(320, 480),
     double textScale = 3,
     bool settle = true,
+    bool autoCheckUpdates = true,
   }) async {
     await tester.pumpWidget(const SizedBox.shrink());
     Get.reset();
     Get.testMode = true;
     final settings = _Settings();
+    settings.app.enableAutoCheckUpdate.value = autoCheckUpdates;
     Get.put<SettingsService>(settings);
     Get.put<FavoriteController>(_Favorite());
     tester.view.physicalSize = size;
@@ -190,6 +199,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('new-version-dialog')), findsNothing);
     expect(find.byType(HomePage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('disabled startup update performs no initialization or network check', (tester) async {
+    var initialized = 0;
+    var checked = 0;
+    await pump(
+      tester,
+      textScale: 1,
+      autoCheckUpdates: false,
+      home: HomePage(
+        updateCheckDelay: Duration.zero,
+        initializePackageInfo: () async {
+          initialized++;
+        },
+        checkForUpdate: () async {
+          checked++;
+          return true;
+        },
+        hasNewVersion: () => true,
+      ),
+    );
+    expect(initialized, 0);
+    expect(checked, 0);
+    expect(find.byKey(const ValueKey('new-version-dialog')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('disabling updates during initialization prevents the network check', (tester) async {
+    final initialized = Completer<void>();
+    var checked = 0;
+    addTearDown(() {
+      if (!initialized.isCompleted) initialized.complete();
+    });
+    await pump(
+      tester,
+      textScale: 1,
+      settle: false,
+      home: HomePage(
+        updateCheckDelay: Duration.zero,
+        initializePackageInfo: () => initialized.future,
+        checkForUpdate: () async {
+          checked++;
+          return true;
+        },
+        hasNewVersion: () => true,
+      ),
+    );
+    await tester.pump();
+    SettingsService.to.app.enableAutoCheckUpdate.value = false;
+    initialized.complete();
+    await tester.pumpAndSettle();
+    expect(checked, 0);
+    expect(find.byKey(const ValueKey('new-version-dialog')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

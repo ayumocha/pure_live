@@ -48,13 +48,7 @@ class ReleaseHistoryRepository {
 
   Future<String> _resolveSourceUrl() async {
     final raw = VersionUtil.mirror.rawUrl(releaseAssetPath);
-    final mirrors = VersionUtil.mirror.mirrors(releaseAssetPath);
-
-    final sourceUrls = selectSourceUrls(
-      raw: raw,
-      mirrors: mirrors,
-      githubOriginOnly: SettingsService.to.app.useGitHubOriginForUpdates.v,
-    );
+    final sourceUrls = selectSourceUrls(raw: raw);
 
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
     final urls = sourceUrls
@@ -72,13 +66,8 @@ class ReleaseHistoryRepository {
     return url;
   }
 
-  static List<String> selectSourceUrls({
-    required String raw,
-    required List<String> mirrors,
-    required bool githubOriginOnly,
-  }) {
-    if (githubOriginOnly) return <String>[raw];
-    return <String>{...mirrors, raw}.toList(growable: false);
+  static List<String> selectSourceUrls({required String raw}) {
+    return <String>[raw];
   }
 
   List<ReleaseModel> parse(Object? decoded) {

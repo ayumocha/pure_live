@@ -23,39 +23,13 @@ Future<bool> requestStorageInstallPermission() async {
   return true;
 }
 
-final List<String> mirrors = [
-  // 🟢 asset=206: resumable, best for large files
-  'https://cdn.gh-proxy.org/',
-  'https://edgeone.gh-proxy.org/',
-  'https://hk.gh-proxy.org/',
-  'https://gh.noki.eu.org/',
-  'https://gh-proxy.com/',
-  'https://slink.ltd/',
-  'https://gh.catmak.name/',
-  'https://proxy.gitwarp.top/',
-  'https://github.ednovas.xyz/',
-  'https://ghproxy.monkeyray.net/',
-  'https://fastgit.cc/',
-  'https://ghfile.geekertao.top/',
-
-  // 🟠 asset=200: works, but no resume
-  'https://gh-proxy.org/',
-  'https://ghproxy.net/',
-  'https://wget.la/',
-  'https://git.yylx.win/',
-  'https://g.blfrp.cn/',
-];
-
 Future<void>? _activeDownloadDialog;
 
 List<String> getMirrorUrls(String apkUrl, {bool githubOriginOnly = false}) {
   final uri = updateDownloadUri(apkUrl);
   if (uri == null) return const [];
   final normalizedUrl = uri.toString();
-  if (githubOriginOnly) return [normalizedUrl];
-  final mirrorsUrl = mirrors.map((e) => '$e$normalizedUrl').toList();
-  mirrorsUrl.add(normalizedUrl);
-  return mirrorsUrl.toSet().toList(growable: false);
+  return [normalizedUrl];
 }
 
 Future<void> downloadAndInstallApk(String apkUrl, {String? fileName}) {

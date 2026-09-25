@@ -196,9 +196,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
   }
 
   Future<void> _checkForStartupUpdate() async {
+    if (!mounted || !SettingsService.to.app.enableAutoCheckUpdate.v) return;
     try {
       await (widget.initializePackageInfo ?? VersionUtil.initPackageInfo)();
-      if (!mounted) return;
+      if (!mounted || !SettingsService.to.app.enableAutoCheckUpdate.v) return;
       final checkForUpdate = widget.checkForUpdate ?? VersionUtil().checkUpdate;
       final succeeded = await checkForUpdate();
       final hasNewVersion = widget.hasNewVersion ?? VersionUtil.hasNewVersion;

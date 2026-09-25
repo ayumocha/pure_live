@@ -1,3 +1,14 @@
+# Pure Live v3.0.10
+
+Windows x64 版本为 `3.0.10+4098`。构建、回归与实际杀软验证状态见[启动告警报告](https://github.com/ayumocha/pure_live/blob/master/docs/KASPERSKY_STARTUP_3_0_10.md)。告警根因尚未获厂商确认，不能承诺不会再报毒；Windows 安装包未作 Authenticode 签名。Android、Linux、iOS 继续使用 `3.0.7+4095`，macOS 继续使用 `3.0.8+4096`。
+
+- GitHub 配置、更新检查与字体下载统一使用官方来源，不经第三方代理。
+- Windows 只读取已有的开机自启状态；新安装默认关闭，只有用户明确开启后才写入 Run 项，恢复备份不会授予或开启自启。
+- 关闭自动检查更新后，不再发起后台更新请求。
+- 保留 Windows 手动响度补偿：关闭、+3、+6、+9 dB，默认关闭。
+
+---
+
 # Pure Live v3.0.9
 
 本轮正式版发布范围为 **Windows x64**，应用版本 `3.0.9+4097`。Windows 提供 EXE 安装包和便携 ZIP；安装包未作 Authenticode 签名。Android、Linux、iOS 继续使用 `3.0.7+4095`，macOS 继续使用 `3.0.8+4096`。

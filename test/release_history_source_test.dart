@@ -1,46 +1,19 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pure_live/common/utils/version_util.dart';
 import 'package:pure_live/modules/about/widgets/release_history_repository.dart';
 import 'package:pure_live/plugins/race_http.dart';
 
 void main() {
-  test('official update source excludes mirrors before the source probe', () {
-    final urls = ReleaseHistoryRepository.selectSourceUrls(
-      raw: 'https://raw.example.test/releases.json',
-      mirrors: const ['https://mirror.example.test/releases.json', 'https://raw.example.test/releases.json'],
-      githubOriginOnly: true,
-    );
+  test('release history probes only the fork official GitHub source', () {
+    final raw = VersionUtil.mirror.rawUrl(ReleaseHistoryRepository.releaseAssetPath);
+    final urls = ReleaseHistoryRepository.selectSourceUrls(raw: raw);
 
-    expect(urls, ['https://raw.example.test/releases.json']);
-  });
-
-  test('accelerated source keeps mirror order and one raw fallback', () {
-    final urls = ReleaseHistoryRepository.selectSourceUrls(
-      raw: 'https://raw.example.test/releases.json',
-      mirrors: const [
-        'https://mirror-a.example.test/releases.json',
-        'https://raw.example.test/releases.json',
-        'https://mirror-b.example.test/releases.json',
-        'https://mirror-a.example.test/releases.json',
-      ],
-      githubOriginOnly: false,
-    );
-
-    expect(urls, [
-      'https://mirror-a.example.test/releases.json',
-      'https://raw.example.test/releases.json',
-      'https://mirror-b.example.test/releases.json',
-    ]);
-
-    expect(
-      ReleaseHistoryRepository.selectSourceUrls(
-        raw: 'https://raw.example.test/releases.json',
-        mirrors: const ['https://mirror-a.example.test/releases.json'],
-        githubOriginOnly: false,
-      ),
-      ['https://mirror-a.example.test/releases.json', 'https://raw.example.test/releases.json'],
-    );
+    expect(VersionUtil.updateOwner, 'ayumocha');
+    expect(VersionUtil.updateRepository, 'pure_live');
+    expect(urls, ['https://raw.githubusercontent.com/ayumocha/pure_live/master/assets/releases.json']);
+    expect(Uri.parse(urls.single).scheme, 'https');
   });
 
   test('failed official source does not probe a healthy mirror', () async {
@@ -66,7 +39,7 @@ void main() {
 
     final raw = 'http://${rawServer.address.address}:${rawServer.port}/releases.json';
     final mirror = 'http://${mirrorServer.address.address}:${mirrorServer.port}/releases.json';
-    final urls = ReleaseHistoryRepository.selectSourceUrls(raw: raw, mirrors: [mirror], githubOriginOnly: true);
+    final urls = ReleaseHistoryRepository.selectSourceUrls(raw: raw);
 
     final winner = await HttpOverrides.runZoned(
       () => RaceHttp.findFastestUrl(urls, timeout: const Duration(seconds: 1)),
@@ -74,7 +47,7 @@ void main() {
     );
     expect(winner, isNull);
     expect(rawRequests, 1);
-    expect(mirrorRequests, 0);
+    expect(mirrorRequests, 0, reason: mirror);
   });
 }
 

@@ -34,9 +34,7 @@ class VersionUtil {
 
   static final GitHubMirror mirror = GitHubMirror(owner: updateOwner, repo: updateRepository, branch: 'master');
 
-  static List<String> get _versionUrls => SettingsService.to.app.useGitHubOriginForUpdates.v
-      ? [mirror.rawUrl('assets/version.json')]
-      : mirror.mirrors('assets/version.json');
+  static List<String> get versionSourceUrls => mirror.mirrors('assets/version.json');
 
   final isHasNewVersion = false.obs;
 
@@ -91,7 +89,7 @@ class VersionUtil {
 
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final urls = _versionUrls.map((e) => '$e?ts=$timestamp').toList();
+      final urls = versionSourceUrls.map((e) => '$e?ts=$timestamp').toList();
       final data = await RaceHttp.fetchJson(
         urls,
         headers: {

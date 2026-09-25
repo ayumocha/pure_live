@@ -3,7 +3,6 @@ import 'dart:developer' as dev;
 
 import 'package:pure_live/common/global/win_auto_start.dart';
 import 'package:pure_live/common/services/utils/hive_rx.dart';
-import 'package:pure_live/core/site/huya/huya_site.dart';
 import 'package:pure_live/get/get.dart';
 
 typedef StartupStateReader = FutureOr<bool> Function();
@@ -22,37 +21,36 @@ class StartupController extends GetxController {
   final StartupStateWriter _enableStartupAction;
   final StartupStateWriter _disableStartupAction;
 
-  final RxBool enableStartUp = hiveBool('enableStartUp', true);
+  final RxBool enableStartUp = hiveBool('enableStartUp', false);
   final RxBool isApplyingStartup = false.obs;
   final RxString startupStatusKey = ''.obs;
 
-  Worker? _settingWorker;
   Future<bool>? _activeOperation;
   bool? _pendingTarget;
-  bool? _internalWrite;
   bool? _lastConfirmedEnabled;
+  int _explicitRequestGeneration = 0;
 
-  @override
-  void onInit() {
-    super.onInit();
-    _lastConfirmedEnabled = enableStartUp.v;
-    _settingWorker = ever<bool>(enableStartUp, (value) {
-      if (_internalWrite == value) {
-        _internalWrite = null;
-        return;
-      }
-      unawaited(setStartupEnabled(value));
-    });
-    loadHuyaUa();
+  /// Startup only observes the native entry; saved settings are not consent to
+  /// create or repair a Windows Run entry.
+  Future<bool> setupLaunchAtStartup() async {
+    if (isClosed || _activeOperation != null) return false;
+    final generation = _explicitRequestGeneration;
+    try {
+      final observed = await Future<bool>.sync(_readStartupState);
+      // An explicit request may have begun while the startup read was pending.
+      if (isClosed || generation != _explicitRequestGeneration) return false;
+      _commitVerifiedState(observed);
+      startupStatusKey.v = '';
+      return true;
+    } catch (error, stackTrace) {
+      dev.log('Auto-start state read failed: $error', error: error, stackTrace: stackTrace);
+      return false;
+    }
   }
-
-  Future<void> loadHuyaUa() async {
-    await HuyaSite().getHuYaUA();
-  }
-
-  Future<bool> setupLaunchAtStartup() => setStartupEnabled(enableStartUp.v);
 
   Future<bool> setStartupEnabled(bool enabled) {
+    if (isClosed) return Future<bool>.value(false);
+    _explicitRequestGeneration++;
     _pendingTarget = enabled;
     final active = _activeOperation;
     if (active != null) {
@@ -120,7 +118,6 @@ class StartupController extends GetxController {
   void _commitVerifiedState(bool enabled) {
     _lastConfirmedEnabled = enabled;
     if (isClosed || enableStartUp.v == enabled) return;
-    _internalWrite = enabled;
     enableStartUp.v = enabled;
   }
 
@@ -136,17 +133,18 @@ class StartupController extends GetxController {
 
   /// Parse the complete section without notifying observers or persisting values.
   static Map<String, dynamic> parseConfig(Map<String, dynamic> json) {
-    return {'enableStartUp': (json['enableStartUp'] ?? true) as bool};
+    return {'enableStartUp': (json['enableStartUp'] ?? false) as bool};
   }
 
   void fromJson(Map<String, dynamic> json) {
-    final parsed = parseConfig(json);
-    enableStartUp.v = parsed['enableStartUp'];
+    // Keep validating legacy backup data, but a backup cannot grant or revoke
+    // this device's OS startup permission. The user must change it explicitly.
+    parseConfig(json);
   }
 
   static Map<String, dynamic> extractConfig(Map<String, dynamic>? rootConfig) {
     final startup = rootConfig?['startup'] as Map<String, dynamic>? ?? {};
-    return {'enableStartUp': startup['enableStartUp'] ?? true};
+    return {'enableStartUp': startup['enableStartUp'] ?? false};
   }
 
   static Map<String, dynamic> mergeConfig(Map<String, dynamic> rootConfig, Map<String, dynamic> updateFields) {
@@ -154,12 +152,5 @@ class StartupController extends GetxController {
     updateFields.forEach((k, v) => startup[k] = v);
     rootConfig['startup'] = startup;
     return rootConfig;
-  }
-
-  @override
-  void onClose() {
-    _settingWorker?.dispose();
-    _settingWorker = null;
-    super.onClose();
   }
 }

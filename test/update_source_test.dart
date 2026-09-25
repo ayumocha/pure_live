@@ -8,19 +8,9 @@ void main() {
     expect(getMirrorUrls(origin, githubOriginOnly: true), [origin]);
   });
 
-  test('accelerated mode keeps a unique official URL as its final fallback', () {
-    final urls = getMirrorUrls(origin);
-
-    expect(urls.last, origin);
-    expect(urls.toSet(), hasLength(urls.length));
-  });
-
-  test('download sources exclude the blocked mirror in both modes', () {
+  test('legacy accelerated setting cannot add proxy download URLs', () {
     for (final originOnly in [false, true]) {
-      expect(
-        getMirrorUrls(origin, githubOriginOnly: originOnly).map((url) => Uri.parse(url).host),
-        isNot(contains('v6.gh-proxy.org')),
-      );
+      expect(getMirrorUrls(origin, githubOriginOnly: originOnly), [origin]);
     }
   });
 

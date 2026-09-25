@@ -1,15 +1,15 @@
 {
-  "version": "3.0.9",
-  "build_number": 4097,
-  "version_num": 300094097,
+  "version": "3.0.10",
+  "build_number": 4098,
+  "version_num": 300104098,
   "android_abis": [
     "armeabi-v7a",
     "arm64-v8a",
     "x86_64"
   ],
-  "version_desc": "version: 3.0.9\n- Windows 播放设置→音频设置新增手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 适用于 MPV 主画面与多画面；普通音量和静音仍有效。该功能不是自动均衡，也没有峰值限幅，大音源可能失真。\n- 本轮正式版发布范围为 Windows x64 EXE/ZIP，未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7；macOS 继续使用 v3.0.8。",
+  "version_desc": "version: 3.0.10\n- 将 GitHub 配置、更新检查与字体下载统一为官方来源，不经第三方代理。\n- Windows 仅读取已有的开机自启状态；新安装默认关闭，只有用户明确开启后才写入 Run 项，恢复备份不会打开自启。\n- 关闭自动检查更新后，不再发起后台更新请求。\n- 保留 Windows 手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 卡巴斯基告警的根因尚未获厂商确认；不能承诺不会再报毒。Windows 安装包未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7+4095；macOS 继续使用 v3.0.8+4096。",
   "prerelease": false,
-  "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.9",
+  "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.10",
   "platforms": {
     "android": {
       "version": "3.0.7",
@@ -25,12 +25,12 @@
       ]
     },
     "windows": {
-      "version": "3.0.9",
-      "build_number": 4097,
-      "version_num": 300094097,
-      "version_desc": "version: 3.0.9\n- Windows 播放设置→音频设置新增手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 适用于 MPV 主画面与多画面；普通音量和静音仍有效。该功能不是自动均衡，也没有峰值限幅，大音源可能失真。\n- 本轮正式版发布范围为 Windows x64 EXE/ZIP，未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7；macOS 继续使用 v3.0.8。",
+      "version": "3.0.10",
+      "build_number": 4098,
+      "version_num": 300104098,
+      "version_desc": "version: 3.0.10\n- 将 GitHub 配置、更新检查与字体下载统一为官方来源，不经第三方代理。\n- Windows 仅读取已有的开机自启状态；新安装默认关闭，只有用户明确开启后才写入 Run 项，恢复备份不会打开自启。\n- 关闭自动检查更新后，不再发起后台更新请求。\n- 保留 Windows 手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 卡巴斯基告警的根因尚未获厂商确认；不能承诺不会再报毒。Windows 安装包未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7+4095；macOS 继续使用 v3.0.8+4096。",
       "prerelease": false,
-      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.9",
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.10",
       "windows_msix_available": false
     },
     "linux": {

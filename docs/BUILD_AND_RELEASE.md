@@ -1,5 +1,7 @@
 # 本地构建、测试与发布
 
+Windows v3.0.10 的启动告警修复正在验证；问题来源、样本身份和分层验证记录见[启动告警报告](KASPERSKY_STARTUP_3_0_10.md)。v3.0.9 已收到卡巴斯基行为告警，既有构建通过记录不代表杀软放行。
+
 The current release is [Pure Live v3.0.9](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9), built from `661aba3c0b655379ff85daf2f4f7c19337e36d6e` (`3.0.9+4097`). It provides Windows x64 EXE/ZIP with optional manual loudness compensation. macOS remains on v3.0.8; Android/Linux/iOS remain on v3.0.7. [LOUDNESS_COMPENSATION.md](LOUDNESS_COMPENSATION.md) owns this release's complete quality, build and artifact evidence. Use Flutter 3.47.5. Past device evidence never authorizes device work for the current task.
 
 本次 v3.0.9 已发布为 Latest，完整门禁通过 5306 项 Flutter 测试与 42 项公开接口检查。Windows 安装包和便携包的云端 SHA-256 与本地一致；未进行客户端安装或声卡试听。Android 继续暂缓，其他平台更新源保留原版本。

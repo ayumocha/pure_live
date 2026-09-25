@@ -12,7 +12,7 @@ void main() {
       expect(config['enableAsmrSleepMode'], isFalse);
       expect(config['asmrSleepMinutes'], 60);
       expect(config['realOnlinePlatforms'], AppSettingsController.defaultRealOnlinePlatforms);
-      expect(config['useGitHubOriginForUpdates'], isFalse);
+      expect(config['useGitHubOriginForUpdates'], isTrue);
       expect(config['enableMultiView'], isTrue);
       expect(config['enableNewWindowPlay'], isTrue);
     });

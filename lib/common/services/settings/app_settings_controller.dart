@@ -49,7 +49,8 @@ class AppSettingsController extends GetxController {
   final RxBool enableRotateScreen = hiveBool('enableRotateScreen', false);
   final RxBool enableScreenKeepOn = hiveBool('enableScreenKeepOn', true);
   final RxBool enableAutoCheckUpdate = hiveBool('enableAutoCheckUpdate', true);
-  final RxBool useGitHubOriginForUpdates = hiveBool('useGitHubOriginForUpdates', false);
+  // Kept for backup compatibility. Runtime GitHub sources are now always official.
+  final RxBool useGitHubOriginForUpdates = hiveBool('useGitHubOriginForUpdates', true);
   final RxBool enableFullScreenDefault = hiveBool('enableFullScreenDefault', false);
   final RxBool showSplashPage = hiveBool('showSplashPage', true);
   late final RxString refreshRateModeName = hiveString('refreshRateMode', _initialRefreshRateMode());
@@ -231,7 +232,7 @@ class AppSettingsController extends GetxController {
       'enableRotateScreen': typed<bool>(json['enableRotateScreen'] ?? false),
       'enableScreenKeepOn': typed<bool>(json['enableScreenKeepOn'] ?? true),
       'enableAutoCheckUpdate': typed<bool>(json['enableAutoCheckUpdate'] ?? true),
-      'useGitHubOriginForUpdates': typed<bool>(json['useGitHubOriginForUpdates'] ?? false),
+      'useGitHubOriginForUpdates': typed<bool>(json['useGitHubOriginForUpdates'] ?? true),
       'enableFullScreenDefault': typed<bool>(json['enableFullScreenDefault'] ?? false),
       'showSplashPage': typed<bool>(json['showSplashPage'] ?? true),
       'preferRealOnlineCounts': typed<bool>(json['preferRealOnlineCounts'] ?? false),
@@ -279,7 +280,7 @@ class AppSettingsController extends GetxController {
       'enableRotateScreen': app['enableRotateScreen'] ?? false,
       'enableScreenKeepOn': app['enableScreenKeepOn'] ?? true,
       'enableAutoCheckUpdate': app['enableAutoCheckUpdate'] ?? true,
-      'useGitHubOriginForUpdates': app['useGitHubOriginForUpdates'] ?? false,
+      'useGitHubOriginForUpdates': app['useGitHubOriginForUpdates'] ?? true,
       'enableFullScreenDefault': app['enableFullScreenDefault'] ?? false,
       'showSplashPage': app['showSplashPage'] ?? true,
       'refreshRateMode': refreshRateModeFromConfig(app).storageValue,
