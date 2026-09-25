@@ -20,6 +20,7 @@ import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/player/core/source_event_fence.dart';
 import 'package:pure_live/player/utils/live_buffer_policy.dart';
 import 'package:pure_live/player/utils/mpv_platform_profile.dart';
+import 'package:pure_live/player/utils/mpv_loudness_binding.dart';
 import 'package:pure_live/player/core/playback_proxy_policy.dart';
 import 'package:pure_live/player/core/player_error_classifier.dart';
 import 'package:pure_live/common/utils/latest_async_value_queue.dart';
@@ -122,6 +123,8 @@ class MediaKitAdapter
   }
 
   late final Player _player;
+
+  MpvLoudnessBinding? _loudnessBinding;
 
   late final VideoController _controller;
 
@@ -244,10 +247,18 @@ class MediaKitAdapter
       _player = Player();
 
       if (_player.platform is NativePlayer) {
-        final native = _player.platform as dynamic;
+        final native = _player.platform as NativePlayer;
         // Live adapters use one explicit seekability override. The upstream
         // Android workaround duplicated this native property write.
         await applyNativeLiveProperties(native);
+        if (_disposed) return;
+        _loudnessBinding = MpvLoudnessBinding(
+          mode: SettingsService.to.player.loudnessCompensationMode,
+          setProperty: (name, value) => setVerifiedMpvLoudnessGain(native.setProperty, native.getProperty, name, value),
+          onFailure: (_, __) => ToastUtil.show(i18n('loudness_compensation_failed')),
+        );
+        await _loudnessBinding!.start();
+        if (_disposed) return;
       }
 
       // =========================
@@ -312,6 +323,8 @@ class MediaKitAdapter
 
       _stateSubject.add(PlayerState.initialized);
     } catch (e, s) {
+      await _loudnessBinding?.dispose();
+      _loudnessBinding = null;
       final exception = PlayerException(
         message: 'MediaKit init failed',
         type: PlayerErrorType.initialization,
@@ -1148,6 +1161,10 @@ class MediaKitAdapter
     _pendingNativeErrorTimer = null;
 
     _sourceFence.clear();
+
+    final loudnessBinding = _loudnessBinding;
+    _loudnessBinding = null;
+    await loudnessBinding?.dispose();
 
     await _cancelAllSubscriptions();
 

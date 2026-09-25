@@ -53,6 +53,7 @@ enum _ResolutionPreferenceTarget { wifi, cellular }
 
 class _VideoSettingsPageState extends State<VideoSettingsPage> {
   bool _resolutionDialogBusy = false;
+  bool _loudnessDialogBusy = false;
   bool _asmrDialogBusy = false;
   bool _asmrModeBusy = false;
   String? _asmrModeErrorText;
@@ -115,6 +116,26 @@ class _VideoSettingsPageState extends State<VideoSettingsPage> {
                   },
                 ),
               ),
+            Obx(() {
+              final player = SettingsService.to.player;
+              final supported = player.videoPlayerKey.v == 'mpv';
+              return context.buildTile(
+                icon: Remix.volume_up_line,
+                title: i18n('loudness_compensation'),
+                subtitle: supported
+                    ? i18n('loudness_compensation_description')
+                    : i18n('loudness_compensation_mpv_only'),
+                trailing: Text(
+                  i18n('loudness_compensation_${player.resolvedLoudnessCompensationMode}'),
+                  style: AppTextStyles.t13.copyWith(
+                    color: supported ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                stackTrailingOnNarrow: true,
+                onTap: supported && !_loudnessDialogBusy ? _showLoudnessCompensationDialog : null,
+              );
+            }),
           ]),
 
           const SizedBox(height: 20),
@@ -429,6 +450,73 @@ class _VideoSettingsPageState extends State<VideoSettingsPage> {
 
   bool _canCommitPipAlwaysOnTop(PlayerSettingsController player) {
     return mounted && !player.isClosed && ModalRoute.of(context)?.isActive == true;
+  }
+
+  Future<void> _showLoudnessCompensationDialog() async {
+    if (_loudnessDialogBusy || !mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    final player = SettingsService.to.player;
+    if (player.videoPlayerKey.v != 'mpv') return;
+    setState(() => _loudnessDialogBusy = true);
+    try {
+      final selected = await showDialog<String>(
+        context: context,
+        useRootNavigator: true,
+        builder: (dialogContext) => AlertDialog(
+          key: const ValueKey('loudness-compensation-dialog'),
+          scrollable: true,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          title: Text(i18n('loudness_compensation'), style: AppTextStyles.t16Bold),
+          contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(i18n('loudness_compensation_description'), style: Theme.of(dialogContext).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                Text(i18n('loudness_compensation_detail'), style: Theme.of(dialogContext).textTheme.bodySmall),
+                const SizedBox(height: 8),
+                RadioGroup<String>(
+                  groupValue: player.resolvedLoudnessCompensationMode,
+                  onChanged: (mode) {
+                    if (mode != null) Navigator.of(dialogContext, rootNavigator: true).pop(mode);
+                  },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const ['off', 'gentle', 'standard', 'strong']
+                        .map(
+                          (mode) => SimpleDialogOption(
+                            onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(mode),
+                            child: Row(
+                              children: [
+                                Radio<String>(value: mode),
+                                const SizedBox(width: 4),
+                                Expanded(child: Text(i18n('loudness_compensation_$mode'))),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: Text(i18n('cancel')),
+            ),
+          ],
+        ),
+      );
+      if (selected == null || !mounted || player.isClosed || ModalRoute.of(context)?.isCurrent != true) return;
+      if (player.videoPlayerKey.v == 'mpv') player.changeLoudnessCompensationMode(selected);
+    } finally {
+      if (mounted) setState(() => _loudnessDialogBusy = false);
+    }
   }
 
   Future<void> _showPreferredResolutionSelectorDialog(_ResolutionPreferenceTarget target) async {

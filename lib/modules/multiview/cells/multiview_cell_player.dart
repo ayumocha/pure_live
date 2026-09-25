@@ -10,6 +10,7 @@ import 'package:pure_live/player/adapters/media_kit_adapter.dart';
 import 'package:pure_live/player/core/playback_proxy_policy.dart';
 import 'package:pure_live/core/common/hls_source_query_policy.dart';
 import 'package:pure_live/player/core/playback_source_transport.dart';
+import 'package:pure_live/player/utils/mpv_loudness_binding.dart';
 
 /// multiview 单格播放器契约。
 ///
@@ -130,6 +131,8 @@ class _MediaKitCellPlayer implements MultiviewCellPlayerHandle, MultiviewNativeI
 
   Player? _player;
 
+  MpvLoudnessBinding? _loudnessBinding;
+
   VideoController? _controller;
 
   /// 会话级音量（0.0-1.0）；静音时保持该值，取消静音后生效。
@@ -167,9 +170,22 @@ class _MediaKitCellPlayer implements MultiviewCellPlayerHandle, MultiviewNativeI
     _player = player;
 
     if (player.platform is NativePlayer) {
-      final native = player.platform as dynamic;
+      final native = player.platform as NativePlayer;
       // 与主播放器共用同一套低延迟直播 mpv 属性。
       await MediaKitAdapter.applyNativeLiveProperties(native);
+      _checkLive();
+      _loudnessBinding = MpvLoudnessBinding(
+        mode: SettingsService.to.player.loudnessCompensationMode,
+        setProperty: (name, value) => setVerifiedMpvLoudnessGain(native.setProperty, native.getProperty, name, value),
+        onFailure: (_, __) => ToastUtil.show(i18n('loudness_compensation_failed')),
+      );
+      try {
+        await _loudnessBinding!.start();
+      } catch (_) {
+        await _loudnessBinding?.dispose();
+        _loudnessBinding = null;
+        rethrow;
+      }
     }
     _checkLive();
 
@@ -252,6 +268,9 @@ class _MediaKitCellPlayer implements MultiviewCellPlayerHandle, MultiviewNativeI
   @override
   Future<void> disposePlayer() async {
     _disposed = true;
+    final loudnessBinding = _loudnessBinding;
+    _loudnessBinding = null;
+    await loudnessBinding?.dispose();
     final player = _player;
     _player = null;
     // 渲染控制器引用一并摘除；其原生清理由 player.dispose 的 release 钩子

@@ -40,6 +40,7 @@ class PlayerSettingsController extends GetxController {
   final RxBool customPlayerOutput = hiveBool('customPlayerOutput', false);
   final RxString videoOutputDriver = hiveString('videoOutputDriver', 'gpu');
   final RxString audioOutputDriver = hiveString('audioOutputDriver', 'auto');
+  final RxString loudnessCompensationMode = hiveString('loudnessCompensationMode', 'off');
   final RxString videoHardwareDecoder = hiveString('videoHardwareDecoder', 'auto');
 
   final RxBool floatPlay = hiveBool('floatPlay', false);
@@ -98,6 +99,7 @@ class PlayerSettingsController extends GetxController {
 
   String get resolvedPreferResolution => normalizePreferredResolution(preferResolution.v);
   String get resolvedPreferResolutionCellular => normalizePreferredResolution(preferResolutionCellular.v);
+  String get resolvedLoudnessCompensationMode => normalizeLoudnessCompensationMode(loudnessCompensationMode.v);
 
   int? advanceVideoFitIndex() {
     final optionCount = videoFitArray.length;
@@ -119,6 +121,7 @@ class PlayerSettingsController extends GetxController {
       ever<int>(videoFitIndex, (_) => _repairPlaybackPreferences()),
       ever<String>(preferResolution, (_) => _repairPlaybackPreferences()),
       ever<String>(preferResolutionCellular, (_) => _repairPlaybackPreferences()),
+      ever<String>(loudnessCompensationMode, (_) => _repairPlaybackPreferences()),
     ]);
   }
 
@@ -142,6 +145,22 @@ class PlayerSettingsController extends GetxController {
     return PlayerConsts.resolutions.contains(normalized) ? normalized : PlayerConsts.resolutions.first;
   }
 
+  static String normalizeLoudnessCompensationMode(Object? value) {
+    return switch (value) {
+      'gentle' || 'standard' || 'strong' => value as String,
+      _ => 'off',
+    };
+  }
+
+  void changeLoudnessCompensationMode(String mode) {
+    final normalized = normalizeLoudnessCompensationMode(mode);
+    if (loudnessCompensationMode.v == normalized) {
+      loudnessCompensationMode.refresh();
+    } else {
+      loudnessCompensationMode.v = normalized;
+    }
+  }
+
   void _repairPlaybackPreferences() {
     final fitIndex = resolvedVideoFitIndex;
     if (videoFitIndex.v != fitIndex) videoFitIndex.v = fitIndex;
@@ -151,6 +170,9 @@ class PlayerSettingsController extends GetxController {
 
     final cellularResolution = resolvedPreferResolutionCellular;
     if (preferResolutionCellular.v != cellularResolution) preferResolutionCellular.v = cellularResolution;
+
+    final loudnessMode = resolvedLoudnessCompensationMode;
+    if (loudnessCompensationMode.v != loudnessMode) loudnessCompensationMode.v = loudnessMode;
   }
 
   void _normalizeMpvSettingsForPlatform(TargetPlatform platform) {
@@ -259,6 +281,7 @@ class PlayerSettingsController extends GetxController {
     customPlayerOutput.v = false;
     videoOutputDriver.v = defaultMpvVideoOutputDriverForPlatform(defaultTargetPlatform);
     audioOutputDriver.v = 'auto';
+    loudnessCompensationMode.v = 'off';
     videoHardwareDecoder.v = 'auto';
     enableRtxVsr.v = false;
     preferResolution.v = PlayerConsts.resolutions.first;
@@ -277,6 +300,7 @@ class PlayerSettingsController extends GetxController {
       'customPlayerOutput': customPlayerOutput.v,
       'videoOutputDriver': videoOutputDriver.v,
       'audioOutputDriver': audioOutputDriver.v,
+      'loudnessCompensationMode': resolvedLoudnessCompensationMode,
       'videoHardwareDecoder': videoHardwareDecoder.v,
       'floatPlay': floatPlay.v,
       'windowsPipAlwaysOnTop': windowsPipAlwaysOnTop.v,
@@ -325,6 +349,7 @@ class PlayerSettingsController extends GetxController {
         typed<String>(json['audioOutputDriver'] ?? 'auto'),
         defaultTargetPlatform,
       ),
+      'loudnessCompensationMode': normalizeLoudnessCompensationMode(json['loudnessCompensationMode']),
       'videoHardwareDecoder': normalizeMpvHardwareDecoderForPlatform(
         typed<String>(json['videoHardwareDecoder'] ?? 'auto'),
         defaultTargetPlatform,
@@ -375,6 +400,7 @@ class PlayerSettingsController extends GetxController {
     customPlayerOutput.v = parsed['customPlayerOutput'];
     videoOutputDriver.v = parsed['videoOutputDriver'];
     audioOutputDriver.v = parsed['audioOutputDriver'];
+    loudnessCompensationMode.v = parsed['loudnessCompensationMode'];
     videoHardwareDecoder.v = parsed['videoHardwareDecoder'];
     floatPlay.v = parsed['floatPlay'];
     windowsPipAlwaysOnTop.v = parsed['windowsPipAlwaysOnTop'];
@@ -419,6 +445,7 @@ class PlayerSettingsController extends GetxController {
         (player['audioOutputDriver'] ?? 'auto') as String,
         defaultTargetPlatform,
       ),
+      'loudnessCompensationMode': normalizeLoudnessCompensationMode(player['loudnessCompensationMode']),
       'videoHardwareDecoder': normalizeMpvHardwareDecoderForPlatform(
         (player['videoHardwareDecoder'] ?? 'auto') as String,
         defaultTargetPlatform,

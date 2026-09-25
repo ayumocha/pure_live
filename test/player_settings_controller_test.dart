@@ -39,6 +39,69 @@ void main() {
   });
 
   group('player settings migration', () {
+    test('loudness compensation defaults to off and normalizes backup values', () {
+      expect(PlayerSettingsController.parseConfig({})['loudnessCompensationMode'], 'off');
+      expect(
+        PlayerSettingsController.extractConfig({'player': <String, dynamic>{}})['loudnessCompensationMode'],
+        'off',
+      );
+      for (final mode in ['off', 'gentle', 'standard', 'strong']) {
+        expect(
+          PlayerSettingsController.parseConfig({'loudnessCompensationMode': mode})['loudnessCompensationMode'],
+          mode,
+        );
+        expect(
+          PlayerSettingsController.extractConfig({
+            'player': {'loudnessCompensationMode': mode},
+          })['loudnessCompensationMode'],
+          mode,
+        );
+      }
+      for (final invalid in ['loud', '', 2, true]) {
+        expect(
+          PlayerSettingsController.parseConfig({'loudnessCompensationMode': invalid})['loudnessCompensationMode'],
+          'off',
+        );
+        expect(
+          PlayerSettingsController.extractConfig({
+            'player': {'loudnessCompensationMode': invalid},
+          })['loudnessCompensationMode'],
+          'off',
+        );
+      }
+    });
+
+    test('persists canonical loudness mode and resets it with MPV settings', () async {
+      await HivePrefUtil.setString('loudnessCompensationMode', 'retired');
+      final settings = Get.put(PlayerSettingsController());
+      expect(settings.resolvedLoudnessCompensationMode, 'off');
+      settings.fromJson({'loudnessCompensationMode': 'strong'});
+      expect(settings.toJson()['loudnessCompensationMode'], 'strong');
+      settings.resetMpvPlayerSettings();
+      expect(settings.loudnessCompensationMode.value, 'off');
+      settings.changeLoudnessCompensationMode('gentle');
+      expect(settings.toJson()['loudnessCompensationMode'], 'gentle');
+      settings.changeLoudnessCompensationMode('unknown');
+      expect(settings.loudnessCompensationMode.value, 'off');
+      await Future<void>.delayed(Duration.zero);
+      await HivePrefUtil.flush();
+      expect(HivePrefUtil.getString('loudnessCompensationMode'), 'off');
+    });
+
+    test('selecting the same loudness mode notifies listeners for retry', () async {
+      final settings = Get.put(PlayerSettingsController());
+      final observed = <String>[];
+      final worker = ever<String>(settings.loudnessCompensationMode, observed.add);
+      addTearDown(worker.dispose);
+
+      settings.changeLoudnessCompensationMode('gentle');
+      settings.changeLoudnessCompensationMode('gentle');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(observed, ['gentle', 'gentle']);
+      expect(settings.loudnessCompensationMode.value, 'gentle');
+    });
+
     test('uses IJK only for a new iOS configuration', () {
       expect(defaultVideoPlayerKeyForPlatform(TargetPlatform.iOS), 'ijk');
       expect(defaultVideoPlayerKeyForPlatform(TargetPlatform.android), 'mpv');
