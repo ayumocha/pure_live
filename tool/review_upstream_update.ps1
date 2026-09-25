@@ -30,7 +30,10 @@ function Invoke-GitText {
         $ErrorActionPreference = $previousPreference
     }
     if ($exitCode -notin $AllowedExitCodes) {
-        throw "git $($Arguments -join ' ') failed ($exitCode): $($output -join [Environment]::NewLine)"
+        $diagnostic = @($output | Select-Object -First 3 | ForEach-Object {
+            if ($_.Length -gt 240) { $_.Substring(0, 240) + '...' } else { $_ }
+        }) -join '; '
+        throw "git $($Arguments -join ' ') failed ($exitCode): $diagnostic"
     }
     return [pscustomobject]@{ Lines = $output; ExitCode = $exitCode }
 }
@@ -81,6 +84,34 @@ function Resolve-Risk {
         return 'medium'
     }
     return 'low'
+}
+
+function Get-PublicTlsFixtureSha256 {
+    param([Parameter(Mandatory = $true)][string] $Commit)
+
+    # Read the committed blob as bytes. PowerShell's native-command text pipeline
+    # would change line endings and invalidate an exact-byte comparison.
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'git'
+    $startInfo.WorkingDirectory = $repoRoot
+    $startInfo.Arguments = "cat-file blob $($Commit):test/fixtures/tls/localhost-key.pem"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $sha256.ComputeHash($process.StandardOutput.BaseStream)
+        } finally {
+            $sha256.Dispose()
+        }
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { return $null }
+        return [BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $process.Dispose()
+    }
 }
 
 $baseSha = Resolve-Commit -Ref $BaseRef
@@ -147,31 +178,93 @@ foreach ($line in $nameStatus) {
 $diffCheckOutput = @()
 $diffCheckExitCode = 0
 $diffSummary = @()
-$addedLines = @()
+$unparsedDiffPath = $false
+$violations = @()
+$publicTlsFixturePath = 'test/fixtures/tls/localhost-key.pem'
+$publicTlsFixtureSha256 = 'b55b3743dda7dd512713f6efa4850d3a729486e9e2bff8cb4302738c192a5af8'
+$fixtureDigest = $null
+$fixtureDigestChecked = $false
+$publicFixtureExceptions = @()
 if ($commits.Count -gt 0) {
-    $diffCheck = Invoke-GitText -Arguments @('diff', '--check', $range) -AllowedExitCodes @(0, 2)
-    $diffCheckOutput = $diffCheck.Lines
+    $diffCheck = Invoke-GitText -Arguments @('-c', 'core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol', 'diff', '--check', $range) -AllowedExitCodes @(0, 2)
+    $diffCheckOutput = @($diffCheck.Lines | ForEach-Object {
+        if ($_ -match '^(.+?:\d+: (?:trailing whitespace|new blank line at EOF|space before tab))') {
+            $message = $Matches[1]
+            if ($message.Length -gt 240) { $message.Substring(0, 240) + '...' } else { $message }
+        }
+    } | Select-Object -First 10)
+    if ($diffCheck.ExitCode -ne 0 -and $diffCheckOutput.Count -eq 0) { $diffCheckOutput = @('git diff --check reported whitespace errors') }
     $diffCheckExitCode = $diffCheck.ExitCode
     $diffSummary = (Invoke-GitText -Arguments @('diff', '--summary', '--find-renames', $range)).Lines
-    $rawDiff = (Invoke-GitText -Arguments @('diff', '--unified=0', '--no-color', $range)).Lines
-    $addedLines = @($rawDiff | Where-Object { $_ -match '^\+(?!\+\+)' })
+    $currentPath = $null
+    $inHunk = $false
+    $previousPreference = $ErrorActionPreference
+    $nativePreference = Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    $previousNativePreference = if ($nativePreference) { $PSNativeCommandUseErrorActionPreference } else { $null }
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($nativePreference) { $PSNativeCommandUseErrorActionPreference = $false }
+        & git -C $repoRoot -c core.quotePath=false diff --unified=0 --no-color --no-ext-diff $range 2>&1 | ForEach-Object {
+        $line = $_.ToString()
+        if ($line -match '^diff --git ') {
+            $currentPath = $null
+            $inHunk = $false
+        } elseif ($line -match '^@@ ') {
+            $inHunk = $true
+        } elseif (-not $inHunk -and $line -match '^\+\+\+ b/(.*)$') {
+            $currentPath = $Matches[1]
+        } elseif (-not $inHunk -and $line -eq '+++ /dev/null') {
+            $currentPath = $null
+        } elseif (-not $inHunk -and $line.StartsWith('+++ ')) {
+            $currentPath = $null
+            $unparsedDiffPath = $true
+        } elseif ($inHunk -and $null -ne $currentPath -and $line.StartsWith('+')) {
+            $addedText = $line.Substring(1)
+            if ($currentPath -match '^\.github/workflows/[^/]+\.ya?ml$') {
+                if ($addedText -match '(^|\s)default:\s*true\s*$') { $violations += 'workflow_default_true' }
+                if ($addedText -match '^\s*pull_request_target:\s*$') { $violations += 'pull_request_target' }
+                if ($addedText -match '^\s*permissions:\s*write-all\s*$') { $violations += 'workflow_write_all' }
+                if ($addedText -match 'uses:\s+[^\s]+@([^\s#]+)' -and $Matches[1] -notmatch '^[0-9a-fA-F]{40}$') {
+                    $violations += 'mutable_action_reference'
+                }
+            }
+            if ($currentPath -match '(^|/)pubspec\.(yaml|lock)$' -and
+                $addedText -match '^\s+ref:\s*["'']?([^\s#"'']+)' -and $Matches[1] -notmatch '^[0-9a-fA-F]{40}$') {
+                $violations += 'mutable_git_dependency'
+            }
+            if ($addedText -match '(gh[opusr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)') {
+                $isPrivateKey = $Matches[0] -match '^BEGIN '
+                if ($isPrivateKey -and $currentPath -eq $publicTlsFixturePath) {
+                    if (-not $fixtureDigestChecked) {
+                        $fixtureDigest = Get-PublicTlsFixtureSha256 -Commit $upstreamSha
+                        $fixtureDigestChecked = $true
+                    }
+                    if ($fixtureDigest -eq $publicTlsFixtureSha256) {
+                        if ($publicFixtureExceptions.Count -eq 0) {
+                            $publicFixtureExceptions += [pscustomobject]@{
+                                rule = 'reviewed_public_tls_test_key'
+                                path = $publicTlsFixturePath
+                                sha256 = $fixtureDigest
+                            }
+                        }
+                    } else {
+                        $violations += 'credential_material_in_added_lines'
+                    }
+                } else {
+                    $violations += 'credential_material_in_added_lines'
+                }
+            }
+        }
+        }
+        $scanExitCode = $LASTEXITCODE
+    } finally {
+        if ($nativePreference) { $PSNativeCommandUseErrorActionPreference = $previousNativePreference }
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($scanExitCode -ne 0) { throw "git diff scan failed ($scanExitCode)" }
 }
 
-$violations = @()
-foreach ($line in $addedLines) {
-    if ($line -match '(^|\s)default:\s*true\s*$') { $violations += 'workflow_default_true' }
-    if ($line -match '^\+\s*pull_request_target:\s*$') { $violations += 'pull_request_target' }
-    if ($line -match '^\+\s*permissions:\s*write-all\s*$') { $violations += 'workflow_write_all' }
-    if ($line -match 'uses:\s+[^\s]+@([^\s#]+)' -and $Matches[1] -notmatch '^[0-9a-f]{40}$') {
-        $violations += 'mutable_action_reference'
-    }
-    if ($line -match '^\+\s+ref:\s*["'']?([^\s#"'']+)' -and $Matches[1] -notmatch '^[0-9a-f]{40}$') {
-        $violations += 'mutable_git_dependency'
-    }
-    if ($line -match '(gh[opusr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)') {
-        $violations += 'credential_material_in_added_lines'
-    }
-}
+if ($unparsedDiffPath) { $violations += 'unparsed_diff_path' }
 $violations = @($violations | Sort-Object -Unique)
 
 $highRisk = @($changes | Where-Object risk -eq 'high')
@@ -246,6 +339,7 @@ $result = [ordered]@{
     diff_check_passed = $diffCheckExitCode -eq 0
     diff_check_output = $diffCheckOutput
     violations = $violations
+    public_fixture_exceptions = $publicFixtureExceptions
     audit_document = $resolvedAuditDocument
     audit_document_valid = $auditDocumentValid
     audit_document_required_markers = $requiredAuditMarkers
