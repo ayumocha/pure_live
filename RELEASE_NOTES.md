@@ -1,3 +1,17 @@
+# Pure Live v3.0.9
+
+本轮正式版发布范围为 **Windows x64**，应用版本 `3.0.9+4097`。Windows 提供 EXE 安装包和便携 ZIP；安装包未作 Authenticode 签名。Android、Linux、iOS 继续使用 `3.0.7+4095`，macOS 继续使用 `3.0.8+4096`。
+
+## 手动响度补偿
+
+- 播放设置 → 音频设置新增手动响度补偿，可选关闭、+3、+6、+9 dB，默认关闭，建议先从 +3 dB 开始。
+- 适用于 MPV 主画面与多画面。普通音量调节和静音仍保持有效。
+- 这是固定增益补偿，不会自动均衡，也不包含峰值限幅；响度较大的音源可能失真。
+
+功能设计、验证范围与正式交付记录见[手动响度补偿报告](https://github.com/ayumocha/pure_live/blob/master/docs/LOUDNESS_COMPENSATION.md)。离线音频验证不等同于实际声卡或扬声器试听；本轮未进行设备试听。
+
+---
+
 # Pure Live v3.0.8
 
 本次更新面向 **Windows x64 和 macOS（Apple Silicon / Intel）**，版本 `3.0.8+4096`。已将通过 Windows 用户验收的上游同步版本合入主分支。

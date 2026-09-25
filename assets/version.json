@@ -1,15 +1,15 @@
 {
-  "version": "3.0.8",
-  "build_number": 4096,
-  "version_num": 300084096,
+  "version": "3.0.9",
+  "build_number": 4097,
+  "version_num": 300094097,
   "android_abis": [
     "armeabi-v7a",
     "arm64-v8a",
     "x86_64"
   ],
-  "version_desc": "version: 3.0.8\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 移除被拦截的 GitHub 镜像，并修正官方更新源设置。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- Windows x64 与 macOS 提供正式安装包；Android、Linux、iOS 暂沿用 v3.0.7。\n- 暂缓启用未认证的局域网远程同步。",
+  "version_desc": "version: 3.0.9\n- Windows 播放设置→音频设置新增手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 适用于 MPV 主画面与多画面；普通音量和静音仍有效。该功能不是自动均衡，也没有峰值限幅，大音源可能失真。\n- 本轮正式版发布范围为 Windows x64 EXE/ZIP，未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7；macOS 继续使用 v3.0.8。",
   "prerelease": false,
-  "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8",
+  "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.9",
   "platforms": {
     "android": {
       "version": "3.0.7",
@@ -25,12 +25,12 @@
       ]
     },
     "windows": {
-      "version": "3.0.8",
-      "build_number": 4096,
-      "version_num": 300084096,
-      "version_desc": "version: 3.0.8\n- 同步上游 9b376ec9ef25，采用其斗鱼源刷新与播放恢复机制。\n- 移除被拦截的 GitHub 镜像，并修正官方更新源设置。\n- 保留旧小红书收藏、历史、链接及设置兼容。\n- Windows x64 与 macOS 提供正式安装包；Android、Linux、iOS 暂沿用 v3.0.7。\n- 暂缓启用未认证的局域网远程同步。",
+      "version": "3.0.9",
+      "build_number": 4097,
+      "version_num": 300094097,
+      "version_desc": "version: 3.0.9\n- Windows 播放设置→音频设置新增手动响度补偿：off、+3、+6、+9 dB，默认 off。\n- 适用于 MPV 主画面与多画面；普通音量和静音仍有效。该功能不是自动均衡，也没有峰值限幅，大音源可能失真。\n- 本轮正式版发布范围为 Windows x64 EXE/ZIP，未作 Authenticode 签名。\n- Android、Linux、iOS 继续使用 v3.0.7；macOS 继续使用 v3.0.8。",
       "prerelease": false,
-      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8",
+      "download_url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.9",
       "windows_msix_available": false
     },
     "linux": {
