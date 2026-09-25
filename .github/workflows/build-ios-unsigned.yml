@@ -14,19 +14,16 @@ on:
         type: string
         default: ''
 
-  push:
-    tags:
-      - "stage-ios-*"
 
 permissions:
   contents: read
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: 3.47.0
+  FLUTTER_VERSION: 3.47.5
 
 jobs:
   build-ios-unsigned:

@@ -30,6 +30,12 @@
     <intent>
       <action android:name="android.speech.RecognitionService" />
     </intent>
+    <!-- Android 11+ package visibility: allow resolving a handler that can open
+         the download folder through the external storage documents provider. -->
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:mimeType="vnd.android.document/directory" />
+    </intent>
   </queries>
   <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
   <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -69,12 +75,26 @@
       <intent-filter>
         <action android:name="android.intent.action.SEND" />
         <category android:name="android.intent.category.DEFAULT" />
-        <data android:mimeType="*/*" />
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="application/x-mpegURL" />
+        <data android:mimeType="application/vnd.apple.mpegurl" />
+        <data android:mimeType="application/xml" />
+        <data android:mimeType="text/xml" />
+        <data android:mimeType="application/json" />
+        <data android:mimeType="application/gzip" />
+        <data android:mimeType="application/octet-stream" />
       </intent-filter>
       <intent-filter>
         <action android:name="android.intent.action.SEND_MULTIPLE" />
         <category android:name="android.intent.category.DEFAULT" />
-        <data android:mimeType="*/*" />
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="application/x-mpegURL" />
+        <data android:mimeType="application/vnd.apple.mpegurl" />
+        <data android:mimeType="application/xml" />
+        <data android:mimeType="text/xml" />
+        <data android:mimeType="application/json" />
+        <data android:mimeType="application/gzip" />
+        <data android:mimeType="application/octet-stream" />
       </intent-filter>
       <meta-data android:name="android.service.chooser.chooser_target_service"
         android:value="androidx.sharetarget.ChooserTargetServiceCompat" />
@@ -82,8 +102,6 @@
     </activity>
     <meta-data android:name="flutterEmbedding" android:value="2" />
     <meta-data android:name="ic_notification" android:resource="@drawable/ic_launcher_foreground" />
-    <service android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
-      android:exported="false" />
     <provider android:name="androidx.core.content.FileProvider"
       android:authorities="${applicationId}.fileProvider" android:exported="false"
       android:grantUriPermissions="true" tools:replace="android:authorities">
@@ -97,6 +115,10 @@
         <action android:name="android.media.browse.MediaBrowserService" />
       </intent-filter>
     </service>
+    <service android:name=".RecorderForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync"
+      android:stopWithTask="false" />
     <!-- ADD THIS "RECEIVER" element -->
     <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
       android:exported="true" tools:ignore="Instantiatable">

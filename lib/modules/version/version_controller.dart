@@ -1,107 +1,106 @@
+import 'dart:async';
+
 import 'package:pure_live/common/index.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-class ReleaseAssetUrls {
-  const ReleaseAssetUrls({required this.projectUrl, required this.version, required this.buildNumber});
-
-  final String projectUrl;
-  final String version;
-  final int buildNumber;
-
-  String get releaseBase => '$projectUrl/releases/download/v$version';
-  String get androidArm64 => '$releaseBase/PureLive-$version-$buildNumber-android-arm64-v8a-release.apk';
-  String get androidArmeabiV7a => '$releaseBase/PureLive-$version-$buildNumber-android-armeabi-v7a-release.apk';
-  String get androidX8664 => '$releaseBase/PureLive-$version-$buildNumber-android-x86_64-release.apk';
-  String get windowsSetup => '$releaseBase/PureLive-$version-$buildNumber-windows-x64-setup.exe';
-  String get windowsMsix => '$releaseBase/PureLive-$version-$buildNumber-windows-x64.msix';
-  String get windowsPortable => '$releaseBase/PureLive-$version-$buildNumber-windows-x64-portable.zip';
-  String get macosUniversal => '$releaseBase/PureLive-$version-$buildNumber-macos-universal.zip';
-}
+typedef VersionUpdateChecker = Future<bool> Function();
+typedef VersionPackageInfoLoader = Future<PackageInfo> Function();
 
 class VersionController extends GetxController {
-  final hasNewVersion = false.obs;
+  VersionController({this.updateChecker, this.packageInfoLoader});
 
-  // =========================
-  // Android
-  // =========================
+  final VersionUpdateChecker? updateChecker;
+  final VersionPackageInfoLoader? packageInfoLoader;
+  bool _checking = false;
+
+  final hasNewVersion = false.obs;
 
   final androidArmeabiV7aUrl = ''.obs;
   final androidArm64Url = ''.obs;
   final androidX8664Url = ''.obs;
 
-  // =========================
-  // Windows
-  // =========================
   final windowsSetupUrl = ''.obs;
   final windowsMsixUrl = ''.obs;
   final windowsPortableUrl = ''.obs;
 
-  // =========================
-  // macOS
-  // =========================
   final macosUrl = ''.obs;
 
   late PackageInfo packageInfo;
 
   final loading = true.obs;
+  final error = false.obs;
+  final updateLog = ''.obs;
+  final downloadPending = false.obs;
 
   @override
   void onInit() {
     super.onInit();
-    checkNewVersion();
+    unawaited(checkNewVersion());
   }
 
   Future<void> getPackageInfo() async {
-    packageInfo = await PackageInfo.fromPlatform();
+    packageInfo = await (packageInfoLoader?.call() ?? PackageInfo.fromPlatform());
   }
 
   Future<void> checkNewVersion() async {
-    await VersionUtil().checkUpdate();
+    if (_checking) return;
+    _checking = true;
+    loading.value = true;
+    error.value = false;
+    _clearReleaseState();
+    try {
+      final updateSucceeded = await (updateChecker?.call() ?? VersionUtil().checkUpdate());
+      if (!updateSucceeded) throw StateError('Update feed request failed');
 
-    await getPackageInfo();
+      await getPackageInfo();
 
-    hasNewVersion.value = VersionUtil.hasNewVersion();
+      final latestVersion = VersionUtil.latestVersion.trim();
+      final newVersion = VersionUtil.isNewerVersion(latestVersion, packageInfo.version);
 
-    final latestVersion = VersionUtil.latestVersion;
+      hasNewVersion.value = newVersion;
+      updateLog.value = VersionUtil.latestUpdateLog;
 
-    final localBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
-    final int buildNumber;
-    if (hasNewVersion.value) {
-      buildNumber = VersionUtil.latestBuildNumber ?? (localBuild + 1);
-    } else {
-      buildNumber = VersionUtil.latestBuildNumber ?? localBuild;
+      final assetUrls = _resolveAssetUrls(VersionUtil.latestAssets);
+      final androidAbis = VersionUtil.latestAndroidAbis;
+
+      androidArmeabiV7aUrl.value = androidAbis.contains('armeabi-v7a') ? assetUrls['android-armeabi-v7a'] ?? '' : '';
+      androidArm64Url.value = androidAbis.contains('arm64-v8a') ? assetUrls['android-arm64-v8a'] ?? '' : '';
+      androidX8664Url.value = androidAbis.contains('x86_64') ? assetUrls['android-x86_64'] ?? '' : '';
+
+      windowsSetupUrl.value = assetUrls['windows-x64-setup.exe'] ?? '';
+      windowsMsixUrl.value = VersionUtil.latestWindowsMsixAvailable ? assetUrls['windows-x64.msix'] ?? '' : '';
+      windowsPortableUrl.value = assetUrls['windows-x64-portable.zip'] ?? '';
+
+      macosUrl.value = assetUrls['macos-universal.dmg'] ?? assetUrls['macos-universal.zip'] ?? '';
+    } catch (_) {
+      error.value = true;
+      _clearReleaseState();
+    } finally {
+      loading.value = false;
+      _checking = false;
     }
-    final assets = ReleaseAssetUrls(
-      projectUrl: VersionUtil.projectUrl,
-      version: latestVersion,
-      buildNumber: buildNumber,
-    );
+  }
 
-    // =====================================================
-    // Android
-    // =====================================================
+  Map<String, String> _resolveAssetUrls(List<Map<String, dynamic>> assets) {
+    final result = <String, String>{};
+    for (final asset in assets) {
+      final name = asset['name']?.toString().trim() ?? '';
+      final url = asset['url']?.toString().trim() ?? '';
+      if (name.isEmpty || url.isEmpty) continue;
+      result[name] = url;
+    }
+    return result;
+  }
 
-    final androidAbis = VersionUtil.latestAndroidAbis;
-    androidArmeabiV7aUrl.value = androidAbis.contains('armeabi-v7a') ? assets.androidArmeabiV7a : '';
-    androidArm64Url.value = androidAbis.contains('arm64-v8a') ? assets.androidArm64 : '';
-    androidX8664Url.value = androidAbis.contains('x86_64') ? assets.androidX8664 : '';
-
-    // =====================================================
-    // Windows
-    // =====================================================
-
-    windowsSetupUrl.value = assets.windowsSetup;
-    // MSIX requires a matching publisher certificate. Only advertise it when
-    // the release feed explicitly confirms that the signed asset was uploaded.
-    windowsMsixUrl.value = VersionUtil.latestWindowsMsixAvailable ? assets.windowsMsix : '';
-    windowsPortableUrl.value = assets.windowsPortable;
-
-    // =====================================================
-    // macOS
-    // =====================================================
-
-    macosUrl.value = assets.macosUniversal;
-
-    loading.value = false;
+  void _clearReleaseState() {
+    hasNewVersion.value = false;
+    updateLog.value = '';
+    androidArmeabiV7aUrl.value = '';
+    androidArm64Url.value = '';
+    androidX8664Url.value = '';
+    windowsSetupUrl.value = '';
+    windowsMsixUrl.value = '';
+    windowsPortableUrl.value = '';
+    macosUrl.value = '';
   }
 }

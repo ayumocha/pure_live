@@ -1,60 +1,46 @@
 # Pure Live 文档
 
-本文档目录保存开发、验证和用户功能说明。仓库根目录只保留 GitHub 会自动识别的入口文档与项目配置。
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. The 3.2.0 acceptance pages below are historical fork evidence, not current verification, release status, or device-work authorization.
 
-## 开发与发布
 
-- [接手交接说明（v3.0.7）](HANDOFF_3_0_7.md)：当前提交/版本/发布状态、策略不变量、Actions 语义坑、本机工具链与待办——接手前先读。
-- [维护范围与问题处置策略](../MAINTENANCE_POLICY.md)：Android/Windows 维护边界、Issue 分流、Bug 来源判定、上游 Issue 优先级、验证和回滚标准。
-- [上游同步审查策略](../UPSTREAM_REVIEW_POLICY.md)：三方差异、全入站文件审查、语义变更台账、冲突处置与合并门禁。
-- [Bug 根因分析模板](BUG_TRIAGE_TEMPLATE.md)：复现基线、来源分类、首次错误状态、影响矩阵与分层证据模板。
-- [上游同步审计模板](UPSTREAM_AUDIT_TEMPLATE.md)：审查脚本要求的逐文件台账、Issue 映射、质量评估、处置和回归字段。
-- [上游同步审计（9e80f3be）](UPSTREAM_AUDIT_9E80F3BE.md)：竖屏比例、直播记录、录播与播放器布局入站提交的逐项处置。
-- [上游同步审计（c7d99cc3）](UPSTREAM_AUDIT_C7D99CC3.md)：上游吸收维护分支后的返回、录制权限、初始化与 FFmpeg 参数冲突处置。
-- [竖屏比例与直播记录根因审计](BUG_AUDIT_2026_08_26_PORTRAIT_HISTORY.md)：移动端单一可信比例、完整观看日期与不限数量回归证据。
-- [本地构建、测试与发布](BUILD_AND_RELEASE.md)：固定工具链、一键质量门禁、Android 签名、Windows 打包与本地发布。
-- [Windows 数据目录与升级](WINDOWS_DATA_AND_UPGRADE.md)：安装目录数据、旧版关注合并、换盘迁移与回滚。
-- [依赖与接口审计](DEPENDENCY_AUDIT.md)：依赖锁定策略、暂缓升级原因和直播平台接口探测边界。
-- [平台接口与兼容性](PLATFORM_COMPATIBILITY.md)：各平台分区、搜索、弹幕和人数指标的当前能力。
-- [Android/Windows 性能验证](PERFORMANCE.md)：120 Hz 请求、渲染/滑动优化和实机采样方法。
-- [关注页刷新与状态一致性](FAVORITE_REFRESH_DESIGN.md)：下拉手势、启动核验、并发事务和失败语义。
-- [上游问题审计（2026-08-24）](ISSUE_AUDIT_2026_08_24.md)：#778、#779、#780、#782、#783、#784, #785 的根因、代码落点和验证状态。
-- [上游问题审计（2026-08-25）](ISSUE_AUDIT_2026_08_25.md)：#791 录制根因，以及 #789、#786、#783、#767 的当前处理状态。
-- [v3.0.7 小红书直播接入与 Windows 正式版](STAGE_UPDATE_3_0_7.md)：免签名 SSR 通道、链接形态、未开播关注与平台边界。
-- [v3.0.0 全平台稳定版](STAGE_UPDATE_3_0_0.md)：最新上游状态绑定、录制恢复、依赖锁与全平台发布门禁。
-- [v3.0.0 build 4088 全仓审查](REPOSITORY_AUDIT_3_0_0_BUILD_4088.md)：Android 返回根因、全上游/全仓流程、供应链、Windows 刷新率与 MSIX 修正。
-- [v3.0.1 Android 竖屏直播适配](STAGE_UPDATE_3_0_1.md)：源方向稳定识别、普通页自适应、全屏策略、画中画比例与房间覆盖。
-- [v3.0.2 Android 播放比例修复](STAGE_UPDATE_3_0_2.md)：普通横屏 16:9 边界、竖屏适配隔离、原生单层缩放与弹幕主题布局。
-- [v3.0.3 Android 竖屏 Surface 修复](STAGE_UPDATE_3_0_3.md)：原生/应用层几何统一、切换时序和横屏直播记录自适应双列。
-- [v3.0.4 Android 可信画面比例修复](STAGE_UPDATE_3_0_4.md)：普通页、全屏、系统画中画和应用内小窗共享单一可信比例，并增强历史记录日期与容量。
-- [v2.9.7 Android update](STAGE_UPDATE_2_9_7.md): cross-platform audience semantics, stable popular ranking and SOOP PC/mobile totals.
-- [v2.9.6 Android update](STAGE_UPDATE_2_9_6.md): upstream synchronization, Douyin/Bilibili repairs and 40 interface probes.
-- [v2.9.5 Android update](STAGE_UPDATE_2_9_5.md): Douyu playback, YY integration and 36 interface probes.
-- [v2.9.4 全平台稳定版](STAGE_UPDATE_2_9_4.md)：多画面、录制数据保护、纯 Dart 平台签名/快手兼容与全平台交付。
-- [v2.1.0 阶段更新](STAGE_UPDATE_2_1_0.md)：上游同步、Twitch、SOOP Live、依赖迁移、全平台构建矩阵与验收范围。
-- [v2.1.5 阶段更新](STAGE_UPDATE_2_1_5.md)：本地弹幕同步、列表阅读、模板状态和 Windows 平滑滚动。
-- [v2.1.6 Android 播放修复](STAGE_UPDATE_2_1_6.md)：音频/视频切换灰白画面与后台音频生命周期。
-- [v2.2.0 阶段更新](STAGE_UPDATE_2_2_0.md)：播放器快速恢复、弹幕合并、Windows 多开与最终验证。
-- [v2.3.0 稳定性更新](STAGE_UPDATE_2_3_0.md)：PiP 返回弹幕恢复、启动逐批刷新、横屏输入与长时间资源边界。
-- [v2.7.0 阶段稳定版](STAGE_UPDATE_2_7_0.md)：最新上游整合、热门页生命周期和全平台阶段发布。
-- [v2.6.0 阶段稳定版](STAGE_UPDATE_2_6_0.md)：近期 Issue、字体/SC/播放器稳定性和全平台阶段发布。
-- [v2.5.0 阶段稳定版](STAGE_UPDATE_2_5_0.md)：首页有界并发、三档刷新率、Windows 视频纹理与依赖/上游审计。
-- [参与贡献](../CONTRIBUTING.md)：分支、提交、测试和 Pull Request 约定。
-- [版本说明](../RELEASE_NOTES.md)：当前开发版本变更。
-- [安全策略](../SECURITY.md)：漏洞报告、凭据和签名材料管理。
+本目录保存产品、开发、验证与发布证据。此页只列稳定入口，不再为每个日期化审计追加一行；具体根因报告从中央台账、编号矩阵、专题文档中的反向链接或仓库搜索进入。旧的逐篇索引保存在[历史归档](README_HISTORY_2026_09_19.md)。
 
-## 功能说明
+## Historical 3.2.0 work entries
 
-- [WebDAV 配置](WEBDAV.md)：服务地址、账号、应用密码、目录和故障排查。
-- [README](../README.md)：功能概览、小窗弹幕、下载和常见问题。
+- [完整验收入口](ACCEPTANCE_3_2_0.md)：最短证据链、Android/Windows 批次、质量/构建/发布门禁。
+- [当前状态快照](ACCEPTANCE_STATUS_3_2_0.md)：当前候选、编号统计、主要阻塞与下一批顺序。
+- [Android / Windows 验收矩阵](ACCEPTANCE_MATRIX_3_1_0.md)：62 个编号行的唯一状态和证据所有者。
+- [完整客户端测试计划](FULL_CLIENT_TEST_PLAN_2026_08_28.md)：用户可见功能、界面、操作和测试方法目录。
+- [Issue 分流中央台账](ISSUE_TRIAGE_LEDGER_3_2_0.md)：报告版本、当前分类、已有证据和再开条件。
+- [平台扩展审计](PLATFORM_EXPANSION_AUDIT_2026_09_07.md)：已注册平台、参考项目差距和未注册分组。
 
-## 维护原则
+历史时间线仅用于追溯，不作为当前候选指针：
 
-1. Android/Android TV 与 Windows 是主要维护目标；其他平台按社区证据记录。
-2. Bug 先判定上游、维护分支、整合冲突、外部漂移或本地数据来源，再设计修复。
-3. 上游同步先完成三方语义审查和处置台账，再创建 merge。
-4. 命令以仓库根目录为工作目录，优先调用 `tool/` 中的包装脚本。
-5. 工具链版本以 `.fvmrc`、Gradle 配置和 `pubspec.lock` 为准。
-6. 外部接口和依赖状态具有时效性，发布前重新运行质量门禁。
-7. 构建产物进入 `local-artifacts/`，不提交到 Git。
-8. 文档中的密钥、账号、Cookie 和本地绝对路径只使用占位符。
+- [验收历史归档](ACCEPTANCE_HISTORY_3_2_0.md)
+- [状态时间线归档](ACCEPTANCE_STATUS_HISTORY_3_2_0.md)
+- [矩阵增量归档](ACCEPTANCE_MATRIX_HISTORY_3_1_0.md)
+
+## 开发与验证
+
+- [Agent 工作流](AGENT_WORKFLOW.md)：任务路由、快速 Issue lane、文档所有权、验证与构建入口。
+- [`AGENTS.md`](../AGENTS.md)：仓库级执行、验证、同步和设备边界。
+- [`BUILD_POLICY.md`](../BUILD_POLICY.md)：资源预算、缓存、重型任务与签名规则。
+- [`MAINTENANCE_POLICY.md`](../MAINTENANCE_POLICY.md)：缺陷来源分类、修复边界与回归要求。
+- [`UPSTREAM_REVIEW_POLICY.md`](../UPSTREAM_REVIEW_POLICY.md)：只读比较和获准入站变更的审查要求。
+- [本地构建、测试与发布](BUILD_AND_RELEASE.md)：固定工具链和本地入口。
+- [共享 Android 实机轮转](ANDROID_DEVICE_TEST_ROTATION.md)：设备租约、守卫、收尾和证据规则。
+
+## 产品与平台参考
+
+- [平台接口与兼容性](PLATFORM_COMPATIBILITY.md)：目录、搜索、弹幕、人数和能力边界。
+- [网络代理链路](NETWORK_PROXY_AUDIT_3_1_0.md)：API、媒体、图片和 WebSocket 的代理所有权。
+- [关注刷新设计](FAVORITE_REFRESH_DESIGN.md)：刷新、并发、快照和失败语义。
+- [录制参考审计](RECORDER_REFERENCE_AUDIT_3_1_0.md)：录制架构、参考项目和已知边界。
+- [WebDAV](WEBDAV.md)：配置、目录和同步使用说明。
+- [Android / Windows 性能验证](PERFORMANCE.md)：帧、CPU、GPU、内存和资源回落采样方法。
+- [Windows 数据目录与升级](WINDOWS_DATA_AND_UPGRADE.md)：便携/安装版数据、迁移与回滚。
+- [依赖与接口审计](DEPENDENCY_AUDIT.md)：锁定依赖、更新边界和接口探针。
+
+## 查找专题证据
+
+日期化 `*_AUDIT_*.md`、`STAGE_UPDATE_*.md` 与候选报告是对应批次的不可变证据，不承担当前总览。按 Issue 号、平台、功能、提交 SHA 或测试名在 `docs/` 搜索；新结论只写入其权威所有者，避免同时复制到 README、验收入口、状态页和矩阵页。

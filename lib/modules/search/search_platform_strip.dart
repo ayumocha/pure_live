@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pure_live/common/widgets/pure_live_scroll_physics.dart';
 
-const double searchPlatformStripHeight = 48;
-const ScrollPhysics searchPlatformStripPhysics = ClampingScrollPhysics();
+const double searchPlatformStripHeight = 56;
+const ScrollPhysics searchPlatformStripPhysics = PureLiveBoundedScrollPhysics();
 
 /// A bounded, independently controlled platform selector for the search page.
 ///
@@ -85,7 +86,7 @@ class _SearchPlatformStripState extends State<SearchPlatformStrip> {
                 label: Text(widget.labels[itemIndex]),
                 selected: selected,
                 showCheckmark: false,
-                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 side: BorderSide(color: selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant),
                 onSelected: (_) => widget.onSelected(itemIndex),
               ),

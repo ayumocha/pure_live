@@ -46,7 +46,8 @@ void main() {
       roomId: '1',
       platform: 'bilibili',
       preferredQuality: '原画',
-      previousUrl: first.url,
+      previousQualityId: first.qualityCursorId,
+      previousLineIndex: first.lineIndex,
     );
 
     expect(first.url, 'https://cdn-a.example/live.flv');
@@ -54,6 +55,7 @@ void main() {
     expect(first.lineLabel, '线路1');
     expect(second.url, 'https://cdn-b.example/live.flv');
     expect(second.candidateUrls, <String>['https://cdn-b.example/live.flv', 'https://cdn-a.example/live.flv']);
+    expect(site.resolveCalls, <String>['10000', '10000']);
   });
 
   test('temporary quality failure stays retryable and invalid URLs are rejected', () async {
@@ -90,14 +92,82 @@ void main() {
       roomId: '1',
       platform: 'douyu',
       preferredQuality: '原画',
-      previousUrl: first.url,
-      lineOffset: 1,
+      previousQualityId: first.qualityCursorId,
+      previousLineIndex: first.lineIndex,
     );
 
     expect(first.quality.selectionId, 'source');
     expect(first.url, contains('/source.flv?token='));
     expect(second.quality.selectionId, 'hd');
     expect(second.url, contains('/hd.flv?token='));
+    expect(site.calls, 2);
+  });
+
+  test('initial resolve requests only the selected quality instead of aging every candidate URL', () async {
+    final site = _FakeSite(
+      qualities: <LivePlayQuality>[
+        LivePlayQuality(quality: '原画', id: 'source', sort: 1000),
+        LivePlayQuality(quality: '高清', id: 'hd', sort: 500),
+        LivePlayQuality(quality: '流畅', id: 'sd', sort: 100),
+      ],
+      urls: const <String>['https://cdn.example/live.flv'],
+    );
+    final resolver = StreamResolverService(siteResolver: (_) => site);
+
+    final resolved = await resolver.resolveStream(roomId: '1', platform: 'douyu', preferredQuality: '原画');
+
+    expect(resolved.qualityCursorId, 'source');
+    expect(site.resolveCalls, <String>['source']);
+  });
+
+  test('cursor-capable adapters request only one CDN line per attempt', () async {
+    final site = _CursorSite();
+    final resolver = StreamResolverService(siteResolver: (_) => site);
+
+    final first = await resolver.resolveStream(roomId: '1', platform: 'douyu', preferredQuality: '原画');
+    final second = await resolver.resolveStream(
+      roomId: '1',
+      platform: 'douyu',
+      preferredQuality: '原画',
+      previousQualityId: first.qualityCursorId,
+      previousLineIndex: first.lineIndex,
+    );
+
+    expect(first.url, 'https://cdn-0.example/live.flv');
+    expect(second.url, 'https://cdn-1.example/live.flv');
+    expect(first.candidateUrls, <String>['https://cdn-0.example/live.flv']);
+    expect(site.cursorCalls, <String>['source:0', 'source:1']);
+  });
+
+  test('lease renewal keeps the applied quality and CDN line', () async {
+    final site = _CursorSite();
+    final resolver = StreamResolverService(siteResolver: (_) => site);
+
+    final first = await resolver.resolveStream(roomId: '1', platform: 'huya', preferredQuality: '原画');
+    final renewed = await resolver.resolveStream(
+      roomId: '1',
+      platform: 'huya',
+      preferredQuality: '原画',
+      previousQualityId: first.qualityCursorId,
+      previousLineIndex: first.lineIndex,
+      renewCurrent: true,
+    );
+
+    expect(first.lineIndex, 0);
+    expect(renewed.lineIndex, 0);
+    expect(renewed.qualityCursorId, first.qualityCursorId);
+    expect(site.cursorCalls, <String>['source:0', 'source:0']);
+  });
+
+  test('recorder carries platform lease metadata with the selected URL', () async {
+    final now = DateTime.utc(2026, 8, 30, 7);
+    final site = _LeaseSite(now);
+    final resolver = StreamResolverService(siteResolver: (_) => site);
+
+    final stream = await resolver.resolveStream(roomId: '1', platform: 'huya', preferredQuality: '原画');
+
+    expect(stream.refreshAt, now.add(const Duration(seconds: 100)));
+    expect(stream.invalidAt, now.add(const Duration(seconds: 125)));
   });
 
   test('offline rooms and unknown platforms stop before FFmpeg', () async {
@@ -132,6 +202,19 @@ void main() {
     expect(site.strictCalls, 1);
   });
 
+  test('recording resolution carries authoritative IPTV channel headers with the selected URL', () async {
+    final site = _FakeSite(
+      qualities: <LivePlayQuality>[LivePlayQuality(quality: '原画', id: 'source')],
+      urls: const <String>['https://cdn.example/live.m3u8'],
+      httpHeaders: const {'user-agent': 'Playlist Agent', 'referer': 'https://fixture/room'},
+    );
+
+    final resolved = await StreamResolverService(siteResolver: (_) => site)
+        .resolveStream(roomId: '1', platform: 'iptv', preferredQuality: '原画');
+
+    expect(resolved.httpHeaders, {'user-agent': 'Playlist Agent', 'referer': 'https://fixture/room'});
+  });
+
   test('strict room transport failures stay retryable instead of becoming offline', () async {
     final resolver = StreamResolverService(
       siteResolver: (_) => _StrictFakeSite(strictError: StateError('temporary metadata error')),
@@ -155,6 +238,7 @@ class _FakeSite extends LiveSite implements LivePlayUrlResolver {
     this.urls = const <String>[],
     this.appliedQuality,
     this.qualityError,
+    this.httpHeaders = const <String, String>{},
   });
 
   final bool live;
@@ -162,6 +246,8 @@ class _FakeSite extends LiveSite implements LivePlayUrlResolver {
   final List<String> urls;
   final Object? appliedQuality;
   final Object? qualityError;
+  final Map<String, String> httpHeaders;
+  final List<String> resolveCalls = <String>[];
 
   @override
   Future<LiveRoom> getRoomDetail({required String roomId, required String platform}) async {
@@ -170,6 +256,7 @@ class _FakeSite extends LiveSite implements LivePlayUrlResolver {
       platform: platform,
       liveStatus: live ? LiveStatus.live : LiveStatus.offline,
       isRecord: false,
+      httpHeaders: httpHeaders,
     );
   }
 
@@ -181,6 +268,7 @@ class _FakeSite extends LiveSite implements LivePlayUrlResolver {
 
   @override
   Future<LivePlayUrlResolution> resolvePlayUrlsRaw({required LiveRoom detail, required LivePlayQuality quality}) async {
+    resolveCalls.add(quality.selectionId.toString());
     return LivePlayUrlResolution(urls: urls, appliedQualityData: appliedQuality ?? quality.selectionId);
   }
 }
@@ -213,7 +301,7 @@ class _StrictFakeSite extends _FakeSite implements LiveSiteRecordRoomResolver {
   }
 }
 
-class _RotatingSignedSite extends LiveSite implements LivePlayUrlResolver {
+class _RotatingSignedSite extends LiveSite implements LivePlayUrlResolver, LivePlayUrlCursorResolver {
   int calls = 0;
 
   @override
@@ -237,4 +325,58 @@ class _RotatingSignedSite extends LiveSite implements LivePlayUrlResolver {
       appliedQualityData: quality.selectionId,
     );
   }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlAtRaw({
+    required LiveRoom detail,
+    required LivePlayQuality quality,
+    required int lineIndex,
+  }) async {
+    if (lineIndex != 0) {
+      return LivePlayUrlResolution(urls: const <String>[], appliedQualityData: quality.selectionId);
+    }
+    return resolvePlayUrlsRaw(detail: detail, quality: quality);
+  }
+}
+
+class _CursorSite extends LiveSite implements LivePlayUrlCursorResolver {
+  final List<String> cursorCalls = <String>[];
+
+  @override
+  Future<LiveRoom> getRoomDetail({required String roomId, required String platform}) async {
+    return LiveRoom(roomId: roomId, platform: platform, liveStatus: LiveStatus.live, status: true);
+  }
+
+  @override
+  Future<List<LivePlayQuality>> getPlayQualites({required LiveRoom detail}) async {
+    return <LivePlayQuality>[LivePlayQuality(quality: '原画', id: 'source', sort: 1000)];
+  }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlAtRaw({
+    required LiveRoom detail,
+    required LivePlayQuality quality,
+    required int lineIndex,
+  }) async {
+    cursorCalls.add('${quality.selectionId}:$lineIndex');
+    if (lineIndex >= 3) {
+      return LivePlayUrlResolution(urls: const <String>[], appliedQualityData: quality.selectionId);
+    }
+    return LivePlayUrlResolution(
+      urls: <String>['https://cdn-$lineIndex.example/live.flv'],
+      appliedQualityData: quality.selectionId,
+    );
+  }
+}
+
+class _LeaseSite extends _CursorSite implements LivePlayLeaseMetadata {
+  _LeaseSite(this.now);
+
+  final DateTime now;
+
+  @override
+  DateTime? getPlayUrlRefreshAt(String url, {DateTime? now}) => this.now.add(const Duration(seconds: 100));
+
+  @override
+  DateTime? getPlayUrlInvalidAt(String url, {DateTime? now}) => this.now.add(const Duration(seconds: 125));
 }

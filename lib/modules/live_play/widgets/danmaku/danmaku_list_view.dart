@@ -13,6 +13,7 @@ import 'package:pure_live/modules/live_play/states/ui_state.dart';
 import 'package:pure_live/modules/live_play/controllers/player_state.dart';
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_message_actions.dart';
+import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_arrival_counter.dart';
 import 'package:pure_live/modules/live_play/widgets/local_interaction/local_danmaku_style_editor.dart';
 
 bool isDanmakuUserScrollStart(
@@ -49,8 +50,9 @@ class DanmakuTailFollowGuard {
 
 class DanmakuListView extends StatefulWidget {
   final LiveRoom room;
+  final LivePlayController controller;
 
-  const DanmakuListView({super.key, required this.room});
+  const DanmakuListView({super.key, required this.room, required this.controller});
 
   @override
   State<DanmakuListView> createState() => DanmakuListViewState();
@@ -65,8 +67,7 @@ class DanmakuListViewState extends State<DanmakuListView> {
   bool userScrolling = false;
   bool _autoScrollEnabled = true;
   final ValueNotifier<int> _pendingMessageCount = ValueNotifier<int>(0);
-  int _lastControllerLength = 0;
-  LiveMessage? _lastControllerTail;
+  final _arrivalCounter = DanmakuArrivalCounter<LiveMessage>();
   List<LiveMessage> _visibleMessages = const [];
   final LinkedHashMap<LiveMessage, DanmakuItem> _itemCache = LinkedHashMap<LiveMessage, DanmakuItem>.identity();
   final DanmakuTailFollowGuard _tailFollowGuard = DanmakuTailFollowGuard();
@@ -79,17 +80,26 @@ class DanmakuListViewState extends State<DanmakuListView> {
   Worker? windowFullscreenWorker;
   Worker? presentationWorker;
   StreamSubscription? messagesSub;
+  StreamSubscription? removalsSub;
 
-  LivePlayController get controller => Get.find<LivePlayController>();
+  LivePlayController get controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
     _visibleMessages = List<LiveMessage>.from(controller.danmakuMessages);
-    _lastControllerLength = _visibleMessages.length;
-    _lastControllerTail = _visibleMessages.isEmpty ? null : _visibleMessages.last;
+    _arrivalCounter.update(_visibleMessages);
 
     messagesSub = controller.danmakuMessages.listen((_) => _onMessagesChanged());
+    removalsSub = controller.danmakuRemovals.listen((predicate) {
+      if (!mounted) return;
+      // A paused snapshot can contain rows already evicted from live history.
+      // Remove only explicitly blocked rows; preserve unrelated frozen rows
+      // and the user's paused position instead of replacing the snapshot.
+      final filtered = _visibleMessages.where((message) => !predicate(message)).toList(growable: false);
+      _itemCache.removeWhere((message, _) => predicate(message));
+      if (filtered.length != _visibleMessages.length) setState(() => _visibleMessages = filtered);
+    });
 
     fullscreenWorker = ever(GlobalPlayerState.to.isFullscreen, (value) {
       if (value == false && _autoScrollEnabled) {
@@ -117,13 +127,8 @@ class DanmakuListViewState extends State<DanmakuListView> {
   void _onMessagesChanged() {
     if (!mounted) return;
     final currentMessages = controller.danmakuMessages;
-    final nextLength = currentMessages.length;
     final nextTail = currentMessages.isEmpty ? null : currentMessages.last;
-    final tailChanged = !identical(nextTail, _lastControllerTail);
-    final lengthDelta = nextLength - _lastControllerLength;
-    final addedCount = lengthDelta > 0 ? lengthDelta : (tailChanged ? 1 : 0);
-    _lastControllerLength = nextLength;
-    _lastControllerTail = nextTail;
+    final addedCount = _arrivalCounter.update(currentMessages);
 
     if (!_autoScrollEnabled) {
       if (addedCount > 0) {
@@ -152,6 +157,7 @@ class DanmakuListViewState extends State<DanmakuListView> {
   void dispose() {
     _tailFollowGuard.invalidate();
     messagesSub?.cancel();
+    removalsSub?.cancel();
     fullscreenWorker?.dispose();
     windowFullscreenWorker?.dispose();
     presentationWorker?.dispose();
@@ -213,16 +219,13 @@ class DanmakuListViewState extends State<DanmakuListView> {
       _autoScrollEnabled = true;
       userScrolling = false;
     });
-    _lastControllerLength = messages.length;
-    _lastControllerTail = messages.isEmpty ? null : messages.last;
+    _arrivalCounter.update(messages);
     _pendingMessageCount.value = 0;
     await forceScrollToBottom();
   }
 
   void onScrollNotification(ScrollNotification notification) {
     if (!_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    final distanceToBottom = position.pixels - position.minScrollExtent;
 
     // A UserScrollNotification is emitted before the first drag has produced a
     // useful pixel distance. Waiting for a 24 px offset let the 80 ms live
@@ -240,12 +243,13 @@ class DanmakuListViewState extends State<DanmakuListView> {
       hasActivePointer: _activeScrollPointers > 0,
     )) {
       _pauseAutoScroll();
-    } else if ((notification is ScrollEndNotification ||
-            (notification is UserScrollNotification && notification.direction == ScrollDirection.idle)) &&
-        distanceToBottom <= 12 &&
-        !_autoScrollEnabled) {
-      _resumeAutoScroll();
     }
+
+    // Keep the snapshot stable after every deliberate drag, including a drag
+    // that begins at the live edge and cannot move away from minScrollExtent.
+    // Auto-resuming on ScrollEnd made that first swipe look ignored because
+    // the next message batch immediately replaced the rows. The explicit
+    // "return to live" button is the sole resume action.
   }
 
   void _sendLocalMessage() {
@@ -274,7 +278,7 @@ class DanmakuListViewState extends State<DanmakuListView> {
     while (_itemCache.length >= _itemCacheCapacity) {
       _itemCache.remove(_itemCache.keys.first);
     }
-    final item = DanmakuItem(key: ObjectKey(message), danmaku: message);
+    final item = DanmakuItem(key: ObjectKey(message), danmaku: message, controller: controller);
     _itemCache[message] = item;
     return item;
   }
@@ -347,27 +351,33 @@ class DanmakuListViewState extends State<DanmakuListView> {
                       ),
                       if (userScrolling)
                         Positioned(
+                          left: 12,
                           right: 12,
                           bottom: 12,
-                          child: FilledButton.icon(
-                            key: const ValueKey('danmaku-resume-live'),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.92),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            ),
-                            icon: const Icon(Icons.arrow_downward_rounded, size: 18),
-                            label: ValueListenableBuilder<int>(
-                              valueListenable: _pendingMessageCount,
-                              builder: (context, count, _) => Text(
-                                count > 0
-                                    ? i18n('danmaku_new_messages', args: {'count': '$count'})
-                                    : i18n('scroll_to_bottom'),
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                          // Bound long localized labels without stretching a
+                          // short desktop action or reducing the user's font.
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              key: const ValueKey('danmaku-resume-live'),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.92),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                               ),
+                              icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                              label: ValueListenableBuilder<int>(
+                                valueListenable: _pendingMessageCount,
+                                builder: (context, count, _) => Text(
+                                  count > 0
+                                      ? i18n('danmaku_new_messages', args: {'count': '$count'})
+                                      : i18n('scroll_to_bottom'),
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              onPressed: _resumeAutoScroll,
                             ),
-                            onPressed: _resumeAutoScroll,
                           ),
                         ),
                     ],
@@ -435,15 +445,17 @@ class DanmakuListViewState extends State<DanmakuListView> {
 
 class DanmakuItem extends StatelessWidget {
   final LiveMessage danmaku;
+  final LivePlayController controller;
 
-  const DanmakuItem({super.key, required this.danmaku});
+  const DanmakuItem({super.key, required this.danmaku, required this.controller});
 
   Future<void> _copyMessage() async {
     await Clipboard.setData(ClipboardData(text: "${danmaku.userName}: ${danmaku.message}"));
     ToastUtil.show(i18n('copied_to_clipboard'));
   }
 
-  Future<void> _showActions(BuildContext context) => DanmakuMessageActions.show(context, danmaku);
+  Future<void> _showActions(BuildContext context) =>
+      DanmakuMessageActions.show(context, danmaku, controller: controller);
 
   @override
   Widget build(BuildContext context) {

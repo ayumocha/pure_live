@@ -1,20 +1,23 @@
 import 'dart:io';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:pure_live/common/index.dart';
-import 'package:pure_live/common/consts/app_consts.dart';
-import 'package:pure_live/modules/search/web_search_room_parser.dart';
-import 'package:pure_live/routes/app_navigation.dart';
+import 'package:pure_live/plugins/file_utils.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:pure_live/common/global/initialized.dart';
+import 'package:material_ui/material_ui.dart' as material;
 import 'package:pure_live/player/utils/player_consts.dart';
 import 'package:pure_live/routes/navigation_observer.dart';
 import 'package:pure_live/player/models/player_engine.dart';
 import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/routes/route_observer_controller.dart';
+import 'package:pure_live/common/utils/shared_media_intake.dart';
+import 'package:pure_live/common/utils/share_command_handler.dart';
 import 'package:pure_live/core/iptv/services/epg_import_manager.dart';
 import 'package:pure_live/common/global/platform/desktop_manager.dart';
 import 'package:pure_live/core/iptv/services/iptv_import_manager.dart';
+import 'package:pure_live/common/services/settings/player_settings_controller.dart';
 
 void main(List<String> args) async {
   // Flutter abbreviates every framework error after the first one. In release
@@ -46,7 +49,8 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with DesktopWindowMixin {
-  StreamSubscription<SharedMedia>? _sharedMediaSubscription;
+  SharedMediaReceiver? _sharedMediaReceiver;
+  bool _dynamicThemeChangeScheduled = false;
 
   @override
   void initState() {
@@ -74,7 +78,7 @@ class _MyAppState extends State<MyApp> with DesktopWindowMixin {
 
   Future<void> initGlobalPlayer() async {
     final String savedKey = SettingsService.to.player.videoPlayerKey.v;
-    final String validKey = PlayerConsts.engines.containsKey(savedKey) ? savedKey : PlayerConsts.defaultKey;
+    final String validKey = normalizeVideoPlayerKeyForPlatform(savedKey, defaultTargetPlatform);
     final PlayerEngine targetEngine = PlayerConsts.engines[validKey]!;
     final PlayerEngine defaultEngine;
 
@@ -91,47 +95,79 @@ class _MyAppState extends State<MyApp> with DesktopWindowMixin {
     if (PlatformUtils.isDesktop) {
       DesktopManager.disposeListeners();
     }
-    final subscription = _sharedMediaSubscription;
-    if (subscription != null) unawaited(subscription.cancel());
+    final receiver = _sharedMediaReceiver;
+    if (receiver != null) unawaited(receiver.dispose());
     unawaited(GlobalPlayerService.instance.dispose());
     super.dispose();
   }
 
   Future<void> initSharedMediaListener() async {
-    if (Platform.isAndroid) {
-      final handler = ShareHandler.instance;
-      await handler.getInitialSharedMedia();
-      _sharedMediaSubscription = handler.sharedMediaStream.listen((SharedMedia media) async {
-        final rawContent = media.content?.trim() ?? '';
-        final path = rawContent.toLowerCase();
-        if (path.isEmpty) return;
-        if (path.endsWith('.m3u') || path.endsWith('.txt') || path.contains('.m3u8')) {
-          await IptvImportManager().importFromSharedMedia(media);
-        } else if (path.endsWith('.xml') || path.endsWith('.gz') || path.endsWith('.json')) {
-          await EpgImportManager().importFromSharedMedia(media);
-        } else {
-          // 分享的直播间链接（文本 + URL）进入对应平台房间；识别失败的分享
-          // 仍然给出提示，不吞掉用户操作。
-          final urlMatch = RegExp(r'https?://[^\s<>"]+').firstMatch(rawContent);
-          final target = urlMatch == null ? null : WebSearchRoomParser.parse(urlMatch.group(0)!);
-          if (target != null && Sites.isSupported(target.platform)) {
-            await AppNavigator.offAndToRoomDetail(
-              liveRoom: LiveRoom(roomId: target.roomId, platform: target.platform),
-            );
-          } else {
-            ToastUtil.show(i18n("unsupported_file_format"));
-          }
-        }
-      });
+    if (!Platform.isAndroid) return;
+
+    final handler = ShareHandler.instance;
+    final intake = SharedMediaIntake(
+      isRoomCommand: ShareCommandHandler.isUsableCommand,
+      consumeRoomCommand: handleIncomingShareCommand,
+      importPlaylist: (path) => IptvImportManager().importFromSharedMedia(SharedMedia(content: path)),
+      importEpg: (path) => EpgImportManager().importFromSharedMedia(SharedMedia(content: path)),
+      releaseAttachment: (path) async {
+        await FileUtils.cleanupOwnedSharedMediaFile(File(path));
+      },
+      notifyUnsupported: (key) => ToastUtil.show(i18n(key)),
+      reportError: (error, stackTrace) => debugPrint('Shared media receiver failed: $error\n$stackTrace'),
+    );
+    final receiver = SharedMediaReceiver(
+      readInitialMedia: handler.getInitialSharedMedia,
+      resetInitialMedia: handler.resetInitialSharedMedia,
+      mediaStream: handler.sharedMediaStream,
+      intake: intake,
+      reportError: (error, stackTrace) => debugPrint('Shared media channel failed: $error\n$stackTrace'),
+    );
+    _sharedMediaReceiver = receiver;
+    await receiver.start();
+  }
+
+  void _applyDynamicTheme(
+    material.ColorScheme? lightDynamic,
+    material.ColorScheme? darkDynamic,
+    ThemeData lightThemeData,
+    ThemeData darkThemeData,
+  ) {
+    if (_dynamicThemeChangeScheduled) {
+      return;
     }
+
+    _dynamicThemeChangeScheduled = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _dynamicThemeChangeScheduled = false;
+
+      if (!mounted) {
+        return;
+      }
+
+      final brightness = Theme.of(context).brightness;
+
+      if (SettingsService.to.theme.enableDynamicTheme.v && lightDynamic != null && darkDynamic != null) {
+        final scheme = brightness == Brightness.dark
+            ? toFlutterColorScheme(darkDynamic)
+            : toFlutterColorScheme(lightDynamic);
+
+        final theme = MyTheme(colorScheme: scheme);
+
+        Get.changeTheme(brightness == Brightness.dark ? theme.darkThemeData : theme.lightThemeData);
+      } else {
+        Get.changeTheme(brightness == Brightness.dark ? darkThemeData : lightThemeData);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return DynamicColorBuilder(
-      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+      builder: (lightDynamic, darkDynamic) {
         return Obx(() {
-          final themeColor = HexColor(SettingsService.to.theme.themeColorSwitch.v);
+          final themeColor = SettingsService.to.theme.themeColor;
           final showSplashPage = SettingsService.to.app.showSplashPage.v;
           final currentFactor = SettingsService.to.font.textScaleFactor.v;
 
@@ -139,38 +175,30 @@ class _MyAppState extends State<MyApp> with DesktopWindowMixin {
           ThemeData darkTheme;
 
           if (SettingsService.to.theme.enableDynamicTheme.v && lightDynamic != null && darkDynamic != null) {
-            lightTheme = MyTheme(colorScheme: lightDynamic.harmonized()).lightThemeData;
-            darkTheme = MyTheme(colorScheme: darkDynamic.harmonized()).darkThemeData;
+            lightTheme = MyTheme(colorScheme: toFlutterColorScheme(lightDynamic)).lightThemeData;
+            darkTheme = MyTheme(colorScheme: toFlutterColorScheme(darkDynamic)).darkThemeData;
           } else {
             lightTheme = MyTheme(primaryColor: themeColor).lightThemeData;
             darkTheme = MyTheme(primaryColor: themeColor).darkThemeData;
           }
+          _applyDynamicTheme(lightDynamic, darkDynamic, lightTheme, darkTheme);
 
           return GetMaterialApp(
             // The localized title is rendered by CustomTitleBar. A stable
             // application title avoids asking EasyLocalization for a key
             // before its delegate has completed the first load.
             title: i18n('app_name'),
+            navigatorKey: appNavigatorKey,
             scrollBehavior: MyCustomScrollBehavior(),
             debugShowCheckedModeBanner: false,
-            themeMode: AppConsts.themeModes[SettingsService.to.theme.themeModeName.v]!,
+            themeMode: SettingsService.to.theme.themeMode,
             theme: lightTheme.copyWith(
               appBarTheme: const AppBarTheme(surfaceTintColor: Colors.transparent),
-              pageTransitionsTheme: const PageTransitionsTheme(
-                builders: <TargetPlatform, PageTransitionsBuilder>{
-                  TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
-                  TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
-                },
-              ),
+              pageTransitionsTheme: appPageTransitionsTheme,
             ),
             darkTheme: darkTheme.copyWith(
               appBarTheme: const AppBarTheme(surfaceTintColor: Colors.transparent),
-              pageTransitionsTheme: const PageTransitionsTheme(
-                builders: <TargetPlatform, PageTransitionsBuilder>{
-                  TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
-                  TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
-                },
-              ),
+              pageTransitionsTheme: appPageTransitionsTheme,
             ),
             locale: context.locale,
             navigatorObservers: [FlutterSmartDialog.observer, LiveRouteObserver()],
@@ -187,12 +215,18 @@ class _MyAppState extends State<MyApp> with DesktopWindowMixin {
                 }
                 return MediaQuery(
                   data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(currentFactor)),
-                  child: resultWidget,
+                  child: MaterialUiThemeBridge(child: resultWidget),
                 );
               },
             ),
             supportedLocales: context.supportedLocales,
-            localizationsDelegates: context.localizationDelegates,
+            localizationsDelegates: [
+              ...context.localizationDelegates,
+              // flex_color_picker 4.x and cached_network_image 4.x use the
+              // decoupled Material library. Its localization type is distinct
+              // from flutter/material.dart and must be registered alongside it.
+              material.GlobalMaterialLocalizations.delegate,
+            ],
             initialRoute: showSplashPage ? RoutePath.kSplash : RoutePath.kInitial,
             defaultTransition: Transition.native,
             routingCallback: (routing) {

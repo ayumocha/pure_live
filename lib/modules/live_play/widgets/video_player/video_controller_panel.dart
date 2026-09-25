@@ -1,3 +1,5 @@
+import 'package:pure_live/common/utils/play_quality_label.dart';
+
 import 'dart:io';
 import 'dart:async';
 
@@ -7,22 +9,25 @@ import 'package:remixicon/remixicon.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/plugins/event_bus.dart';
 import 'package:flame_barrage/flame_barrage.dart';
-import 'package:pure_live/common/consts/app_consts.dart';
 import 'package:pure_live/common/utils/live_url_tool.dart';
 import 'package:pure_live/common/global/platform_utils.dart';
-import 'package:scrollview_observer/scrollview_observer.dart';
 import 'package:pure_live/modules/live_play/states/load_type.dart';
-import 'package:pure_live/player/core/portrait_stream_support.dart';
+import 'package:pure_live/modules/live_play/states/ui_state.dart';
 import 'package:pure_live/modules/live_play/dialogs/play_other.dart';
-import 'package:pure_live/core/iptv/local/database.dart' as database;
 import 'package:pure_live/modules/live_play/controllers/player_state.dart';
 import 'package:pure_live/modules/live_play/pages/danmaku_settings_page.dart';
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 import 'package:pure_live/modules/live_play/widgets/content_first_panel_layout.dart';
 import 'package:pure_live/modules/live_play/widgets/video_player/volume_control.dart';
 import 'package:pure_live/modules/live_play/widgets/video_player/video_controller.dart';
+import 'package:pure_live/modules/live_play/widgets/video_player/portrait_playback_picker_dialog.dart';
+import 'package:pure_live/modules/live_play/widgets/video_player/iptv_schedule_dialog.dart';
 import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_settings_binding.dart';
 import 'package:pure_live/modules/live_play/widgets/local_interaction/local_danmaku_style_editor.dart';
+import 'package:pure_live/player/core/portrait_stream_support.dart';
+import 'package:pure_live/modules/live_play/widgets/layout/portrait_fullscreen_interaction.dart';
+import 'package:pure_live/modules/live_play/widgets/layout/bottom_control_surface.dart';
+import 'package:pure_live/modules/live_play/widgets/layout/control_hover_region.dart';
 
 @visibleForTesting
 enum TopActionLeadingSlot { back, datetime, battery }
@@ -61,6 +66,36 @@ List<TopActionTrailingSlot> resolveTopActionTrailingSlots({
   ];
 }
 
+/// The full-surface gesture layer sits below the visible controller bars, but
+/// platform accessibility/input bridges can still deliver a tap to that layer
+/// while a control is animating. Never reinterpret a tap inside either bar as
+/// an on-video danmaku interaction. This also protects the audio/cast/PiP and
+/// quality/fullscreen actions from opening a danmaku action sheet instead.
+@visibleForTesting
+bool shouldHandleVideoSurfaceTap({
+  required Offset localPosition,
+  required Size surfaceSize,
+  required bool controlsVisible,
+  double controlBarHeight = 56,
+}) {
+  if (!controlsVisible || surfaceSize.height <= 0) return true;
+  final guardedHeight = controlBarHeight.clamp(0.0, surfaceSize.height / 2).toDouble();
+  return localPosition.dy > guardedHeight && localPosition.dy < surfaceSize.height - guardedHeight;
+}
+
+const double portraitFullscreenBottomBarHeight = portraitFullscreenControlsHeight;
+
+@visibleForTesting
+String fullscreenActionLabelKey(bool expanded) => expanded ? 'exit_fullscreen' : 'enter_fullscreen';
+
+@visibleForTesting
+String playerWindowActionLabelKey(bool expanded) => expanded ? 'collapse_player_window' : 'expand_player_window';
+
+@visibleForTesting
+double resolveBottomActionBarHeight(VideoMode screenMode, {double regularHeight = 56}) {
+  return screenMode == VideoMode.portraitFullscreen ? portraitFullscreenBottomBarHeight : regularHeight;
+}
+
 class VideoControllerPanel extends StatefulWidget {
   final VideoController controller;
 
@@ -72,7 +107,8 @@ class VideoControllerPanel extends StatefulWidget {
 
 class _VideoControllerPanelState extends State<VideoControllerPanel> {
   static const barHeight = 56.0;
-  Offset? _lastTapPosition;
+  Offset? _lastTapGlobalPosition;
+  Offset? _lastTapLocalPosition;
 
   VideoController get controller => widget.controller;
 
@@ -93,6 +129,8 @@ class _VideoControllerPanelState extends State<VideoControllerPanel> {
         child: Obx(() {
           final double currentVolume = controller.currentVolume.value;
           final int percentage = (currentVolume * 100).round();
+          final screenMode = controller.livePlayController.state.value.ui.screenMode;
+          final bottomBarHeight = resolveBottomActionBarHeight(screenMode, regularHeight: barHeight);
 
           final IconData iconData = currentVolume <= 0
               ? Icons.volume_mute
@@ -156,10 +194,26 @@ class _VideoControllerPanelState extends State<VideoControllerPanel> {
                   );
                 }),
                 GestureDetector(
-                  onTapDown: (details) => _lastTapPosition = details.globalPosition,
+                  onTapDown: (details) {
+                    _lastTapGlobalPosition = details.globalPosition;
+                    _lastTapLocalPosition = details.localPosition;
+                  },
                   onTap: () {
-                    final position = _lastTapPosition;
-                    if (position != null && controller.handleDanmakuPointer(position, longPress: false)) return;
+                    final globalPosition = _lastTapGlobalPosition;
+                    final localPosition = _lastTapLocalPosition;
+                    if (localPosition != null &&
+                        !shouldHandleVideoSurfaceTap(
+                          localPosition: localPosition,
+                          surfaceSize: context.size ?? Size.zero,
+                          controlsVisible: controller.showController.value,
+                          controlBarHeight: bottomBarHeight,
+                        )) {
+                      controller.enableController();
+                      return;
+                    }
+                    if (globalPosition != null && controller.handleDanmakuPointer(globalPosition, longPress: false)) {
+                      return;
+                    }
                     // A buffering/paused player must not swallow the only way
                     // to reveal its controls. Always expose the action bar; a
                     // tap on a paused surface keeps the historical resume
@@ -170,6 +224,15 @@ class _VideoControllerPanelState extends State<VideoControllerPanel> {
                     }
                   },
                   onLongPressStart: (details) {
+                    if (!shouldHandleVideoSurfaceTap(
+                      localPosition: details.localPosition,
+                      surfaceSize: context.size ?? Size.zero,
+                      controlsVisible: controller.showController.value,
+                      controlBarHeight: bottomBarHeight,
+                    )) {
+                      controller.enableController();
+                      return;
+                    }
                     controller.handleDanmakuPointer(details.globalPosition, longPress: true);
                   },
                   onDoubleTap: () {
@@ -182,8 +245,13 @@ class _VideoControllerPanelState extends State<VideoControllerPanel> {
                   child: BrightnessVolumnDargArea(controller: controller),
                 ),
                 LockButton(controller: controller),
+                const PortraitStreamDiagnosticsBadge(),
                 TopActionBar(controller: controller, barHeight: barHeight),
-                BottomActionBar(controller: controller, barHeight: barHeight),
+                BottomActionBar(
+                  controller: controller,
+                  barHeight: bottomBarHeight,
+                  portraitFullscreen: screenMode == VideoMode.portraitFullscreen,
+                ),
               ],
             ),
           );
@@ -235,310 +303,149 @@ class TopActionBar extends StatelessWidget {
         right: 0,
         height: barHeight,
         duration: const Duration(milliseconds: 300),
-        child: Container(
-          height: barHeight,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [Colors.transparent, Colors.black45],
+        child: ControlHoverRegion(
+          enabled: controller.showController.value && !controller.showLocked.value,
+          onEnter: controller.onMouseEnterController,
+          onExit: controller.onMouseExitController,
+          child: Container(
+            height: barHeight,
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Colors.transparent, Colors.black45],
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              for (final slot in resolveTopActionLeadingSlots(
-                fullscreen: GlobalPlayerState.to.fullscreenUI,
-                android: PlatformUtils.isAndroid,
-              ))
-                switch (slot) {
-                  TopActionLeadingSlot.back => BackButton(controller: controller),
-                  TopActionLeadingSlot.datetime => const DatetimeInfo(key: ValueKey('fullscreen-leading-time')),
-                  TopActionLeadingSlot.battery => BatteryInfo(
-                    key: const ValueKey('fullscreen-leading-battery'),
-                    controller: controller,
-                  ),
-                },
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        controller.room.title!,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.t16.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          decoration: TextDecoration.none,
-                        ),
-                      ),
-                      if (controller.room.currentProgramme != null && controller.room.currentProgramme!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
+            child: Row(
+              children: [
+                for (final slot in resolveTopActionLeadingSlots(
+                  fullscreen: GlobalPlayerState.to.fullscreenUI,
+                  android: PlatformUtils.isAndroid,
+                ))
+                  switch (slot) {
+                    TopActionLeadingSlot.back => BackButton(controller: controller),
+                    TopActionLeadingSlot.datetime => const DatetimeInfo(key: ValueKey('fullscreen-leading-time')),
+                    TopActionLeadingSlot.battery => BatteryInfo(
+                      key: const ValueKey('fullscreen-leading-battery'),
+                      controller: controller,
+                    ),
+                  },
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          "${i18n('now_playing')}: ${controller.room.currentProgramme!}",
+                          _liveRoomTitle(controller.room),
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.85),
+                          style: AppTextStyles.t16.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
                             decoration: TextDecoration.none,
                           ),
                         ),
+                        if (_liveProgramme(controller.room) case final programme?) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            "${i18n('now_playing')}: $programme",
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
 
-              if (controller.room.platform == Sites.iptvSite)
-                IconButton(
-                  icon: const Icon(Icons.assignment_outlined), // 节目单账本图标
-                  tooltip: i18n('view_schedule'),
-                  color: Colors.white,
-                  onPressed: () async {
-                    Get.dialog(
-                      AlertDialog(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        contentPadding: EdgeInsets.zero,
-                        content: _buildFullSchedulePanel(),
-                      ),
-                    );
-                  },
-                ),
-              for (final slot in resolveTopActionTrailingSlots(
-                fullscreen: GlobalPlayerState.to.fullscreenUI,
-                android: PlatformUtils.isAndroid,
-                windows: PlatformUtils.isWindows,
-              ))
-                switch (slot) {
-                  TopActionTrailingSlot.roomHistory => IconButton(
-                    key: const ValueKey('fullscreen-room-history'),
-                    icon: const Icon(Icons.swap_horiz_outlined),
-                    tooltip: i18n('switch_live_room'),
+                if (controller.room.platform == Sites.iptvSite)
+                  IconButton(
+                    icon: const Icon(Icons.assignment_outlined), // 节目单账本图标
+                    tooltip: i18n('view_schedule'),
+                    visualDensity: VisualDensity.standard,
+                    constraints: const BoxConstraints(
+                      minWidth: kMinInteractiveDimension,
+                      minHeight: kMinInteractiveDimension,
+                    ),
                     color: Colors.white,
-                    onPressed: () {
-                      Get.dialog(PlayOther(controller: Get.find<LivePlayController>()));
-                    },
-                    style: IconButton.styleFrom(backgroundColor: Colors.black26),
+                    onPressed: () => _showSchedule(context),
                   ),
-                  TopActionTrailingSlot.datetime => const DatetimeInfo(),
-                  TopActionTrailingSlot.battery => BatteryInfo(controller: controller),
-                  TopActionTrailingSlot.audioOnly => AudioOnlyButton(
-                    key: const ValueKey('playback-action-audio-only'),
-                    controller: controller,
-                  ),
-                  TopActionTrailingSlot.cast => CastButton(
-                    key: const ValueKey('playback-action-cast'),
-                    controller: controller,
-                  ),
-                  TopActionTrailingSlot.pip => PIPButton(
-                    key: GlobalPlayerState.to.fullscreenUI
-                        ? const ValueKey('fullscreen-pip-shortcut')
-                        : const ValueKey('playback-action-pip'),
-                    controller: controller,
-                  ),
-                },
-            ],
+                for (final slot in resolveTopActionTrailingSlots(
+                  fullscreen: GlobalPlayerState.to.fullscreenUI,
+                  android: PlatformUtils.isAndroid,
+                  windows: PlatformUtils.isWindows,
+                ))
+                  switch (slot) {
+                    TopActionTrailingSlot.roomHistory => IconButton(
+                      key: const ValueKey('fullscreen-room-history'),
+                      icon: const Icon(Icons.swap_horiz_outlined),
+                      tooltip: i18n('switch_live_room'),
+                      visualDensity: VisualDensity.standard,
+                      constraints: const BoxConstraints(
+                        minWidth: kMinInteractiveDimension,
+                        minHeight: kMinInteractiveDimension,
+                      ),
+                      color: Colors.white,
+                      onPressed: () {
+                        unawaited(
+                          showDialog<void>(
+                            context: context,
+                            builder: (_) => PlayOther(controller: controller.livePlayController),
+                          ),
+                        );
+                      },
+                      style: IconButton.styleFrom(backgroundColor: Colors.black26),
+                    ),
+                    TopActionTrailingSlot.datetime => const DatetimeInfo(),
+                    TopActionTrailingSlot.battery => BatteryInfo(controller: controller),
+                    TopActionTrailingSlot.audioOnly => AudioOnlyButton(
+                      key: const ValueKey('playback-action-audio-only'),
+                      controller: controller,
+                    ),
+                    TopActionTrailingSlot.cast => CastButton(
+                      key: const ValueKey('playback-action-cast'),
+                      controller: controller,
+                    ),
+                    TopActionTrailingSlot.pip => PIPButton(
+                      key: GlobalPlayerState.to.fullscreenUI
+                          ? const ValueKey('fullscreen-pip-shortcut')
+                          : const ValueKey('playback-action-pip'),
+                      controller: controller,
+                    ),
+                  },
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildFullSchedulePanel() {
-    final now = controller.room.catchUpStart != null
-        ? DateTime.fromMillisecondsSinceEpoch(controller.room.catchUpStart!)
-        : DateTime.now();
-    final theme = Theme.of(Get.context!);
-    final screenSize = MediaQuery.of(Get.context!).size;
-
-    final double dialogWidth = screenSize.width > 600 ? 460.0 : screenSize.width * 0.88;
-    final double dialogHeight = screenSize.height > 800 ? 550.0 : screenSize.height * 0.65;
-    controller.hasScrolledToLive = false;
-    return Container(
-      width: dialogWidth,
-      height: dialogHeight,
-      decoration: BoxDecoration(color: DialogTheme().backgroundColor, borderRadius: BorderRadius.circular(20)),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 20, bottom: 12, left: 24, right: 16),
-            child: Row(
-              children: [
-                Icon(Remix.calendar_todo_line, size: 22, color: theme.colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    i18n('channel_schedule'),
-                    style: AppTextStyles.t15.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: theme.textTheme.titleLarge?.color,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.of(Get.context!).pop(),
-                  icon: const Icon(Remix.close_line, size: 20),
-                  splashRadius: 20,
-                  color: theme.hintColor,
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, thickness: 0.5),
-          Expanded(
-            child: Obx(() {
-              if (controller.currentChannelSchedule.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Remix.inbox_line, size: 40, color: theme.hintColor.withValues(alpha: 0.4)),
-                      const SizedBox(height: 12),
-                      Text(i18n('no_upcoming_programs'), style: AppTextStyles.t13.copyWith(color: theme.hintColor)),
-                    ],
-                  ),
-                );
-              }
-              final int liveIndex = controller.currentChannelSchedule.indexWhere((p) {
-                final pStart = p.start.toLocal();
-                final pStop = p.stop.toLocal();
-                return !now.isBefore(pStart) && !now.isAfter(pStop);
-              });
-              if (liveIndex != -1) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  Future.delayed(const Duration(milliseconds: 20), () {
-                    if (controller.scheduleScrollController.hasClients) {
-                      final int totalItems = controller.currentChannelSchedule.length;
-
-                      int targetIndex = liveIndex;
-                      if (totalItems < 8) {
-                        targetIndex = 0;
-                      } else if (liveIndex >= totalItems - 4) {
-                        targetIndex = totalItems - 1;
-                      } else if (liveIndex >= 3) {
-                        targetIndex = liveIndex - 3;
-                      }
-                      controller.scheduleObserverController.animateTo(
-                        index: targetIndex,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    }
-                  });
-                });
-              }
-
-              return ListViewObserver(
-                controller: controller.scheduleObserverController,
-                child: ListView.builder(
-                  controller: controller.scheduleScrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  physics: const PureLiveScrollPhysics(),
-                  itemCount: controller.currentChannelSchedule.length,
-                  itemBuilder: (context, index) {
-                    final prog = controller.currentChannelSchedule[index];
-                    final isCurrent = index == liveIndex; // Optimized matching via index comparison
-
-                    final activePrimary = theme.colorScheme.primary;
-                    final unselectedTextColor = theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.85);
-                    final secondaryTextColor = theme.textTheme.bodySmall?.color?.withValues(alpha: 0.5);
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Material(
-                        type: MaterialType.card,
-
-                        color: isCurrent ? activePrimary.withValues(alpha: 0.06) : Colors.transparent,
-                        clipBehavior: Clip.antiAlias,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: isCurrent ? activePrimary.withValues(alpha: 0.15) : Colors.transparent,
-                            width: 1,
-                          ),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                          dense: true,
-                          onTap: () => controller.onProgrammeTapped(prog),
-                          leading: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isCurrent
-                                  ? activePrimary.withValues(alpha: 0.1)
-                                  : theme.cardColor.withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              "${prog.start.hour.toString().padLeft(2, '0')}:${prog.start.minute.toString().padLeft(2, '0')}",
-                              style: AppTextStyles.t13.copyWith(
-                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
-                                color: isCurrent ? activePrimary : secondaryTextColor,
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            prog.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.t14.copyWith(
-                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                              color: isCurrent ? activePrimary : unselectedTextColor,
-                            ),
-                          ),
-                          trailing: isCurrent
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: activePrimary,
-                                    borderRadius: BorderRadius.circular(6),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: activePrimary.withValues(alpha: 0.3),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Remix.live_line, size: 11, color: Colors.white),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        i18n('live_tag'),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : _buildHistoryTag(prog, theme),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHistoryTag(database.EpgProgramme prog, ThemeData theme) {
-    final now = DateTime.now();
-    if (prog.stop.isBefore(now)) {
-      return Icon(Remix.history_line, size: 16, color: theme.hintColor.withValues(alpha: 0.6));
+  Future<void> _showSchedule(BuildContext context) async {
+    if (controller.isMenuOpen.value) return;
+    controller.isMenuOpen.value = true;
+    controller.stopHideController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          contentPadding: EdgeInsets.zero,
+          content: IptvScheduleDialogContent(controller: controller),
+        ),
+      );
+    } finally {
+      if (controller.status != PlayerStatus.disposed) {
+        controller.isMenuOpen.value = false;
+        controller.enableController();
+      }
     }
-    return const SizedBox.shrink();
   }
 }
 
@@ -563,8 +470,8 @@ class _DatetimeInfoState extends State<DatetimeInfo> {
 
   @override
   void dispose() {
-    super.dispose();
     refreshDateTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -634,15 +541,13 @@ class BackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => GlobalPlayerState.to.isWindowFullscreen.value
+    return IconButton(
+      tooltip: i18n('exit_fullscreen'),
+      onPressed: () => GlobalPlayerState.to.isWindowFullscreen.value
           ? controller.toggleWindowFullScreen()
           : controller.toggleFullScreen(),
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.all(12),
-        child: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-      ),
+      constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
     );
   }
 }
@@ -654,16 +559,198 @@ class PIPButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: i18n('float_window_play'),
-      color: Colors.white,
-      onPressed: () {
-        GlobalPlayerService.instance.player.enablePip();
-      },
-      icon: const Icon(CustomIcons.float_window),
-    );
+    final service = GlobalPlayerService.instance;
+    if (!service.initialized) {
+      return IconButton(
+        tooltip: i18n('float_window_play'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        color: Colors.white,
+        onPressed: null,
+        icon: const Icon(CustomIcons.float_window),
+      );
+    }
+    final manager = service.player;
+    return Obx(() {
+      return IconButton(
+        tooltip: i18n('float_window_play'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        color: Colors.white,
+        onPressed: manager.isPipPreparing.value
+            ? null
+            : () async {
+                try {
+                  await manager.enablePip();
+                } catch (_) {
+                  ToastUtil.show(i18n('pip_enter_failed'));
+                }
+              },
+        icon: const Icon(CustomIcons.float_window),
+      );
+    });
   }
 }
+
+class PortraitOrientationButton extends StatelessWidget {
+  const PortraitOrientationButton({super.key, required this.controller});
+
+  final VideoController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final settings = SettingsService.to.player;
+      final selected = settings.portraitOverrideForRoom(controller.room);
+      final icon = switch (selected) {
+        PortraitOrientationOverride.automatic => Icons.screen_rotation_alt_rounded,
+        PortraitOrientationOverride.portrait => Icons.stay_current_portrait_rounded,
+        PortraitOrientationOverride.landscape => Icons.stay_current_landscape_rounded,
+      };
+      return IconButton(
+        key: const ValueKey('portrait-orientation-override'),
+        tooltip: i18n('portrait_room_override'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        color: selected == PortraitOrientationOverride.automatic ? Colors.white : const Color(0xFFFFD166),
+        onPressed: () => _showPicker(context, selected),
+        icon: Icon(icon, size: 21),
+      );
+    });
+  }
+
+  Future<void> _showPicker(BuildContext context, PortraitOrientationOverride selected) async {
+    controller.isMenuOpen.value = true;
+    controller.stopHideController();
+    try {
+      final settings = SettingsService.to.player;
+      final result = await showDialog<PortraitOrientationPickerResult>(
+        context: context,
+        builder: (dialogContext) =>
+            PortraitOrientationPickerDialog(selected: selected, remember: settings.rememberPortraitRoomOverride.v),
+      );
+      if (result != null) {
+        settings.rememberPortraitRoomOverride.v = result.remember;
+        settings.setPortraitOverrideForRoom(controller.room, result.orientation, remember: result.remember);
+        GlobalPlayerService.instance.player.refreshPortraitPresentationPolicy();
+      }
+    } finally {
+      if (controller.status != PlayerStatus.disposed) {
+        controller.isMenuOpen.value = false;
+        controller.enableController();
+      }
+    }
+  }
+}
+
+/// A portrait-fullscreen-only display selector. Keeping it beside the existing
+/// orientation override makes the distinction explicit: one decides what the
+/// source is, while this control decides how a confirmed portrait source uses
+/// the remaining phone surface.
+class PortraitFullscreenDisplayModeButton extends StatelessWidget {
+  const PortraitFullscreenDisplayModeButton({super.key, required this.controller});
+
+  final VideoController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final manager = GlobalPlayerService.instance.player;
+      final screenMode = controller.livePlayController.state.value.ui.screenMode;
+      if (screenMode != VideoMode.portraitFullscreen || !manager.isVerticalVideo.value) {
+        return const SizedBox.shrink();
+      }
+      final selected = SettingsService.to.player.portraitFullscreenDisplayMode;
+      return IconButton(
+        key: const ValueKey('portrait-fullscreen-display-mode'),
+        tooltip: i18n('portrait_fullscreen_display_mode'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        color: selected == PortraitFullscreenDisplayMode.ambient ? Colors.white : const Color(0xFFFFD166),
+        onPressed: () => _showPicker(context, selected),
+        icon: Icon(portraitFullscreenDisplayModeIcon(selected), size: 21),
+      );
+    });
+  }
+
+  Future<void> _showPicker(BuildContext context, PortraitFullscreenDisplayMode selected) async {
+    controller.isMenuOpen.value = true;
+    controller.stopHideController();
+    try {
+      final value = await showDialog<PortraitFullscreenDisplayMode>(
+        context: context,
+        builder: (dialogContext) => PortraitFullscreenDisplayModePickerDialog(selected: selected),
+      );
+      if (value != null) {
+        SettingsService.to.player.portraitFullscreenDisplayModeName.v = value.name;
+      }
+    } finally {
+      if (controller.status != PlayerStatus.disposed) {
+        controller.isMenuOpen.value = false;
+        controller.enableController();
+      }
+    }
+  }
+}
+
+class PortraitStreamDiagnosticsBadge extends StatelessWidget {
+  const PortraitStreamDiagnosticsBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final settings = SettingsService.to.player;
+      if (!settings.showPortraitDiagnostics.v) return const SizedBox.shrink();
+      final manager = GlobalPlayerService.instance.player;
+      final geometry = manager.videoGeometry.value;
+      final roomOverride = settings.portraitOverrideForRoom(manager.currentFloatRoom);
+      final orientation = manager.effectiveVideoOrientation;
+      final pending = geometry.candidateOrientation != geometry.orientation;
+      final ratio = geometry.hasValidDimensions ? geometry.aspectRatio.toStringAsFixed(3) : '--';
+      final effectiveRatio = geometry.hasValidDimensions ? geometry.effectiveAspectRatio.toStringAsFixed(3) : '--';
+      final evidence = geometry.evidence.name;
+      final state = pending ? '${_orientationLabel(geometry.candidateOrientation)}…' : _orientationLabel(orientation);
+      final observedAt = geometry.observedAt;
+      final observedTime = observedAt == null
+          ? '--:--:--'
+          : '${observedAt.hour.toString().padLeft(2, '0')}:'
+                '${observedAt.minute.toString().padLeft(2, '0')}:'
+                '${observedAt.second.toString().padLeft(2, '0')}';
+      return Positioned(
+        key: const ValueKey('portrait-stream-diagnostics'),
+        top: 62,
+        left: 12,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+              child: Text(
+                '${geometry.width > 0 ? geometry.width : '--'}×${geometry.height > 0 ? geometry.height : '--'}  '
+                '$ratio→$effectiveRatio  $state  ${_overrideLabel(roomOverride)}\n'
+                '$evidence  C${(geometry.confidence * 100).round()}%  S${geometry.stableSampleCount}  $observedTime',
+                style: const TextStyle(color: Colors.white, fontSize: 11, decoration: TextDecoration.none),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+String _orientationLabel(VideoSourceOrientation value) => switch (value) {
+  VideoSourceOrientation.portrait => i18n('portrait_orientation_portrait'),
+  VideoSourceOrientation.landscape => i18n('portrait_orientation_landscape'),
+  VideoSourceOrientation.square => i18n('portrait_orientation_square'),
+  VideoSourceOrientation.unknown => i18n('portrait_orientation_unknown'),
+};
+
+String _overrideLabel(PortraitOrientationOverride value) => switch (value) {
+  PortraitOrientationOverride.automatic => i18n('portrait_override_auto'),
+  PortraitOrientationOverride.portrait => i18n('portrait_override_portrait'),
+  PortraitOrientationOverride.landscape => i18n('portrait_override_landscape'),
+};
 
 // Center widgets
 class DanmakuViewer extends StatelessWidget {
@@ -735,11 +822,8 @@ class BrightnessVolumnDargAreaState extends State<BrightnessVolumnDargArea> {
   bool _hideBVStuff = true;
   bool _isDargLeft = true;
   double _updateDargVarVal = 1.0;
-
-  @override
-  void initState() {
-    super.initState();
-  }
+  bool _portraitRestoreGesture = false;
+  double _portraitRestoreDistance = 0;
 
   @override
   void dispose() {
@@ -747,23 +831,16 @@ class BrightnessVolumnDargAreaState extends State<BrightnessVolumnDargArea> {
     super.dispose();
   }
 
-  void updateVolumn(double? volume) {
-    _isDargLeft = false;
-    _cancelAndRestartHideBVTimer();
-    setState(() {
-      _updateDargVarVal = volume!;
-    });
-  }
-
   void _cancelAndRestartHideBVTimer() {
+    if (!mounted) return;
     _hideBVTimer?.cancel();
     _hideBVTimer = Timer(const Duration(seconds: 1), () {
-      setState(() => _hideBVStuff = true);
+      if (mounted) setState(() => _hideBVStuff = true);
     });
     setState(() => _hideBVStuff = false);
   }
 
-  void _onVerticalDragUpdate(Offset position, Offset delta) async {
+  Future<void> _onVerticalDragUpdate(Offset position, Offset delta) async {
     if (controller.showLocked.value) return;
 
     if (delta.distance < 0.5) return;
@@ -778,17 +855,25 @@ class BrightnessVolumnDargAreaState extends State<BrightnessVolumnDargArea> {
 
     if (_hideBVStuff || _isDargLeft != dargLeft) {
       _isDargLeft = dargLeft;
-      if (_isDargLeft) {
-        if (PlatformUtils.isMobile) {
-          double v = await controller.brightness();
-          setState(() => _updateDargVarVal = v);
+      try {
+        if (_isDargLeft) {
+          if (PlatformUtils.isMobile) {
+            final v = await controller.brightness();
+            if (!mounted || _isDargLeft != dargLeft) return;
+            setState(() => _updateDargVarVal = v);
+          }
+        } else {
+          final v = await controller.volume();
+          if (!mounted || _isDargLeft != dargLeft) return;
+          setState(() => _updateDargVarVal = v ?? 1.0);
         }
-      } else {
-        double? v = await controller.volume();
-        setState(() => _updateDargVarVal = v ?? 1.0);
+      } catch (error) {
+        debugPrint('Read brightness/volume for drag failed: $error');
+        return;
       }
     }
 
+    if (!mounted || _isDargLeft != dargLeft) return;
     _cancelAndRestartHideBVTimer();
 
     double sensitivity = 0.25;
@@ -800,12 +885,40 @@ class BrightnessVolumnDargAreaState extends State<BrightnessVolumnDargArea> {
 
     if ((dragRange - _updateDargVarVal).abs() > 0.001) {
       if (_isDargLeft) {
-        controller.setBrightness(dragRange);
+        unawaited(controller.setBrightness(dragRange));
       } else {
-        controller.setVolume(dragRange);
+        unawaited(controller.setVolume(dragRange));
       }
       setState(() => _updateDargVarVal = dragRange);
     }
+  }
+
+  void _onVerticalDragStart(DragStartDetails details) {
+    final size = context.size ?? MediaQuery.sizeOf(context);
+    _portraitRestoreGesture =
+        controller.livePlayController.state.value.ui.screenMode == VideoMode.portraitFullscreen &&
+        details.localPosition.dy >= size.height - portraitFullscreenRestoreGestureZone;
+    _portraitRestoreDistance = 0;
+  }
+
+  void _onVerticalDragDetails(DragUpdateDetails details) {
+    if (_portraitRestoreGesture) {
+      _portraitRestoreDistance = (_portraitRestoreDistance - details.delta.dy).clamp(0.0, double.infinity).toDouble();
+      return;
+    }
+    unawaited(_onVerticalDragUpdate(details.localPosition, details.delta));
+  }
+
+  void _onVerticalDragEnd(DragEndDetails details) {
+    final shouldRestore =
+        _portraitRestoreGesture &&
+        shouldRestorePortraitPanelFromSwipe(
+          upwardDistance: _portraitRestoreDistance,
+          velocity: details.primaryVelocity ?? 0,
+        );
+    _portraitRestoreGesture = false;
+    _portraitRestoreDistance = 0;
+    if (shouldRestore) unawaited(controller.exitPortraitFullScreen());
   }
 
   @override
@@ -830,11 +943,17 @@ class BrightnessVolumnDargAreaState extends State<BrightnessVolumnDargArea> {
     return Listener(
       onPointerSignal: (event) {
         if (event is PointerScrollEvent) {
-          _onVerticalDragUpdate(event.localPosition, event.scrollDelta);
+          unawaited(_onVerticalDragUpdate(event.localPosition, event.scrollDelta));
         }
       },
       child: GestureDetector(
-        onVerticalDragUpdate: (details) => _onVerticalDragUpdate(details.localPosition, details.delta),
+        onVerticalDragStart: _onVerticalDragStart,
+        onVerticalDragUpdate: _onVerticalDragDetails,
+        onVerticalDragEnd: _onVerticalDragEnd,
+        onVerticalDragCancel: () {
+          _portraitRestoreGesture = false;
+          _portraitRestoreDistance = 0;
+        },
         child: Container(
           color: Colors.transparent,
           alignment: Alignment.center,
@@ -897,7 +1016,8 @@ class LockButton extends StatelessWidget {
             child: Container(
               margin: const EdgeInsets.only(right: 20.0),
               child: IconButton(
-                onPressed: () => {controller.showLocked.toggle()},
+                tooltip: i18n(controller.showLocked.value ? 'unlock_player_controls' : 'lock_player_controls'),
+                onPressed: controller.showLocked.toggle,
                 icon: Icon(controller.showLocked.value ? Icons.lock_rounded : Icons.lock_open_rounded, size: 28),
                 color: Colors.white,
                 style: IconButton.styleFrom(
@@ -914,352 +1034,14 @@ class LockButton extends StatelessWidget {
   }
 }
 
-class LineSelectorButton extends StatelessWidget {
-  const LineSelectorButton({super.key, required this.controller});
-
-  final VideoController controller;
-
-  void _showMobileDialog(BuildContext context) {
-    controller.isMenuOpen.value = true;
-    controller.stopHideController();
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        insetPadding: const EdgeInsets.all(16.0),
-        clipBehavior: Clip.hardEdge,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400, maxHeight: 300),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 10, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(i18n("select_line"), style: Theme.of(context).textTheme.titleMedium),
-                    IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => Navigator.of(context).pop()),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Obx(
-                  () => ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    itemCount: controller.livePlayController.state.value.player.playUrls.length,
-                    itemBuilder: (context, index) {
-                      final isSelected = index == controller.livePlayController.state.value.player.currentLineIndex;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6.0),
-                        child: Center(
-                          child: InkWell(
-                            onTap: () {
-                              controller.livePlayController.setResolution(
-                                ReloadDataType.changeLine,
-                                controller.livePlayController.state.value.player.currentQuality,
-                                index,
-                              );
-                              Navigator.of(context).pop();
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Container(
-                                width: double.infinity, // 设定按钮固定宽度
-                                height: 38, // 设定按钮高度
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Get.theme.colorScheme.primary
-                                      : Get.theme.colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  i18n("toolbox_line", args: {"index": (index + 1).toString()}),
-                                  style: AppTextStyles.t15.copyWith(color: isSelected ? Colors.white : null),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(i18n('cancel')))],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) {
-      controller.isMenuOpen.value = false;
-      controller.enableController();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Obx(() {
-      if (controller.livePlayController.state.value.player.playUrls.isEmpty) return const SizedBox.shrink();
-      final bool isMobile =
-          Theme.of(context).platform == TargetPlatform.android || Theme.of(context).platform == TargetPlatform.iOS;
-
-      if (isMobile) {
-        return GestureDetector(onTap: () => _showMobileDialog(context), child: _buildButtonChild());
-      }
-
-      const double itemHeight = 40.0;
-      final double totalMenuHeight =
-          (controller.livePlayController.state.value.player.playUrls.length * itemHeight) + 32;
-      return PopupMenuButton<int>(
-        position: PopupMenuPosition.over,
-        offset: Offset(30, -totalMenuHeight),
-        constraints: const BoxConstraints(minWidth: 110, maxWidth: 110),
-        onOpened: () {
-          controller.isMenuOpen.value = true;
-          controller.stopHideController();
-        },
-        onSelected: (index) {
-          controller.isMenuOpen.value = false;
-          controller.livePlayController.setResolution(
-            ReloadDataType.changeLine,
-            controller.livePlayController.state.value.player.currentQuality,
-            index,
-          );
-          controller.enableController();
-        },
-        onCanceled: () {
-          controller.isMenuOpen.value = false;
-          controller.enableController();
-        },
-        color: Colors.black.withValues(alpha: 0.85),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: const BorderSide(color: Colors.white10),
-        ),
-        child: _buildButtonChild(),
-        itemBuilder: (context) =>
-            List.generate(controller.livePlayController.state.value.player.playUrls.length, (index) {
-              final isSelected = index == controller.livePlayController.state.value.player.currentLineIndex;
-              return PopupMenuItem(
-                value: index,
-                height: itemHeight,
-                child: Center(
-                  child: Text(
-                    i18n("toolbox_line", args: {"index": (index + 1).toString()}),
-                    style: AppTextStyles.t13.copyWith(color: isSelected ? Get.theme.colorScheme.primary : Colors.white),
-                  ),
-                ),
-              );
-            }),
-      );
-    });
-  }
-
-  Widget _buildButtonChild() {
-    return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(
-        i18n(
-          "toolbox_line",
-          args: {"index": (controller.livePlayController.state.value.player.currentLineIndex + 1).toString()},
-        ),
-        style: AppTextStyles.t13.copyWith(color: Colors.white),
-      ),
-    );
-  }
-}
-
-class ResolutionSelectorButton extends StatelessWidget {
-  const ResolutionSelectorButton({super.key, required this.controller});
-
-  final VideoController controller;
-
-  void _showMobileDialog(BuildContext context) {
-    controller.isMenuOpen.value = true;
-    controller.stopHideController();
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        insetPadding: const EdgeInsets.all(16.0),
-        clipBehavior: Clip.hardEdge,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 10, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(i18n("select_quality"), style: Theme.of(context).textTheme.titleMedium),
-                    IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => Navigator.of(context).pop()),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Obx(
-                  () => ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    itemCount: controller.livePlayController.state.value.player.qualites.length,
-                    itemBuilder: (context, index) {
-                      final isSelected = index == controller.livePlayController.state.value.player.currentQuality;
-                      final qualityName = controller.livePlayController.state.value.player.qualites[index].quality;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6.0),
-                        child: Center(
-                          child: InkWell(
-                            onTap: () {
-                              controller.livePlayController.setResolution(
-                                ReloadDataType.changeQuality,
-                                index,
-                                controller.livePlayController.state.value.player.currentLineIndex,
-                              );
-                              Navigator.of(context).pop();
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Container(
-                                width: double.infinity, // 独占一行宽度
-                                height: 38,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Get.theme.colorScheme.primary
-                                      : Get.theme.colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  qualityName,
-                                  style: AppTextStyles.t15.copyWith(color: isSelected ? Colors.white : null),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(i18n('cancel')))],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) {
-      controller.isMenuOpen.value = false;
-      controller.enableController();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Obx(() {
-      if (controller.livePlayController.state.value.player.qualites.isEmpty) return const SizedBox.shrink();
-
-      final bool isMobile =
-          Theme.of(context).platform == TargetPlatform.android || Theme.of(context).platform == TargetPlatform.iOS;
-
-      if (isMobile) {
-        return GestureDetector(onTap: () => _showMobileDialog(context), child: _buildButtonChild());
-      }
-
-      // Windows 桌面端样式
-      final qualityCount = controller.livePlayController.state.value.player.qualites.length;
-      const double itemHeight = 40.0;
-      final double totalMenuHeight = (qualityCount * itemHeight) + 32;
-
-      return PopupMenuButton<int>(
-        tooltip: i18n('toolbox_select_quality'),
-        position: PopupMenuPosition.over,
-        offset: Offset(15, -totalMenuHeight),
-        padding: EdgeInsets.zero,
-        onOpened: () {
-          controller.isMenuOpen.value = true;
-          controller.stopHideController();
-        },
-        onCanceled: () {
-          controller.isMenuOpen.value = false;
-          controller.enableController();
-        },
-        onSelected: (index) {
-          controller.isMenuOpen.value = false;
-          controller.livePlayController.setResolution(
-            ReloadDataType.changeQuality,
-            index,
-            controller.livePlayController.state.value.player.currentLineIndex,
-          );
-          controller.enableController();
-        },
-        color: Colors.black.withValues(alpha: 0.85),
-
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: const BorderSide(color: Colors.white10),
-        ),
-        child: _buildButtonChild(),
-        itemBuilder: (context) => List.generate(qualityCount, (index) {
-          final isSelected = index == controller.livePlayController.state.value.player.currentQuality;
-          return PopupMenuItem(
-            value: index,
-            height: itemHeight,
-            child: Center(
-              child: Text(
-                controller.livePlayController.state.value.player.qualites[index].quality,
-                style: AppTextStyles.t13.copyWith(color: isSelected ? Get.theme.colorScheme.primary : Colors.white),
-              ),
-            ),
-          );
-        }),
-      );
-    });
-  }
-
-  Widget _buildButtonChild() {
-    final currentIndex = controller.livePlayController.state.value.player.currentQuality;
-    final qualityName = controller.livePlayController.state.value.player.qualites[currentIndex].quality;
-    return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-      child: Text(qualityName, style: AppTextStyles.t13.copyWith(color: Colors.white)),
-    );
-  }
-}
-
 /// Compact fullscreen entry for quality and CDN-line selection. Both controls
 /// live in one landscape panel, avoiding two narrow menus competing for the
 /// bottom-right safe area.
 class FullscreenStreamSelectorButton extends StatelessWidget {
-  const FullscreenStreamSelectorButton({super.key, required this.controller});
+  const FullscreenStreamSelectorButton({super.key, required this.controller, this.compact = false});
 
   final VideoController controller;
+  final bool compact;
 
   Future<void> _showSelector(BuildContext context) async {
     final layout = resolveContentFirstPanelLayout(MediaQuery.sizeOf(context), ContentFirstPanelKind.streamSelector);
@@ -1272,32 +1054,45 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
           final live = controller.livePlayController;
           final state = live.state.value.player;
           final switching = live.playerController.isStreamSwitching.value;
+          final textTheme = Theme.of(dialogContext).textTheme;
+          final textMetrics = resolveStreamSelectorTextMetrics(
+            textScaler: MediaQuery.textScalerOf(dialogContext),
+            dialogTitleFontSize: textTheme.titleSmall?.fontSize ?? 14,
+            dialogTitleLineHeight: textTheme.titleSmall?.height ?? 1.25,
+            paneTitleFontSize: textTheme.labelLarge?.fontSize ?? 14,
+            paneTitleLineHeight: textTheme.labelLarge?.height ?? 1.25,
+            itemFontSize: textTheme.bodyMedium?.fontSize ?? 14,
+            itemLineHeight: textTheme.bodyMedium?.height ?? 1.25,
+          );
           final panelLayout = resolveStreamSelectorPanelLayout(
             maximumDialogSize: layout.size,
             qualityCount: state.qualites.length,
-            lineCount: state.playUrls.length,
+            lineCount: state.lineCount,
             splitContent: layout.splitContent,
+            textMetrics: textMetrics,
           );
-          final qualityPane = _StreamChoicePane(
+          final qualityPane = StreamChoicePane(
             key: const ValueKey('stream-quality-pane'),
             icon: Icons.high_quality_rounded,
             title: i18n('select_quality'),
             itemCount: state.qualites.length,
             selectedIndex: state.currentQuality,
             labelBuilder: (index) => state.qualites[index].quality,
+            textMetrics: textMetrics,
             onSelected: switching
                 ? null
                 : (index) async {
                     await live.setResolution(ReloadDataType.changeQuality, index, state.currentLineIndex);
                   },
           );
-          final linePane = _StreamChoicePane(
+          final linePane = StreamChoicePane(
             key: const ValueKey('stream-line-pane'),
             icon: Icons.alt_route_rounded,
             title: i18n('select_line'),
-            itemCount: state.playUrls.length,
+            itemCount: state.lineCount,
             selectedIndex: state.currentLineIndex,
             labelBuilder: (index) => i18n('toolbox_line', args: {'index': (index + 1).toString()}),
+            textMetrics: textMetrics,
             onSelected: switching
                 ? null
                 : (index) async {
@@ -1319,7 +1114,7 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
               child: Column(
                 children: [
                   SizedBox(
-                    height: 35,
+                    height: textMetrics.dialogTitleRowHeight,
                     child: Padding(
                       padding: const EdgeInsets.only(left: 9, right: 1),
                       child: Row(
@@ -1329,13 +1124,19 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
                           Expanded(
                             child: Text(
                               i18n('fullscreen_stream_settings'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: Theme.of(dialogContext).textTheme.titleSmall,
                             ),
                           ),
                           IconButton(
+                            key: const ValueKey('fullscreen-stream-selector-close'),
                             tooltip: i18n('close'),
-                            visualDensity: VisualDensity.compact,
-                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            visualDensity: VisualDensity.standard,
+                            constraints: const BoxConstraints.tightFor(
+                              width: contentFirstPanelHeaderActionExtent,
+                              height: contentFirstPanelHeaderActionExtent,
+                            ),
                             padding: EdgeInsets.zero,
                             onPressed: () => Navigator.pop(dialogContext),
                             icon: const Icon(Icons.close_rounded, size: 19),
@@ -1407,12 +1208,12 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
     return Obx(() {
       final live = controller.livePlayController;
       final state = live.state.value.player;
-      if (!live.state.value.room.success || state.qualites.isEmpty || state.playUrls.isEmpty) {
+      if (!live.state.value.room.success || state.qualites.isEmpty || !state.hasPlaybackSource) {
         return const SizedBox.shrink();
       }
       final switching = live.playerController.isStreamSwitching.value;
       final label =
-          '${state.qualitySafe.quality} · ${i18n('toolbox_line', args: {'index': '${state.currentLineIndex + 1}'})}';
+          '${state.qualitySafe.playbackLabel} · ${i18n('toolbox_line', args: {'index': '${state.currentLineIndex + 1}'})}';
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3),
         child: Material(
@@ -1422,29 +1223,32 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(18),
             onTap: switching ? null : () => unawaited(_showSelector(context)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  switching
-                      ? const SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.tune_rounded, size: 17, color: Colors.white),
-                  const SizedBox(width: 6),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 150),
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.t13.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 11),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    switching
+                        ? const SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.tune_rounded, size: 17, color: Colors.white),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: compact ? 90 : 150),
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.t13.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1454,14 +1258,15 @@ class FullscreenStreamSelectorButton extends StatelessWidget {
   }
 }
 
-class _StreamChoicePane extends StatelessWidget {
-  const _StreamChoicePane({
+class StreamChoicePane extends StatelessWidget {
+  const StreamChoicePane({
     super.key,
     required this.icon,
     required this.title,
     required this.itemCount,
     required this.selectedIndex,
     required this.labelBuilder,
+    required this.textMetrics,
     required this.onSelected,
   });
 
@@ -1470,6 +1275,7 @@ class _StreamChoicePane extends StatelessWidget {
   final int itemCount;
   final int selectedIndex;
   final String Function(int index) labelBuilder;
+  final StreamSelectorTextMetrics textMetrics;
   final Future<void> Function(int index)? onSelected;
 
   @override
@@ -1486,7 +1292,7 @@ class _StreamChoicePane extends StatelessWidget {
         child: Column(
           children: [
             SizedBox(
-              height: 23,
+              height: textMetrics.paneHeaderHeight,
               child: Row(
                 children: [
                   Icon(icon, size: 16, color: colors.primary),
@@ -1494,6 +1300,8 @@ class _StreamChoicePane extends StatelessWidget {
                   Expanded(
                     child: Text(
                       title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -1511,7 +1319,7 @@ class _StreamChoicePane extends StatelessWidget {
                     physics: const PureLiveScrollPhysics(),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: columns,
-                      mainAxisExtent: 42,
+                      mainAxisExtent: textMetrics.itemHeight,
                       mainAxisSpacing: 5,
                       crossAxisSpacing: 5,
                     ),
@@ -1519,6 +1327,7 @@ class _StreamChoicePane extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final selected = selectedIndex == index;
                       return Material(
+                        key: ValueKey('stream-choice-$index'),
                         color: selected
                             ? colors.primaryContainer.withValues(alpha: .78)
                             : colors.surfaceContainerHighest,
@@ -1575,79 +1384,134 @@ class _StreamChoicePane extends StatelessWidget {
 
 // Bottom action bar widgets
 class BottomActionBar extends StatelessWidget {
-  const BottomActionBar({super.key, required this.controller, required this.barHeight});
+  const BottomActionBar({
+    super.key,
+    required this.controller,
+    required this.barHeight,
+    required this.portraitFullscreen,
+  });
 
   final VideoController controller;
   final double barHeight;
+  // Keep the layout and its height from the same parent mode snapshot.
+  final bool portraitFullscreen;
 
   @override
   Widget build(BuildContext context) {
     return Obx(() {
       bool shouldShow =
           (controller.showController.value || controller.isMenuOpen.value) && !controller.showLocked.value;
-      return AnimatedPositioned(
-        bottom: shouldShow ? 0 : -barHeight,
-        left: 0,
-        right: 0,
+      return BottomControlSurface(
+        visible: shouldShow,
         height: barHeight,
-        duration: const Duration(milliseconds: 300),
-        child: Container(
-          height: barHeight,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.transparent, Colors.black45],
-            ),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final fullscreen = GlobalPlayerState.to.fullscreenUI;
-              final compact = constraints.maxWidth < 760;
-              final left = _buildLeftActions(compact: fullscreen && compact);
-              final right = _buildRightActions(compact: fullscreen && compact);
-
-              if (fullscreen) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      left,
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.center,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 420),
-                            child: FullscreenLocalDanmakuComposer(controller: controller),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      right,
-                    ],
-                  ),
-                );
-              }
-
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const PureLiveScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [left, right]),
-                  ),
+        child: ControlHoverRegion(
+          enabled: shouldShow,
+          onEnter: controller.onMouseEnterController,
+          onExit: controller.onMouseExitController,
+          child: PortraitFullscreenRestoreGestureRegion(
+            enabled: portraitFullscreen,
+            onRestore: () => unawaited(controller.exitPortraitFullScreen()),
+            child: Container(
+              height: barHeight,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black45],
                 ),
-              );
-            },
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final fullscreen = GlobalPlayerState.to.fullscreenUI;
+                  if (portraitFullscreen) {
+                    return _buildPortraitFullscreenLayout();
+                  }
+                  final compact = constraints.maxWidth < 760;
+                  final left = _buildLeftActions(compact: fullscreen && compact);
+                  final right = _buildRightActions(compact: fullscreen && compact);
+
+                  if (fullscreen) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        children: [
+                          left,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.center,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 420),
+                                child: FullscreenLocalDanmakuComposer(controller: controller),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          right,
+                        ],
+                      ),
+                    );
+                  }
+
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const PureLiveBoundedScrollPhysics(),
+                    clipBehavior: Clip.hardEdge,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [left, right]),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         ),
       );
     });
+  }
+
+  Widget _buildPortraitFullscreenLayout() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        children: [
+          SizedBox(
+            height: portraitFullscreenComposerHeight,
+            child: Row(
+              children: [
+                Expanded(child: FullscreenLocalDanmakuComposer(controller: controller)),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FullscreenStreamSelectorButton(controller: controller, compact: true),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                _buildLeftActions(compact: true),
+                const Spacer(),
+                if (PlatformUtils.isMobile) PortraitFullscreenDisplayModeButton(controller: controller),
+                if (PlatformUtils.isMobile) PortraitOrientationButton(controller: controller),
+                if (!GlobalPlayerState.to.isWindowFullscreen.value) ExpandButton(controller: controller),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLeftActions({required bool compact}) {
@@ -1672,6 +1536,8 @@ class BottomActionBar extends StatelessWidget {
         if (GlobalPlayerState.to.isWindowFullscreen.value || GlobalPlayerState.to.isFullscreen.value) ...[
           FullscreenStreamSelectorButton(controller: controller),
         ],
+        if (PlatformUtils.isMobile) PortraitFullscreenDisplayModeButton(controller: controller),
+        if (PlatformUtils.isMobile) PortraitOrientationButton(controller: controller),
         if (!compact) VideoFitSetting(controller: controller),
         if (Platform.isWindows) OverlayVolumeControl(controller: controller),
         if (Platform.isWindows && controller.supportWindowFull && !GlobalPlayerState.to.isFullscreen.value)
@@ -1695,26 +1561,51 @@ class FullscreenLocalDanmakuComposer extends StatefulWidget {
   State<FullscreenLocalDanmakuComposer> createState() => _FullscreenLocalDanmakuComposerState();
 }
 
+/// The fullscreen composer is a presentation of the room-local interaction
+/// feature, not an entry point that silently changes the user's global setting.
+/// Keeping this decision pure also prevents portrait and landscape fullscreen
+/// layouts from drifting apart when the setting is disabled.
+bool shouldShowFullscreenLocalDanmakuComposer(bool localInteractionEnabled) => localInteractionEnabled;
+
 class _FullscreenLocalDanmakuComposerState extends State<FullscreenLocalDanmakuComposer> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  bool _pinsControllerBar = false;
 
   VideoController get controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
-    _focusNode.addListener(() {
-      if (_focusNode.hasFocus) {
-        controller.stopHideController();
-      } else {
-        controller.enableController();
-      }
-    });
+    _focusNode.addListener(_handleFocusChanged);
+  }
+
+  void _handleFocusChanged() {
+    if (_focusNode.hasFocus) {
+      _pinsControllerBar = true;
+      // `showController` is allowed to time out while the IME is animating.
+      // Keep the bar mounted through `isMenuOpen` as well, otherwise the
+      // TextField is disposed together with the typed draft before Send can be
+      // pressed on slower Android keyboards.
+      controller.isMenuOpen.value = true;
+      controller.stopHideController();
+      return;
+    }
+    if (_pinsControllerBar) {
+      _pinsControllerBar = false;
+      controller.isMenuOpen.value = false;
+    }
+    controller.enableController();
   }
 
   @override
   void dispose() {
+    _focusNode.removeListener(_handleFocusChanged);
+    if (_pinsControllerBar && controller.status != PlayerStatus.disposed) {
+      _pinsControllerBar = false;
+      controller.isMenuOpen.value = false;
+      controller.enableController();
+    }
     _focusNode.dispose();
     _textController.dispose();
     super.dispose();
@@ -1738,26 +1629,12 @@ class _FullscreenLocalDanmakuComposerState extends State<FullscreenLocalDanmakuC
   Widget build(BuildContext context) {
     return Obx(() {
       final local = controller.livePlayController.localInteractionController;
-      if (!local.enabled.v) {
-        return Center(
-          child: FilledButton.tonalIcon(
-            key: const ValueKey('fullscreen-local-danmaku-enable'),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              backgroundColor: Colors.black45,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => local.enabled.v = true,
-            icon: const Icon(Icons.auto_awesome_rounded, size: 17),
-            label: Text(i18n('local_interaction_enable'), maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-        );
-      }
+      if (!shouldShowFullscreenLocalDanmakuComposer(local.enabled.v)) return const SizedBox.shrink();
 
       final localStyle = local.currentDanmakuStyle;
       return SizedBox(
         key: const ValueKey('fullscreen-local-danmaku-composer'),
-        height: 38,
+        height: portraitFullscreenComposerHeight,
         child: TextField(
           controller: _textController,
           focusNode: _focusNode,
@@ -1789,9 +1666,12 @@ class _FullscreenLocalDanmakuComposerState extends State<FullscreenLocalDanmakuC
             prefixIcon: IconButton(
               key: const ValueKey('fullscreen-local-danmaku-style'),
               tooltip: i18n('local_danmaku_style'),
-              visualDensity: VisualDensity.compact,
+              visualDensity: VisualDensity.standard,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+              constraints: const BoxConstraints.tightFor(
+                width: portraitFullscreenComposerHeight,
+                height: portraitFullscreenComposerHeight,
+              ),
               onPressed: () async {
                 controller.isMenuOpen.value = true;
                 controller.stopHideController();
@@ -1809,13 +1689,20 @@ class _FullscreenLocalDanmakuComposerState extends State<FullscreenLocalDanmakuC
               },
               icon: Icon(Icons.auto_awesome_rounded, color: Color(local.danmakuColor.v), size: 18),
             ),
-            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: portraitFullscreenComposerHeight,
+              minHeight: portraitFullscreenComposerHeight,
+            ),
             suffixIcon: IconButton(
               key: const ValueKey('fullscreen-local-danmaku-send'),
               tooltip: i18n('local_send_message'),
-              visualDensity: VisualDensity.compact,
+              visualDensity: VisualDensity.standard,
               onPressed: _send,
               icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+            ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: portraitFullscreenComposerHeight,
+              minHeight: portraitFullscreenComposerHeight,
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             enabledBorder: OutlineInputBorder(
@@ -1842,20 +1729,20 @@ class PlayPauseButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final playerManager = GlobalPlayerService.instance.player;
 
-    return GestureDetector(
-      onTap: () => playerManager.togglePlayPause(),
-      child: StreamBuilder<bool>(
-        stream: playerManager.onPlaying.distinct(),
-        initialData: playerManager.isPlayingNow,
-        builder: (context, snapshot) {
-          final isPlaying = snapshot.data ?? playerManager.isPlayingNow;
-          return Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.only(right: 6),
-            child: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 28),
-          );
-        },
-      ),
+    return StreamBuilder<bool>(
+      stream: playerManager.onPlaying.distinct(),
+      initialData: playerManager.isPlayingNow,
+      builder: (context, snapshot) {
+        final isPlaying = snapshot.data ?? playerManager.isPlayingNow;
+        return IconButton(
+          key: const ValueKey('player-play-pause-action'),
+          tooltip: i18n(isPlaying ? 'multiview_pause' : 'multiview_play'),
+          visualDensity: VisualDensity.standard,
+          constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+          onPressed: () => playerManager.togglePlayPause(),
+          icon: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 28),
+        );
+      },
     );
   }
 }
@@ -1867,13 +1754,13 @@ class RefreshButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => controller.refresh(),
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.only(right: 6),
-        child: const Icon(Icons.refresh_rounded, color: Colors.white),
-      ),
+    return IconButton(
+      key: const ValueKey('player-refresh-action'),
+      tooltip: i18n('refresh'),
+      visualDensity: VisualDensity.standard,
+      constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+      onPressed: () => controller.refresh(),
+      icon: const Icon(Icons.refresh_rounded, color: Colors.white),
     );
   }
 }
@@ -1885,13 +1772,16 @@ class DanmakuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => controller.hideDanmaku.toggle(),
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.only(right: 6, left: 6),
-        child: Obx(
-          () => controller.hideDanmaku.value
+    return Obx(
+      () => IconButton(
+        key: const ValueKey('player-danmaku-action'),
+        tooltip: i18n('danmaku'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        onPressed: () => controller.hideDanmaku.toggle(),
+        icon: SizedBox.square(
+          dimension: 24,
+          child: controller.hideDanmaku.value
               ? SvgPicture.asset(
                   'assets/images/video/danmu_close.svg',
                   // ignore: deprecated_member_use
@@ -1908,6 +1798,19 @@ class DanmakuButton extends StatelessWidget {
   }
 }
 
+String _liveRoomTitle(LiveRoom room) {
+  for (final candidate in [room.title, room.nick, room.roomId]) {
+    final value = candidate?.trim() ?? '';
+    if (value.isNotEmpty) return value;
+  }
+  return i18n('untitled_room');
+}
+
+String? _liveProgramme(LiveRoom room) {
+  final programme = room.currentProgramme?.trim() ?? '';
+  return programme.isEmpty ? null : programme;
+}
+
 class SettingsButton extends StatelessWidget {
   const SettingsButton({super.key, required this.controller});
 
@@ -1915,24 +1818,28 @@ class SettingsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () async {
+    return IconButton(
+      key: const ValueKey('player-danmaku-settings-action'),
+      tooltip: i18n('settings_danmaku_title'),
+      visualDensity: VisualDensity.standard,
+      constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+      onPressed: () async {
         if (controller.isMenuOpen.value) return;
         controller.isMenuOpen.value = true;
         try {
-          await Get.dialog<void>(
-            SettingsPanel(controller: controller),
+          await showDialog<void>(
+            context: context,
             barrierColor: Colors.black.withValues(alpha: 0.58),
             useSafeArea: true,
+            builder: (_) => SettingsPanel(controller: controller),
           );
         } finally {
           controller.isMenuOpen.value = false;
           controller.enableController();
         }
       },
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.only(right: 6, left: 6),
+      icon: SizedBox.square(
+        dimension: 24,
         child: SvgPicture.asset(
           'assets/images/video/danmu_setting.svg',
           // ignore: deprecated_member_use
@@ -1950,22 +1857,20 @@ class ExpandWindowButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => controller.toggleWindowFullScreen(),
-      child: Container(
-        alignment: Alignment.center,
-        child: RotatedBox(
+    return Obx(() {
+      final expanded = GlobalPlayerState.to.isWindowFullscreen.value;
+      return IconButton(
+        key: const ValueKey('player-window-expand-action'),
+        tooltip: i18n(playerWindowActionLabelKey(expanded)),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        onPressed: () => controller.toggleWindowFullScreen(),
+        icon: RotatedBox(
           quarterTurns: 1,
-          child: Obx(
-            () => Icon(
-              GlobalPlayerState.to.isWindowFullscreen.value ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
-              color: Colors.white,
-              size: 26,
-            ),
-          ),
+          child: Icon(expanded ? Icons.unfold_less_rounded : Icons.unfold_more_rounded, color: Colors.white, size: 26),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -1976,22 +1881,17 @@ class ExpandButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => controller.toggleFullScreen(),
-      child: Container(
-        alignment: Alignment.center,
-        child: Obx(
-          () => Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: Icon(
-              GlobalPlayerState.to.isFullscreen.value ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-              color: Colors.white,
-              size: 26,
-            ),
-          ),
-        ),
-      ),
-    );
+    return Obx(() {
+      final expanded = GlobalPlayerState.to.isFullscreen.value;
+      return IconButton(
+        key: const ValueKey('player-fullscreen-action'),
+        tooltip: i18n(fullscreenActionLabelKey(expanded)),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        onPressed: () => controller.toggleFullScreen(),
+        icon: Icon(expanded ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, color: Colors.white, size: 26),
+      );
+    });
   }
 }
 
@@ -2002,22 +1902,28 @@ class AudioOnlyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final switching = controller.audioModeSwitching.value;
-    return IconButton(
-      tooltip: i18n(controller.isAudioOnly ? 'restore_video_mode' : 'switch_audio_only_mode'),
-      visualDensity: VisualDensity.compact,
-      iconSize: 21,
-      color: controller.isAudioOnly ? const Color(0xFFFFD166) : Colors.white,
-      onPressed: switching
-          ? null
-          : () {
-              controller.enableController();
-              controller.toggleAudioOnly();
-            },
-      // The headphone always means room-scoped audio-only. A television icon
-      // is reserved exclusively for casting so the two actions stay distinct.
-      icon: Icon(controller.isAudioOnly ? Remix.headphone_fill : Remix.headphone_line),
-    );
+    // Child builds run outside the parent's Obx dependency collector. Keep
+    // mode and in-flight state subscribed here, including failure completion.
+    return Obx(() {
+      final switching = controller.audioModeSwitching.value;
+      final audioOnly = controller.isAudioOnly;
+      return IconButton(
+        tooltip: i18n(audioOnly ? 'restore_video_mode' : 'switch_audio_only_mode'),
+        visualDensity: VisualDensity.standard,
+        constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+        iconSize: 21,
+        color: audioOnly ? const Color(0xFFFFD166) : Colors.white,
+        onPressed: switching
+            ? null
+            : () {
+                controller.enableController();
+                controller.toggleAudioOnly();
+              },
+        // The headphone always means room-scoped audio-only. A television icon
+        // is reserved exclusively for casting so the two actions stay distinct.
+        icon: Icon(audioOnly ? Remix.headphone_fill : Remix.headphone_line),
+      );
+    });
   }
 }
 
@@ -2030,46 +1936,97 @@ class CastButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       tooltip: i18n('cast_screen'),
-      visualDensity: VisualDensity.compact,
+      visualDensity: VisualDensity.standard,
+      constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
       iconSize: 21,
       color: Colors.white,
       onPressed: () {
         controller.enableController();
-        LiveUrlTool.castPlayUrlByRoomId(roomId: controller.room.roomId ?? '', platform: controller.room.platform ?? '');
+        LiveUrlTool.castPlayUrlByRoomId(
+          context: context,
+          roomId: controller.room.roomId ?? '',
+          platform: controller.room.platform ?? '',
+          isCurrentRoom: () => controller.status != PlayerStatus.disposed,
+        );
       },
       icon: const Icon(Remix.tv_2_line),
     );
   }
 }
 
-class FavoriteButton extends StatelessWidget {
+class FavoriteButton extends StatefulWidget {
   const FavoriteButton({super.key, required this.controller});
 
   final VideoController controller;
 
   @override
+  State<FavoriteButton> createState() => _FavoriteButtonState();
+}
+
+class _FavoriteButtonState extends State<FavoriteButton> {
+  bool _pending = false;
+
+  Future<void> _toggleFavorite(bool isFavorite) async {
+    if (_pending) return;
+    setState(() => _pending = true);
+    final controller = widget.controller;
+    controller.enableController();
+    try {
+      final changed = isFavorite
+          ? await SettingsService.to.fav.removeRoomDurably(controller.room)
+          : await SettingsService.to.fav.addRoomDurably(controller.room);
+      if (changed) EventBus.instance.emit('changeFavorite', true);
+    } catch (error) {
+      debugPrint('Favorite room change failed: $error');
+      ToastUtil.show(i18n('favorite_changes_save_failed'));
+    } finally {
+      if (mounted) setState(() => _pending = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final room = controller.room;
+      final room = widget.controller.room;
       final favoriteRooms = SettingsService.to.fav.favoriteRooms.value;
       final isFavorite = favoriteRooms.any((candidate) => candidate.hasSameIdentity(room));
-      return GestureDetector(
-        onTap: () {
-          controller.enableController();
-          final changed = isFavorite ? SettingsService.to.fav.removeRoom(room) : SettingsService.to.fav.addRoom(room);
-          if (changed) EventBus.instance.emit('changeFavorite', true);
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
-          alignment: Alignment.center,
-          height: 25,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(isFavorite ? Icons.check_rounded : Icons.close, color: Colors.white, size: 15),
-              Text(isFavorite ? i18n('followed') : i18n('follow'), style: const TextStyle(color: Colors.white)),
-            ],
+      final actionLabel = i18n(isFavorite ? 'unfollow' : 'follow');
+      return Semantics(
+        button: true,
+        label: actionLabel,
+        child: Tooltip(
+          message: actionLabel,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const ValueKey('fullscreen-favorite-action'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: _pending ? null : () => _toggleFavorite(isFavorite),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: kMinInteractiveDimension,
+                  minHeight: kMinInteractiveDimension,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (_pending)
+                        const SizedBox.square(
+                          dimension: 15,
+                          child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white),
+                        )
+                      else
+                        Icon(isFavorite ? Icons.check_rounded : Icons.close, color: Colors.white, size: 15),
+                      const SizedBox(width: 2),
+                      Text(isFavorite ? i18n('followed') : i18n('follow'), style: const TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       );
@@ -2090,27 +2047,44 @@ class _VideoFitSettingState extends State<VideoFitSetting> {
   VideoController get controller => widget.controller;
   @override
   Widget build(BuildContext context) {
-    final descs = AppConsts().videoFitType.map((e) => i18n(e['desc'])).toList();
-    final attrs = AppConsts().videoFitList;
     final player = SettingsService.to.player;
 
-    return GestureDetector(
-      onTap: () {
-        controller.enableController();
-        int currentIndex = player.videoFitIndex.v + 1;
-        if (currentIndex >= attrs.length) {
-          currentIndex = 0;
-        }
-        player.videoFitIndex.v = currentIndex;
-        controller.setVideoFit(currentIndex);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
-        alignment: Alignment.center,
-        height: 25,
-        child: Obx(() => Text(descs[player.videoFitIndex.v], style: AppTextStyles.t15.copyWith(color: Colors.white))),
-      ),
-    );
+    return Obx(() {
+      final descriptionKey = player.resolvedVideoFitDescriptionKey;
+      final label = descriptionKey.isEmpty ? '' : i18n(descriptionKey);
+      return Semantics(
+        button: true,
+        label: label,
+        child: Tooltip(
+          message: label,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const ValueKey('video-fit-action'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                controller.enableController();
+                final currentIndex = player.advanceVideoFitIndex();
+                if (currentIndex == null) return;
+                controller.setVideoFit(currentIndex);
+              },
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: kMinInteractiveDimension,
+                  minHeight: kMinInteractiveDimension,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Center(
+                    child: Text(label, style: AppTextStyles.t15.copyWith(color: Colors.white)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 }
 
@@ -2183,6 +2157,11 @@ class SettingsPanel extends StatelessWidget {
                   IconButton(
                     key: const ValueKey('fullscreen-danmaku-settings-close'),
                     tooltip: i18n('close'),
+                    visualDensity: VisualDensity.standard,
+                    constraints: const BoxConstraints(
+                      minWidth: kMinInteractiveDimension,
+                      minHeight: kMinInteractiveDimension,
+                    ),
                     color: colorScheme.onSurfaceVariant,
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close_rounded),

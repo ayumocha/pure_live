@@ -14,7 +14,7 @@ class FavoritePage extends GetView<FavoriteController> {
       builder: (context, constraint) {
         return Obx(() {
           bool showAction = Get.width <= 680;
-          final availableSitesList = Sites().availableSites(containsAll: true);
+          final availableSitesList = controller.availableFavoriteSites;
           final siteKey = ValueKey(availableSitesList.map((e) => e.id).join('|'));
 
           return Scaffold(
@@ -22,9 +22,12 @@ class FavoritePage extends GetView<FavoriteController> {
               centerTitle: true,
               leading: showAction ? const MenuButton() : null,
               actions: showAction ? [CommonAppBarActions()] : null,
-              title: TabBar(
+              title: ScrollableTabBar(
+                key: const ValueKey('favorite-status-tabs'),
                 controller: controller.tabController,
-                isScrollable: true,
+                isScrollable: false,
+                tabAlignment: TabAlignment.center,
+                physics: const PureLiveBoundedScrollPhysics(),
                 tabs: [
                   Tab(text: i18n("online_room_title")),
                   Tab(text: i18n("recording_room_title")),
@@ -77,8 +80,12 @@ class _FavoriteSiteTabsState extends State<_FavoriteSiteTabs> with SingleTickerP
       selectedSiteId: widget.controller.selectedPlatformId,
       fallback: widget.controller.tabSiteIndex.value,
     );
-    _tabController = TabController(length: widget.availableSitesList.length, initialIndex: initialIndex, vsync: this)
-      ..addListener(_handleTabChanged);
+    _tabController = TabController(
+      length: widget.availableSitesList.length,
+      initialIndex: initialIndex,
+      vsync: this,
+      animationDuration: pureLiveTabTransitionDuration,
+    )..addListener(_handleTabChanged);
     widget.controller.bindActiveScrollController(_scrollControllerFor(widget.availableSitesList[initialIndex].id));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.controller.selectSiteIndex(initialIndex);
@@ -114,10 +121,11 @@ class _FavoriteSiteTabsState extends State<_FavoriteSiteTabs> with SingleTickerP
     final availableSitesList = widget.availableSitesList;
     return Column(
       children: [
-        TabBar(
+        ScrollableTabBar(
+          key: const ValueKey('favorite-platform-tabs'),
           controller: _tabController,
           isScrollable: true,
-          physics: const PureLiveScrollPhysics(),
+          physics: const PureLiveBoundedScrollPhysics(),
           tabs: availableSitesList.map((e) => Tab(text: e.name)).toList(),
         ),
         FavoriteTagStrip(
@@ -140,6 +148,7 @@ class _FavoriteSiteTabsState extends State<_FavoriteSiteTabs> with SingleTickerP
               final activeSiteIndex = controller.tabSiteIndex.value;
               return TabBarView(
                 controller: _tabController,
+                physics: const PureLiveBoundedScrollPhysics(),
                 children: availableSitesList.asMap().entries.map((entry) {
                   final site = entry.value;
                   return Builder(
@@ -196,13 +205,32 @@ class FavoriteTagStrip extends StatelessWidget {
       final visibleTags = tags.toList(growable: false);
       final activeTagId = selectedTagId.value;
       if (visibleTags.isEmpty) return const SizedBox.shrink();
+      final effectiveLabelStyle = DefaultTextStyle.of(context).style.merge(labelStyle ?? AppTextStyles.t12);
+      final textScaler = MediaQuery.textScalerOf(context);
+      final textDirection = Directionality.of(context);
+      var tallestLabel = 0.0;
+      for (final label in <String>[allLabel, ...visibleTags.map((tag) => tag.name)]) {
+        final painter = TextPainter(
+          text: TextSpan(text: label, style: effectiveLabelStyle),
+          textScaler: textScaler,
+          textDirection: textDirection,
+          maxLines: 1,
+        )..layout();
+        if (painter.height > tallestLabel) tallestLabel = painter.height;
+      }
+      // ChoiceChip owns a 48 px touch target. The list padding adds another
+      // 12 px, while scaled label text may require more than the default chip
+      // height. Derive the rail height instead of clipping either contract.
+      final scaledStripHeight = tallestLabel + 28;
+      final stripHeight = scaledStripHeight < 60 ? 60.0 : scaledStripHeight;
       return SizedBox(
         key: const ValueKey('favorite_tag_strip'),
-        height: 44,
+        height: stripHeight,
         width: double.infinity,
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
-          physics: const PureLiveScrollPhysics(),
+          physics: const PureLiveBoundedScrollPhysics(),
+          clipBehavior: Clip.hardEdge,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           itemCount: visibleTags.length + 1,
           itemBuilder: (context, index) {
@@ -217,7 +245,8 @@ class FavoriteTagStrip extends StatelessWidget {
                 showCheckmark: false,
                 label: Text(
                   tag?.name ?? allLabel,
-                  style: (labelStyle ?? AppTextStyles.t12).copyWith(
+                  maxLines: 1,
+                  style: effectiveLabelStyle.copyWith(
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     color: isSelected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
                   ),

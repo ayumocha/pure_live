@@ -2,9 +2,11 @@
 
 ## Current fork state (read first when taking over)
 
-- Handoff document: [`docs/HANDOFF_3_0_7.md`](docs/HANDOFF_3_0_7.md) — current commit/version/release state, the Xiaohongshu (`xhs`) platform integration, **policy markers you must not break**, GitHub Actions semantics pitfalls, local toolchain paths and the three non-obvious Windows environment workarounds.
+- Independent upstream-sync candidate: branch `codex/sync-upstream-20260925`, frozen upstream `9b376ec9ef25b532296871073a39075f6f9db397`. Version 3.0.8+4096 is unpublished. Review evidence lives in the upstream-sync audit work package; historical handoff test and device claims do not validate this checkout.
+
+- Historical fork handoff: [docs/HANDOFF_3_0_7.md](https://github.com/ayumocha/pure_live/blob/e33795ccf8cd51ac5548ff960fa389282d8d6171/docs/HANDOFF_3_0_7.md) describes the released 3.0.7 state and Windows workarounds. Use current candidate code and audit evidence for new decisions.
 - Released line: `3.0.7+4095` (GitHub Release `v3.0.7` in `ayumocha/pure_live`). `RELEASE_NOTES.md` entries above v3.0.7 are unreleased forward-looking notes — increment from the `pubspec.yaml` baseline instead.
-- New platform since the last handoff: **Xiaohongshu live (`xhs`, link-watching mode)** — see `docs/STAGE_UPDATE_3_0_7.md` for its protocol facts and explicit capability boundary (no list/search/realtime danmaku: those APIs require browser-grade signing).
+- Historical 3.0.7 platform addition: Xiaohongshu used the `xhs` ID and link-watching mode (see `docs/STAGE_UPDATE_3_0_7.md`). This upstream-sync candidate uses `xiaohongshu` and must migrate legacy saved IDs and links; the historical handoff is not a candidate validation report.
 - Before editing UI layout, window settings, player adapters or workflows, run `tool/validate_build_policy.ps1` first: it asserts layout invariant markers, player geometry red lines, workflow markers and version consistency.
 
 ## Project structure
@@ -35,7 +37,7 @@ Read and follow [`MAINTENANCE_POLICY.md`](MAINTENANCE_POLICY.md) for every repor
 
 Read and follow [`BUILD_POLICY.md`](BUILD_POLICY.md) before starting any Flutter, Dart, Gradle, Java, test, build, package, or release command. It is the repository default for platform scope, serial staging, worker limits, caching, resource arbitration, and build records. Before merging an upstream revision, follow [`UPSTREAM_REVIEW_POLICY.md`](UPSTREAM_REVIEW_POLICY.md): perform the three-way fork/upstream comparison; review every incoming commit and file from the merge base; document intent, Bug mapping, implementation quality, fork-feature impact, explicit disposition, regression and rollback; commit the audit decision; then run the whole-repository audit after merging.
 
-Use Flutter `3.47.0` from `.fvmrc`. On Windows, call the repository wrapper so the same SDK is selected consistently:
+Use Flutter `3.47.5` from `.fvmrc`. On Windows, call the repository wrapper so the same SDK is selected consistently:
 
 ```powershell
 .\tool\flutterw.ps1 pub get --enforce-lockfile

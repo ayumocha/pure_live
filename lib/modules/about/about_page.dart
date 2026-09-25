@@ -1,9 +1,7 @@
-import 'widgets/version_dialog.dart';
+import 'dart:async';
 
 import 'package:pure_live/common/index.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:markdown_widget/config/configs.dart';
-import 'package:markdown_widget/widget/markdown_block.dart';
 import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:remixicon/remixicon.dart'; // 🌟 Imported Remix Icons pack
 
@@ -15,6 +13,8 @@ class AboutPage extends StatefulWidget {
 }
 
 class _AboutPageState extends State<AboutPage> {
+  bool _openingProject = false;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -96,6 +96,7 @@ class _AboutPageState extends State<AboutPage> {
                   style: AppTextStyles.t11.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w600),
                 ),
               ),
+              stackTrailingOnNarrow: true,
               onTap: () => Get.toNamed(RoutePath.kVersionPage),
             ),
             context.buildTile(
@@ -115,11 +116,9 @@ class _AboutPageState extends State<AboutPage> {
               title: i18n("project_page"),
               subtitle: VersionUtil.projectUrl,
               isLong: true,
-              onTap: () {
-                launchUrl(Uri.parse(VersionUtil.projectUrl), mode: LaunchMode.externalApplication);
-              },
+              onTap: () => unawaited(_openProject()),
             ),
-            buildTile(
+            context.buildTile(
               icon: Remix.error_warning_line,
               title: i18n("project_alert"),
               subtitle: i18n("app_legalese"),
@@ -132,84 +131,22 @@ class _AboutPageState extends State<AboutPage> {
     );
   }
 
-  Widget buildTile({
-    required String title,
-    IconData? icon,
-    String? subtitle,
-    VoidCallback? onTap,
-    Color? iconColor,
-    Color? subtitleColor,
-    Widget? trailing,
-    bool isLong = false,
-  }) {
-    final theme = Get.theme;
-    final bool hasSubtitle = subtitle != null && subtitle.isNotEmpty;
-
-    return ListTile(
-      leading: null,
-      title: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null) ...[
-            Padding(
-              padding: const EdgeInsets.only(top: 3, right: 12),
-              child: Icon(icon, color: iconColor ?? theme.colorScheme.primary, size: 22),
-            ),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title, style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600, height: 1.2)),
-                if (hasSubtitle) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      subtitle,
-                      style: AppTextStyles.t12.copyWith(
-                        color: subtitleColor ?? theme.hintColor.withValues(alpha: 0.75),
-                        height: 1.3,
-                      ),
-                      maxLines: isLong ? null : 1,
-                      overflow: isLong ? TextOverflow.visible : TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-      trailing:
-          trailing ??
-          (onTap != null
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Icon(Icons.chevron_right_rounded, color: theme.hintColor.withValues(alpha: 0.4), size: 20),
-                    ),
-                  ],
-                )
-              : null),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    );
-  }
-
-  void showCheckUpdateDialog(BuildContext context) async {
-    showDialog(
-      context: Get.context!,
-      builder: (context) => VersionUtil.hasNewVersion() ? NewVersionDialog() : NoNewVersionDialog(),
-    );
+  Future<void> _openProject() async {
+    if (_openingProject) return;
+    _openingProject = true;
+    try {
+      final opened = await launchUrl(Uri.parse(VersionUtil.projectUrl), mode: LaunchMode.externalApplication);
+      if (!opened) ToastUtil.show(i18n('external_browser_not_opened'));
+    } catch (_) {
+      ToastUtil.show(i18n('external_browser_not_opened'));
+    } finally {
+      _openingProject = false;
+    }
   }
 
   void openLicensePage() {
     showLicensePage(
-      context: Get.context!,
+      context: context,
       applicationName: i18n("app_name"),
       applicationLegalese: i18n("app_legalese"),
       applicationVersion: VersionUtil.version,
@@ -218,42 +155,6 @@ class _AboutPageState extends State<AboutPage> {
         padding: const EdgeInsets.all(12),
         child: SizedBox(width: 60, child: Center(child: Image.asset('assets/icons/icon.png'))),
       ),
-    );
-  }
-
-  void showNewFeaturesDialog() {
-    final config = Get.isDarkMode ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig;
-    final mediaQuery = MediaQuery.of(context);
-    final maxWidth = mediaQuery.size.width * 0.9;
-    final maxHeight = mediaQuery.size.height * 0.7;
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(i18n("what_is_new")),
-          content: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      launchUrl(Uri.parse('https://github.com'), mode: LaunchMode.externalApplication);
-                    },
-                    child: Text(i18n("open_source_free"), style: AppTextStyles.t20),
-                  ),
-                  MarkdownBlock(data: VersionUtil.latestUpdateLog, config: config),
-                  const SizedBox(height: 10),
-                ],
-              ),
-            ),
-          ),
-          actionsAlignment: MainAxisAlignment.start,
-        );
-      },
     );
   }
 }

@@ -91,6 +91,10 @@ def post_json(
                     "User-Agent": USER_AGENT,
                     "Accept": "application/json",
                     "Content-Type": "text/plain; charset=UTF-8",
+                    # Platform CDNs occasionally tear down pooled TLS sockets
+                    # with an EOF on this Windows host. Each bounded retry gets
+                    # an independent connection, matching request_json.
+                    "Connection": "close",
                     **(headers or {}),
                 },
             )
@@ -346,7 +350,12 @@ def yy_search_probe() -> None:
 
 def yy_anchor_search_probe() -> None:
     room = yy_live_room()
-    keyword = str(room.get("name", "")).strip() or "YY"
+    # YY's recommendation feed occasionally returns an already-mojibaked
+    # display name. Feeding that value back into anchor search produces an
+    # empty result even though the endpoint and room are healthy. The numeric
+    # room id is ASCII, is accepted by the same search contract and avoids
+    # making the public-interface gate depend on damaged presentation text.
+    keyword = str(room.get("sid", "")).strip() or str(room.get("name", "")).strip() or "YY"
     response = request_json(
         "https://www.yy.com/apiSearch/doSearch.json",
         {"q": keyword, "t": 1, "n": 1},
@@ -568,7 +577,11 @@ def douyin_search_probe() -> None:
                 headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache", "Connection": "close"},
             )
             with opener.open(home_request, timeout=20) as response:
-                response.read(1)
+                # Drain the bootstrap response before reusing its anonymous
+                # cookies. With urllib, closing it after one byte consistently
+                # made the immediately following feed return HTTP 503; fully
+                # consuming the same response produces a healthy feed request.
+                response.read()
             break
         except Exception as error:  # noqa: BLE001 - bounded transient retry
             last_home_error = error
@@ -640,7 +653,10 @@ def douyin_feed_probe() -> None:
     }
     home_request = urllib.request.Request("https://live.douyin.com/?from_nav=1", headers=headers)
     with opener.open(home_request, timeout=20) as response:
-        response.read(1)
+        # Reading one byte and closing the bootstrap caused a repeatable false
+        # 503 in this readiness probe. The application already consumes the
+        # full response, so mirror that production lifecycle here.
+        response.read()
 
     params = {
         "aid": 6383,
@@ -788,48 +804,64 @@ def bilibili_playback_probe() -> None:
         {"areaId": 0, "parent_area_id": 0, "sort": "online", "pageSize": 10, "page": 1},
     )
     rooms = recommendation.get("data", []) if isinstance(recommendation, dict) else []
-    if not rooms or not isinstance(rooms[0], dict):
+    if not rooms or not any(isinstance(room, dict) for room in rooms):
         raise ValueError("Bilibili playback probe has no live room")
-    room_id = str(rooms[0].get("roomid", "")).strip()
-    if not room_id:
-        raise ValueError("Bilibili playback room id missing")
 
-    response = request_json(
-        "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
-        {
-            "room_id": room_id,
-            "protocol": "0,1",
-            "format": "0,1,2",
-            "codec": "0,1",
-            "qn": 10000,
-            "platform": "web",
-            "ptype": 8,
-        },
-    )
-    if not isinstance(response, dict) or response.get("code") != 0:
-        raise ValueError("Bilibili playback request was rejected")
-    data = response.get("data", {})
-    playurl_info = data.get("playurl_info", {}) if isinstance(data, dict) else {}
-    playurl = playurl_info.get("playurl", {}) if isinstance(playurl_info, dict) else {}
-    streams = playurl.get("stream", []) if isinstance(playurl, dict) else []
-    qualities = playurl.get("g_qn_desc", []) if isinstance(playurl, dict) else []
-    if not isinstance(streams, list) or not streams or not isinstance(qualities, list) or not qualities:
-        raise ValueError("Bilibili stream/quality descriptors missing")
+    # The popularity endpoint is eventually consistent with the playback
+    # service: a room can remain in the feed for a short period after its play
+    # envelope becomes empty. Probe a bounded set instead of making the entire
+    # release gate depend on the first transient room.
+    failures: list[str] = []
+    for room in (item for item in rooms[:5] if isinstance(item, dict)):
+        room_id = str(room.get("roomid", "")).strip()
+        if not room_id:
+            failures.append("missing room id")
+            continue
+        try:
+            response = request_json(
+                "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
+                {
+                    "room_id": room_id,
+                    "protocol": "0,1",
+                    "format": "0,1,2",
+                    "codec": "0,1",
+                    "qn": 10000,
+                    "platform": "web",
+                    "ptype": 8,
+                },
+            )
+            if not isinstance(response, dict) or response.get("code") != 0:
+                failures.append(f"{room_id}: rejected")
+                continue
+            data = response.get("data", {})
+            playurl_info = data.get("playurl_info", {}) if isinstance(data, dict) else {}
+            playurl = playurl_info.get("playurl", {}) if isinstance(playurl_info, dict) else {}
+            streams = playurl.get("stream", []) if isinstance(playurl, dict) else []
+            qualities = playurl.get("g_qn_desc", []) if isinstance(playurl, dict) else []
+            if not isinstance(streams, list) or not streams or not isinstance(qualities, list) or not qualities:
+                failures.append(f"{room_id}: descriptors missing")
+                continue
 
-    for stream in streams:
-        formats = stream.get("format", []) if isinstance(stream, dict) else []
-        for format_item in formats if isinstance(formats, list) else []:
-            codecs = format_item.get("codec", []) if isinstance(format_item, dict) else []
-            for codec in codecs if isinstance(codecs, list) else []:
-                if not isinstance(codec, dict) or not codec.get("base_url"):
-                    continue
-                url_info = codec.get("url_info", [])
-                if isinstance(url_info, list) and any(
-                    isinstance(item, dict) and str(item.get("host", "")).startswith(("http://", "https://"))
-                    for item in url_info
-                ):
-                    return
-    raise ValueError("Bilibili playback response has no usable CDN URL")
+            for stream in streams:
+                formats = stream.get("format", []) if isinstance(stream, dict) else []
+                for format_item in formats if isinstance(formats, list) else []:
+                    codecs = format_item.get("codec", []) if isinstance(format_item, dict) else []
+                    for codec in codecs if isinstance(codecs, list) else []:
+                        if not isinstance(codec, dict) or not codec.get("base_url"):
+                            continue
+                        url_info = codec.get("url_info", [])
+                        if isinstance(url_info, list) and any(
+                            isinstance(item, dict)
+                            and str(item.get("host", "")).startswith(("http://", "https://"))
+                            for item in url_info
+                        ):
+                            return
+            failures.append(f"{room_id}: CDN URL missing")
+        except Exception as error:  # noqa: BLE001 - retain per-room diagnostics
+            failures.append(f"{room_id}: {error}")
+
+    summary = "; ".join(failures[-5:]) or "no usable room id"
+    raise ValueError(f"Bilibili playback candidates failed: {summary}")
 
 
 def huya_danmaku_identity_probe() -> None:
@@ -940,7 +972,11 @@ def twitch_gql(payload: object) -> object:
     response = post_json(
         TWITCH_GQL_URL,
         payload,
-        headers={"Client-Id": TWITCH_CLIENT_ID, "Device-Id": "12345678901234567890"},
+        # Twitch discovery occasionally isolates or returns empty results for
+        # a repeatedly reused synthetic device id. Mirror a fresh anonymous
+        # web session for every bounded probe run.
+        headers={"Client-Id": TWITCH_CLIENT_ID, "Device-Id": secrets.token_hex(16)},
+        attempts=5,
     )
     nodes = response if isinstance(response, list) else [response]
     for node in nodes:
@@ -991,7 +1027,14 @@ def twitch_directory_request(slug: str, *, limit: int = 5) -> dict[str, object]:
 
 
 def twitch_directory_probe() -> None:
-    response = twitch_gql([twitch_directory_request("just-chatting")])
+    request = twitch_directory_request("just-chatting", limit=10)
+    # Match the application request exactly. Twitch currently returns a
+    # partial GraphQL response with ``game.streams = null`` for the combined
+    # EN/ZH/KO filter even though each language and the app's ZH/KO pair are
+    # healthy. The previous broader probe therefore failed while the product
+    # contract it was intended to verify still worked.
+    request["variables"]["options"]["broadcasterLanguages"] = ["ZH", "KO"]
+    response = twitch_gql([request])
     if not isinstance(response, list) or not response:
         raise ValueError("Twitch directory result missing")
     edges = require_path(response[0], "data", "game", "streams", "edges")
@@ -1045,7 +1088,13 @@ def twitch_playback_probe() -> None:
     # categories in one bounded GQL request and select the first actual live
     # channel instead of treating one empty category as playback breakage.
     slugs = ("just-chatting", "grand-theft-auto-v", "league-of-legends", "valorant", "music")
-    directory = twitch_gql([twitch_directory_request(slug) for slug in slugs])
+    requests = [twitch_directory_request(slug, limit=10) for slug in slugs]
+    for request in requests:
+        # Validate the same public-language request as the application. Do not
+        # add EN here: Twitch currently rejects the combined EN/ZH/KO filter
+        # with a partial GraphQL service error.
+        request["variables"]["options"]["broadcasterLanguages"] = ["ZH", "KO"]
+    directory = twitch_gql(requests)
     login = None
     if isinstance(directory, list):
         for result in directory:
@@ -1056,10 +1105,19 @@ def twitch_playback_probe() -> None:
             if not isinstance(edges, list):
                 continue
             for edge in edges:
-                try:
-                    candidate = edge["node"]["broadcaster"]["login"]
-                except (KeyError, TypeError):
+                node = edge.get("node") if isinstance(edge, dict) else None
+                if not isinstance(node, dict):
                     continue
+                broadcaster = node.get("broadcaster")
+                candidate = broadcaster.get("login") if isinstance(broadcaster, dict) else None
+                if not candidate:
+                    # The monolith broadcaster subgraph can time out while the
+                    # stream edge and preview remain valid. Twitch embeds the
+                    # canonical login in its live preview URL, so retain that
+                    # public fallback rather than declaring playback broken.
+                    preview = str(node.get("previewImageURL") or "")
+                    match = re.search(r"/live_user_([A-Za-z0-9_]+)-\d+x\d+", preview)
+                    candidate = match.group(1) if match else None
                 if isinstance(candidate, str) and candidate.strip():
                     login = candidate.strip()
                     break
@@ -1274,6 +1332,30 @@ def cc_recommend_probe() -> None:
         raise ValueError("CC heat/concurrent audience fields missing")
 
 
+def cc_category_rooms_probe() -> None:
+    """Check the current category feed, not a successful HTML migration page.
+
+    This probes room pagination only. The separate Dashen catalogue and native
+    navigation need their own evidence; this result must not stand in for them.
+    """
+    for start in (0, 2):
+        result = request_json(
+            "https://cc.163.com/api/category/3/",
+            {"format": "json", "tag_id": 0, "start": start, "size": 2},
+        )
+        if not isinstance(result, dict) or str(result.get("gametype")) != "3":
+            raise ValueError("CC category feed identity mismatch")
+        rooms = result.get("lives")
+        if not isinstance(rooms, list) or len(rooms) > 2:
+            raise ValueError("CC category feed rows invalid")
+        for room in rooms:
+            identity = room.get("cuteid") if isinstance(room, dict) else None
+            if (not isinstance(identity, (str, int))
+                    or isinstance(identity, bool)
+                    or (isinstance(identity, int) and identity > 9007199254740991)
+                    or not re.fullmatch(r"[1-9][0-9]{0,31}", str(identity))):
+                raise ValueError("CC category feed room identity invalid")
+
 def soop_recommend_probe() -> None:
     rooms = require_path(
         request_json(
@@ -1352,10 +1434,7 @@ def main() -> int:
         ),
         ("kuaishou.home", kuaishou_home_probe),
         ("kuaishou.playback", kuaishou_playback_probe),
-        (
-            "cc.categories",
-            lambda: require_path(request_json("https://cc.163.com/category/", {"format": "json"}), "game_list"),
-        ),
+        ("cc.category_rooms", cc_category_rooms_probe),
         ("cc.recommend", cc_recommend_probe),
         ("bilibili.popularity_rank", bilibili_recommend_probe),
         ("bilibili.playback", bilibili_playback_probe),

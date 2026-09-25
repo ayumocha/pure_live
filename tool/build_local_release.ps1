@@ -11,7 +11,9 @@ param(
     [switch] $SkipInstaller,
     [switch] $UseOfficialRepositories,
     [switch] $RequireReleaseSigning,
-    [switch] $DedicatedBuild
+    [switch] $DedicatedBuild,
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$')]
+    [string] $CandidateLabel = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,10 +33,26 @@ $configurationLower = $Configuration.ToLowerInvariant()
 $configurationDirectory = if ($Configuration -eq 'Release') { 'Release' } else { 'Debug' }
 $versionLine = Select-String -Path (Join-Path $repoRoot 'pubspec.yaml') -Pattern '^version:\s*(\S+)' | Select-Object -First 1
 if (-not $versionLine) { throw 'pubspec.yaml version was not found.' }
-$fullVersion = $versionLine.Matches[0].Groups[1].Value
+$repositoryFullVersion = $versionLine.Matches[0].Groups[1].Value
+$fullVersion = $repositoryFullVersion
 $displayVersion = $fullVersion.Split('+')[0]
+$buildNumber = if ($fullVersion.Contains('+')) { $fullVersion.Split('+')[1] } else { '1' }
+if ($Target -eq 'WindowsX64') {
+    # Maintained platforms can intentionally be released at different
+    # versions. Always build Windows from its platform feed entry rather than
+    # silently stamping the newer Android/pubspec version onto the EXE.
+    $versionFeedPath = Join-Path $repoRoot 'assets\version.json'
+    $versionFeed = Get-Content -LiteralPath $versionFeedPath -Raw -Encoding utf8 | ConvertFrom-Json
+    if (-not $versionFeed.platforms.windows.version -or -not $versionFeed.platforms.windows.build_number) {
+        throw 'assets/version.json is missing the Windows platform version.'
+    }
+    $displayVersion = [string]$versionFeed.platforms.windows.version
+    $buildNumber = [string]$versionFeed.platforms.windows.build_number
+    $fullVersion = "$displayVersion+$buildNumber"
+}
 $artifactVersion = $fullVersion.Replace('+', '-')
-$output = Join-Path $repoRoot "local-artifacts\$artifactVersion"
+$artifactDirectory = if ($CandidateLabel) { "$artifactVersion-$CandidateLabel" } else { $artifactVersion }
+$output = Join-Path $repoRoot "local-artifacts\$artifactDirectory"
 $recordDirectory = Join-Path $repoRoot 'local-artifacts\build-records'
 New-Item -ItemType Directory -Force -Path $output, $recordDirectory | Out-Null
 
@@ -50,6 +68,7 @@ $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 $status = 'failed'
 $failureMessage = $null
 $artifactPaths = @()
+$packageMetadata = $null
 $commandLog = Join-Path $recordDirectory "$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))-$($Target.ToLowerInvariant())-$configurationLower.log"
 Set-Content -LiteralPath $commandLog -Value '' -Encoding utf8
 $incrementalStateBefore = if ($Target -eq 'AndroidArm64') {
@@ -144,6 +163,7 @@ try {
     $monitor = Start-PureLiveResourceMonitor
 
     if ($Target -eq 'AndroidArm64') {
+        & (Join-Path $PSScriptRoot 'normalize_flutter_generated_paths.ps1')
         $packageConfig = Join-Path $repoRoot '.dart_tool\package_config.json'
         if (-not (Test-Path -LiteralPath $packageConfig -PathType Leaf)) {
             throw 'Android packaging requires the lock-resolved package config from the preceding quality/dependency stage.'
@@ -172,19 +192,32 @@ try {
         $androidArgs = @(
             'build', 'apk', "--$configurationLower", '--split-per-abi',
             '--target-platform', 'android-arm64',
+            "--build-name=$displayVersion", "--build-number=$buildNumber",
             '--no-pub',
             '--dart-define=PURELIVE_BUILD_SOURCE=local'
         )
         $buildExitCode = Invoke-PureLiveLoggedFlutter -Arguments $androidArgs -LogPath $commandLog
         Assert-PureLiveCommandSucceeded 'Android arm64 build' -ExitCode $buildExitCode
 
+        # The upstream Native Assets hook downloads URL overrides anew, even
+        # after prefetch. Verify the artifact that the hook actually consumed.
+        $androidFfmpegAar = Join-Path $repoRoot '.dart_tool\hooks_runner\shared\ffmpeg_kit_extended_flutter\build\ffmpeg_kit_cache\android\bundle-base-shared-lgpl-release.aar'
+        if (-not (Test-Path -LiteralPath $androidFfmpegAar -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $androidFfmpegAar -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c6c9b1ff7be756b0fb587f98e05972ca4dae97e8275c22961b443b4fd5f49bf7') {
+            throw 'Android FFmpeg Kit hook artifact differs from the pinned n9.0.2 AAR.'
+        }
+
         $apkSource = Join-Path $repoRoot "build\app\outputs\flutter-apk\app-arm64-v8a-$configurationLower.apk"
         if (-not (Test-Path -LiteralPath $apkSource -PathType Leaf)) {
             throw "Expected Android artifact was not produced: $apkSource"
         }
-        & (Join-Path $PSScriptRoot 'verify_android_apk.ps1') `
+        $packageMetadata = & (Join-Path $PSScriptRoot 'verify_android_apk.ps1') `
             -ApkPath $apkSource `
-            -ExpectedAbi 'arm64-v8a'
+            -ExpectedAbi 'arm64-v8a' `
+            -BuildMode $Configuration `
+            -ExpectedVersionName $displayVersion `
+            -ExpectedBaseVersionCode $buildNumber `
+            -ExpectedAbiVersionOffset 2000
         $artifactName = if ($Configuration -eq 'Debug') {
             "PureLive-$artifactVersion-android-arm64-v8a-debug.apk"
         } elseif ($hasReleaseSigning) {
@@ -200,16 +233,38 @@ try {
             -Arguments @('pub', 'get', '--enforce-lockfile') `
             -LogPath $commandLog
         Assert-PureLiveCommandSucceeded 'Windows locked dependency resolution' -ExitCode $pubGetExitCode
+        & (Join-Path $PSScriptRoot 'prefetch_android_native.ps1') -SkipAndroidMedia
         & (Join-Path $PSScriptRoot 'prefetch_windows_native.ps1')
 
         $windowsArgs = @(
             'build', 'windows', "--$configurationLower",
+            "--build-name=$displayVersion", "--build-number=$buildNumber",
+            # The locked pub stage above has already generated the Windows
+            # plugin links from the physical repository path. Re-running pub
+            # while Flutter is using the short junction can delete that tree
+            # and then fail to recreate `.plugin_symlinks` through the
+            # reparse point. Keep dependency resolution single-owner.
+            '--no-pub',
             '--dart-define=PURELIVE_BUILD_SOURCE=local'
         )
         $buildExitCode = Invoke-PureLiveLoggedFlutter -Arguments $windowsArgs -LogPath $commandLog
         Assert-PureLiveCommandSucceeded 'Windows x64 build' -ExitCode $buildExitCode
 
+        $windowsFfmpegZip = Join-Path $repoRoot '.dart_tool\hooks_runner\shared\ffmpeg_kit_extended_flutter\build\ffmpeg_kit_cache\windows\bundle-base-windows-x86_64-shared-lgpl.zip'
+        if (-not (Test-Path -LiteralPath $windowsFfmpegZip -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $windowsFfmpegZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'e61684a91f7471ba00f1d5b36a24e93ab602ef72bd57000d94990e7e0c5dfe3a') {
+            throw 'Windows FFmpeg Kit hook artifact differs from the pinned n9.0.2 ZIP.'
+        }
+
         $windowsSource = Join-Path $repoRoot "build\windows\x64\runner\$configurationDirectory"
+        $ffmpegDll = Join-Path $windowsSource 'libffmpegkit.dll'
+        if (-not (Test-Path -LiteralPath $ffmpegDll -PathType Leaf)) {
+            throw "Windows FFmpeg Kit DLL is missing: $ffmpegDll"
+        }
+        $ffmpegDllHash = (Get-FileHash -LiteralPath $ffmpegDll -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($ffmpegDllHash -ne '302d978048f389dbb07f01c1a34a4988a92d1e3ebf0e960e2dd8314f83632b34') {
+            throw "Windows FFmpeg Kit DLL does not match the pinned n9.0.2 bundle: $ffmpegDllHash"
+        }
         $expectedPrefix = [IO.Path]::GetFullPath($repoRoot).TrimEnd('\') + '\'
         $windowsSourceFull = [IO.Path]::GetFullPath($windowsSource)
         if (-not $windowsSourceFull.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -220,7 +275,24 @@ try {
             Join-Path $windowsSource 'IPTV_CACHE'
         ) | Where-Object { Test-Path -LiteralPath $_ }
         if ($runtimeState) {
-            throw "Runtime state appeared in the Windows bundle: $($runtimeState -join ', ')"
+            # A previously launched Debug/Release tree writes portable user
+            # state beside its EXE. It is not a build input and must never be
+            # copied into a distributable. Preserve it in an auditable local
+            # quarantine instead of forcing a clean build or deleting data.
+            $runtimeArchiveRoot = Join-Path $repoRoot (
+                "local-artifacts\test-runtime\windows-$configurationLower-" +
+                [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
+            )
+            $runtimeArchiveRootFull = [IO.Path]::GetFullPath($runtimeArchiveRoot)
+            $allowedArchivePrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot 'local-artifacts\test-runtime')).TrimEnd('\') + '\'
+            if (-not $runtimeArchiveRootFull.StartsWith($allowedArchivePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Windows runtime archive escaped the repository: $runtimeArchiveRootFull"
+            }
+            New-Item -ItemType Directory -Force -Path $runtimeArchiveRootFull | Out-Null
+            foreach ($runtimePath in $runtimeState) {
+                Move-Item -LiteralPath $runtimePath -Destination $runtimeArchiveRootFull
+            }
+            Write-Host "Archived Windows runtime state outside the package: $runtimeArchiveRootFull"
         }
 
         # Clean only the disposable packaging stage, never Flutter/CMake build state.
@@ -286,7 +358,14 @@ try {
         # WebView2 loader without adding it to that list. Keep this small,
         # reviewed runtime allowlist explicit rather than reopening the whole
         # incremental Release directory.
-        foreach ($requiredRunnerFile in @('pure_live.exe', 'WebView2Loader.dll')) {
+        $requiredRunnerFiles = @('pure_live.exe', 'WebView2Loader.dll')
+        if ($Configuration -eq 'Release') {
+            # These are app-local runtime files required by Flutter's Windows
+            # deployment contract. CMake resolves the versions matching the
+            # active MSVC toolset and adds them to the install manifest.
+            $requiredRunnerFiles += @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+        }
+        foreach ($requiredRunnerFile in $requiredRunnerFiles) {
             $sourceFile = Join-Path $windowsSourceFull $requiredRunnerFile
             if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
                 throw "Required Windows runner file is missing: $sourceFile"
@@ -295,6 +374,13 @@ try {
         }
         if (-not (Test-Path -LiteralPath (Join-Path $windowsPackageFull 'pure_live.exe') -PathType Leaf)) {
             throw 'The staged Windows package does not contain pure_live.exe.'
+        }
+        if ($Configuration -eq 'Release') {
+            foreach ($runtimeFile in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+                if (-not (Test-Path -LiteralPath (Join-Path $windowsPackageFull $runtimeFile) -PathType Leaf)) {
+                    throw "The staged Windows package is missing the app-local MSVC runtime: $runtimeFile"
+                }
+            }
         }
         $developmentFiles = Get-ChildItem -LiteralPath $windowsPackageFull -Recurse -File |
             Where-Object Extension -In $developmentExtensions
@@ -368,7 +454,8 @@ try {
         task = "build-$($Target.ToLowerInvariant())-$configurationLower"
         command = ".\tool\build_local_release.ps1 -Target $Target -Configuration $Configuration" +
             $(if ($DedicatedBuild) { ' -DedicatedBuild' } else { '' }) +
-            $(if ($FullRegression) { ' -FullRegression' } else { ' -SkipQuality' })
+            $(if ($FullRegression) { ' -FullRegression' } else { ' -SkipQuality' }) +
+            $(if ($CandidateLabel) { " -CandidateLabel $CandidateLabel" } else { '' })
         source_commit = $sourceCommit
         started_at_utc = $startedAt.ToString('o')
         duration_seconds = [Math]::Round($stopwatch.Elapsed.TotalSeconds, 3)
@@ -376,12 +463,14 @@ try {
         failure = $failureMessage
         target = $Target
         configuration = $Configuration
+        candidate_label = if ($CandidateLabel) { $CandidateLabel } else { $null }
         gradle_workers = if ($Target -eq 'AndroidArm64') { $gradleWorkers } else { $null }
         quality = if ($FullRegression) { 'full-in-this-invocation' } else { 'external-focused-or-existing-evidence' }
         cache = $cacheSummary
         peak_resources = $resourceSummary
         active_heavy_processes_after = $remainingHeavyProcesses
         outputs = $artifactPaths
+        package_metadata = $packageMetadata
         automatic_follow_up = $false
     }
     $recordPath = Write-PureLiveTaskRecord -RepoRoot $repoRoot -Record $record
@@ -406,8 +495,12 @@ try {
         } else {
             'not-built'
         }
+        $metadataName = if ($Target -eq 'WindowsX64') { 'WINDOWS_BUILD_METADATA.json' } else { 'BUILD_METADATA.json' }
+        $checksumName = if ($Target -eq 'WindowsX64') { 'WINDOWS_SHA256SUMS.txt' } else { 'SHA256SUMS.txt' }
+        $metadataPath = Join-Path $output $metadataName
         [ordered]@{
             version = $fullVersion
+            repository_version = $repositoryFullVersion
             built_at_utc = [DateTime]::UtcNow.ToString('o')
             source_commit = $sourceCommit
             tracked_files_dirty = $trackedDirty
@@ -420,12 +513,16 @@ try {
             cache = $cacheSummary
             resource_record = [IO.Path]::GetFullPath($recordPath)
             build_source = 'local'
-        } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'BUILD_METADATA.json') -Encoding utf8
+        } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $metadataPath -Encoding utf8
 
-        Get-ChildItem $output -File | Where-Object Name -ne 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {
-            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
-            '{0} *{1}' -f $hash.Hash.ToLowerInvariant(), $_.Name
-        } | Set-Content -Path (Join-Path $output 'SHA256SUMS.txt') -Encoding ascii
+        # Hash only files produced by this target invocation. A platform may
+        # intentionally share a version directory with an older platform
+        # build, and its checksum manifest must never absorb unrelated assets.
+        @($artifactPaths + $metadataPath) | Sort-Object -Unique | ForEach-Object {
+            $file = Get-Item -LiteralPath $_
+            $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256
+            '{0} *{1}' -f $hash.Hash.ToLowerInvariant(), $file.Name
+        } | Set-Content -Path (Join-Path $output $checksumName) -Encoding ascii
         Get-ChildItem $output -File | Select-Object Name, Length, LastWriteTime
     }
     Write-Host "Build record: $recordPath"

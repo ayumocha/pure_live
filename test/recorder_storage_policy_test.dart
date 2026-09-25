@@ -43,6 +43,35 @@ void main() {
     expect(p.equals(directory.path, p.join(selectedParent.path, CacheService.managedFolderName)), isTrue);
   });
 
+  test('candidate preparation verifies write access without changing the configured root', () async {
+    final service = serviceFor(null);
+    final candidate = Directory(p.join(sandbox.path, 'candidate'));
+
+    final prepared = await service.prepareRecordDir(candidate.path);
+
+    expect(p.equals(prepared.path, p.join(candidate.path, CacheService.managedFolderName)), isTrue);
+    expect(File(p.join(prepared.path, CacheService.ownershipMarkerName)).existsSync(), isTrue);
+    expect(p.equals((await service.getRecordDir()).path, defaultDirectory.path), isTrue);
+
+    final blockedParent = await File(p.join(sandbox.path, 'not-a-directory')).writeAsString('fixture');
+    await expectLater(service.prepareRecordDir(blockedParent.path), throwsA(isA<FileSystemException>()));
+    expect(p.equals((await service.getRecordDir()).path, defaultDirectory.path), isTrue);
+  });
+
+  test('concurrent write checks own isolated probes and leave no temporary entries', () async {
+    final service = serviceFor(null);
+
+    final results = await Future.wait(List.generate(24, (_) => service.canWriteRecordDir()));
+
+    expect(results, everyElement(isTrue));
+    final directory = await service.getRecordDir();
+    final leftovers = await directory
+        .list(followLinks: false)
+        .where((entity) => p.basename(entity.path).startsWith('.pure_live_write_probe_'))
+        .toList();
+    expect(leftovers, isEmpty);
+  });
+
   test('selecting the managed child does not create a duplicate nesting level', () async {
     final managed = await Directory(p.join(sandbox.path, CacheService.managedFolderName)).create(recursive: true);
     await File(p.join(managed.path, CacheService.ownershipMarkerName)).writeAsString('owned');
@@ -134,6 +163,24 @@ void main() {
     service.releaseDirectory(activeDirectory.path);
     await service.clearAll();
     expect(await active.exists(), isFalse);
+  });
+
+  test('cache limit counts active bytes while deleting only completed recordings', () async {
+    final service = serviceFor(null);
+    final managed = await service.getRecordDir();
+    final activeDirectory = await Directory(p.join(managed.path, 'bilibili', 'active')).create(recursive: true);
+    final completedDirectory = await Directory(p.join(managed.path, 'bilibili', 'completed')).create(recursive: true);
+    final active = await File(p.join(activeDirectory.path, 'active.ts')).writeAsBytes(List<int>.filled(4096, 1));
+    final completed = await File(p.join(completedDirectory.path, 'completed.mp4'))
+        .writeAsBytes(List<int>.filled(4096, 2));
+    service.protectDirectory(activeDirectory.path);
+
+    // The active file alone fits under this limit, but active + completed do
+    // not. The completed file must be reclaimed without touching live output.
+    await service.enforceLimit(maxMB: 0.005);
+
+    expect(await active.exists(), isTrue);
+    expect(await completed.exists(), isFalse);
   });
 
   test('active-directory protection is reference counted', () async {

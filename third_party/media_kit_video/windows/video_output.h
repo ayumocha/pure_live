@@ -9,14 +9,16 @@
 #ifndef VIDEO_OUTPUT_H_
 #define VIDEO_OUTPUT_H_
 
+#include <atomic>
 #include <optional>
 
-#include <client.h>
-#include <render.h>
-#include <render_dxgi.h>
+#include "media_kit_mpv.h"
+#include "mpv/render_dxgi.h"
 
 #include <future>
 #include <memory>
+#include <chrono>
+#include <atomic>
 
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -74,6 +76,8 @@ class VideoOutput {
   void SetTextureUpdateCallback(
       std::function<void(int64_t, int64_t, int64_t)> callback);
 
+  void SetFrameUpdateCallback(std::function<void()> callback);
+
   void SetSize(std::optional<int64_t> width, std::optional<int64_t> height);
 
  private:
@@ -101,7 +105,9 @@ class VideoOutput {
   // For preventing any asynchronous operations (primarily texture objects
   // deletion after unregister in |Resize|) access this object after
   // destruction.
-  bool destroyed_ = false;
+  std::atomic<bool> destroyed_ = false;
+  // Serialize the callback's destroyed check and task enqueue with teardown.
+  std::mutex callback_mutex_;
 
   std::mutex textures_mutex_ = std::mutex();
 
@@ -125,6 +131,12 @@ class VideoOutput {
   // ID is changed. Only happens when video output resolution changes.
   std::function<void(int64_t, int64_t, int64_t)> texture_update_callback_ =
       [](int64_t, int64_t, int64_t) {};
+
+  // Low-rate native-to-Dart liveness pulse. Hardware pulses are emitted only
+  // after a fence-confirmed mailbox frame is available to Flutter, so a stuck
+  // decoder or GPU mailbox cannot masquerade as healthy playback.
+  std::function<void()> frame_update_callback_ = []() {};
+  std::chrono::steady_clock::time_point last_frame_update_{};
 };
 
 #endif  // VIDEO_OUTPUT_H_

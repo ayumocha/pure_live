@@ -25,6 +25,10 @@ class LiveRecordTask {
 
   String watching;
 
+  /// Semantic type of [watching]. Recording cards must not present a
+  /// platform popularity score as a concurrent audience head count.
+  AudienceMetricType audienceMetricType;
+
   String followers;
 
   bool isRecord;
@@ -39,8 +43,21 @@ class LiveRecordTask {
 
   String? selectedQuality;
 
+  /// Stable retry cursor. Unlike [currentUrl], these values contain no signed
+  /// stream data and can safely survive process restarts.
+  String? selectedQualityId;
+
+  int? selectedLineIndex;
+
   /// 输出目录
   String? outputDir;
+
+  /// Completed native input attempts whose MPEG-TS segments still need to be
+  /// remuxed. A short-lived CDN can deliberately end one HTTP transport while
+  /// the room remains live. Keeping those attempts here lets the recorder
+  /// reconnect first and perform the comparatively slow MP4 finalization only
+  /// when the user-visible recording session actually stops.
+  final List<PendingRecordingAttempt> pendingAttempts;
 
   /// =========================
   /// 实时录制状态
@@ -79,6 +96,13 @@ class LiveRecordTask {
 
   DateTime createTime;
 
+  /// Start of the user-visible recording session. A signed CDN can rotate
+  /// through several native FFmpeg attempts, but the recording center must
+  /// keep showing the original session start instead of the latest retry.
+  DateTime? recordingStartedAt;
+
+  DateTime get displayStartTime => recordingStartedAt ?? createTime;
+
   DateTime? lastFailTime;
 
   /// Sanitized user-visible failure from the most recent attempt.
@@ -86,6 +110,14 @@ class LiveRecordTask {
 
   /// Stable stage id: room, stream, ffmpeg, merge, scheduler or status.
   String? lastErrorStage;
+
+  /// Current user recording, latched across native attempts and persistence.
+  /// Distinct from packet damage: complete saved segments may still be usable.
+  bool inputTailDiscarded;
+
+  /// An explicit native missing-segment report was observed before drain.
+  /// False means no observed signal, not a proof of complete media coverage.
+  bool inputCoverageIncomplete;
 
   bool wasStoppedByUser;
 
@@ -98,16 +130,21 @@ class LiveRecordTask {
     required this.avatar,
     required this.cover,
     required this.createTime,
+    this.recordingStartedAt,
 
     this.liveStatus = LiveStatus.unknown,
     this.watching = "0",
+    this.audienceMetricType = AudienceMetricType.unknown,
     this.followers = "0",
     this.isRecord = false,
 
     this.currentUrl,
     this.selectedLine,
     this.selectedQuality,
+    this.selectedQualityId,
+    this.selectedLineIndex,
     this.outputDir,
+    List<PendingRecordingAttempt> pendingAttempts = const <PendingRecordingAttempt>[],
 
     /// 实时信息
     this.recordedSeconds = 0,
@@ -126,7 +163,9 @@ class LiveRecordTask {
     this.lastFailTime,
     this.lastError,
     this.lastErrorStage,
-  });
+    this.inputTailDiscarded = false,
+    this.inputCoverageIncomplete = false,
+  }) : pendingAttempts = List<PendingRecordingAttempt>.of(pendingAttempts);
 
   /// =========================
   /// 从房间创建
@@ -153,6 +192,7 @@ class LiveRecordTask {
       cover: room.cover ?? "",
 
       watching: room.watching ?? "0",
+      audienceMetricType: room.effectiveAudienceMetricType,
 
       followers: room.followers ?? "0",
 
@@ -180,6 +220,8 @@ class LiveRecordTask {
 
     watching = room.watching ?? watching;
 
+    audienceMetricType = room.effectiveAudienceMetricType;
+
     followers = room.followers ?? followers;
 
     liveStatus = room.liveStatus ?? liveStatus;
@@ -198,9 +240,54 @@ class LiveRecordTask {
   }
 
   void beginNewRecording({DateTime? now}) {
-    createTime = now ?? DateTime.now();
+    final startedAt = now ?? DateTime.now();
+    inputTailDiscarded = false;
+    inputCoverageIncomplete = false;
     recordedSeconds = 0;
     fileSize = 0;
+    recordingStartedAt = startedAt;
+    // A previous interrupted/failing remux remains recoverable. Do not discard
+    // its absolute directory merely because the user starts the room again.
+    beginNewAttempt(now: startedAt);
+  }
+
+  void queuePendingAttempt({
+    required String directoryPath,
+    required String filePrefix,
+    bool inputIntegrityError = false,
+  }) {
+    final directory = directoryPath.trim();
+    final prefix = filePrefix.trim();
+    if (directory.isEmpty || prefix.isEmpty) return;
+    final duplicate = pendingAttempts.indexWhere(
+      (attempt) => attempt.directoryPath == directory && attempt.filePrefix == prefix,
+    );
+    final attempt = PendingRecordingAttempt(
+      directoryPath: directory,
+      filePrefix: prefix,
+      inputIntegrityError: inputIntegrityError,
+    );
+    if (duplicate < 0) {
+      pendingAttempts.add(attempt);
+    } else if (inputIntegrityError && !pendingAttempts[duplicate].inputIntegrityError) {
+      // A later queue/restore pass may enrich the verdict, never erase damage.
+      pendingAttempts[duplicate] = attempt;
+    }
+  }
+
+  void removePendingAttempt(PendingRecordingAttempt attempt) {
+    pendingAttempts.removeWhere(
+      (candidate) => candidate.directoryPath == attempt.directoryPath && candidate.filePrefix == attempt.filePrefix,
+    );
+  }
+
+  /// Starts one native FFmpeg attempt without discarding the aggregate
+  /// duration/size of the user-initiated recording session. Live CDNs can end
+  /// a response or expire a signed URL while the room is still online; those
+  /// retries are file attempts, not new recordings from the user's point of
+  /// view.
+  void beginNewAttempt({DateTime? now}) {
+    createTime = now ?? DateTime.now();
     recordSpeed = 0;
     bitrate = 0;
     fps = 0;
@@ -235,7 +322,7 @@ class LiveRecordTask {
   /// =========================
 
   Map<String, dynamic> toJson() => {
-    "schemaVersion": 3,
+    "schemaVersion": 9,
     "taskId": taskId,
     "roomId": roomId,
     "platform": platform,
@@ -246,6 +333,8 @@ class LiveRecordTask {
     "cover": cover,
 
     "watching": watching,
+    "audienceMetricType": audienceMetricType.index,
+    "audienceMetricTypeName": audienceMetricType.name,
     "followers": followers,
 
     "isRecord": isRecord,
@@ -257,7 +346,10 @@ class LiveRecordTask {
     // tokens. They are runtime-only and must not be written to local prefs.
     "selectedLine": selectedLine,
     "selectedQuality": selectedQuality,
+    "selectedQualityId": selectedQualityId,
+    "selectedLineIndex": selectedLineIndex,
     "outputDir": outputDir,
+    "pendingAttempts": pendingAttempts.map((attempt) => attempt.toJson()).toList(growable: false),
 
     /// 实时信息
     "recordedSeconds": recordedSeconds,
@@ -275,10 +367,13 @@ class LiveRecordTask {
     "retryCount": retryCount,
 
     "createTime": createTime.toIso8601String(),
+    "recordingStartedAt": recordingStartedAt?.toIso8601String(),
 
     "lastFailTime": lastFailTime?.toIso8601String(),
     "lastError": lastError,
     "lastErrorStage": lastErrorStage,
+    "inputTailDiscarded": inputTailDiscarded,
+    "inputCoverageIncomplete": inputCoverageIncomplete,
     "wasStoppedByUser": wasStoppedByUser,
   };
 
@@ -302,6 +397,13 @@ class LiveRecordTask {
 
       watching: _string(json["watching"], fallback: "0"),
 
+      audienceMetricType: _enumValue(
+        AudienceMetricType.values,
+        name: json["audienceMetricTypeName"],
+        index: json["audienceMetricType"],
+        fallback: _defaultAudienceMetricType(platform),
+      ),
+
       followers: _string(json["followers"], fallback: "0"),
 
       isRecord: _bool(json["isRecord"]),
@@ -320,10 +422,16 @@ class LiveRecordTask {
 
       selectedQuality: _nullableString(json["selectedQuality"]),
 
+      selectedQualityId: _nullableString(json["selectedQualityId"]),
+
+      selectedLineIndex: _nullableInt(json["selectedLineIndex"]),
+
       outputDir: _nullableString(json["outputDir"]),
 
+      pendingAttempts: _pendingAttempts(json["pendingAttempts"]),
+
       /// 实时录制
-      recordedSeconds: _int(json["recordedSeconds"]),
+      recordedSeconds: _recordedSeconds(json["recordedSeconds"]),
 
       fileSize: _int(json["fileSize"]),
 
@@ -351,9 +459,13 @@ class LiveRecordTask {
 
       createTime: _date(json["createTime"]) ?? DateTime.now(),
 
+      recordingStartedAt: _date(json["recordingStartedAt"]),
+
       lastFailTime: _date(json["lastFailTime"]),
       lastError: _diagnostic(json["lastError"]),
       lastErrorStage: _stage(json["lastErrorStage"]),
+      inputTailDiscarded: _bool(json["inputTailDiscarded"]),
+      inputCoverageIncomplete: _bool(json["inputCoverageIncomplete"]),
       wasStoppedByUser: _bool(json["wasStoppedByUser"]),
     );
   }
@@ -361,6 +473,15 @@ class LiveRecordTask {
   static String _string(dynamic value, {String fallback = ''}) {
     final text = value?.toString() ?? '';
     return text.isEmpty ? fallback : text;
+  }
+
+  static AudienceMetricType _defaultAudienceMetricType(String platform) {
+    return switch (platform.trim().toLowerCase()) {
+      'bilibili' || 'douyu' || 'huya' || 'cc' || 'yy' => AudienceMetricType.popularity,
+      'kuaishou' || 'twitch' || 'soop' => AudienceMetricType.onlineViewers,
+      'douyin' => AudienceMetricType.totalViewers,
+      _ => AudienceMetricType.unknown,
+    };
   }
 
   static String? _nullableString(dynamic value) {
@@ -375,6 +496,7 @@ class LiveRecordTask {
 
   static String? _stage(dynamic value) {
     final normalized = value?.toString().trim().toLowerCase() ?? '';
+    if (normalized.startsWith('ffmpeg.')) return normalized;
     return const {
           'room',
           'quality',
@@ -383,6 +505,7 @@ class LiveRecordTask {
           'ffmpeg',
           'merge',
           'scheduler',
+          'background',
           'status',
           'recorder',
         }.contains(normalized)
@@ -393,6 +516,20 @@ class LiveRecordTask {
   static int _int(dynamic value) {
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static int _recordedSeconds(dynamic value) {
+    final seconds = _int(value);
+    // Older builds could persist FFmpeg's INT32_MAX timestamp sentinel as an
+    // elapsed duration.  No single local capture should retain a counter above
+    // one year; reset corrupted telemetry while leaving the task itself intact.
+    const maximumPersistedSeconds = 365 * 24 * 60 * 60;
+    return seconds >= 0 && seconds <= maximumPersistedSeconds ? seconds : 0;
+  }
+
+  static int? _nullableInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   static double _double(dynamic value) {
@@ -411,6 +548,26 @@ class LiveRecordTask {
 
   static DateTime? _date(dynamic value) => DateTime.tryParse(value?.toString() ?? '');
 
+  static List<PendingRecordingAttempt> _pendingAttempts(dynamic value) {
+    if (value is! List) return const <PendingRecordingAttempt>[];
+    final attempts = <PendingRecordingAttempt>[];
+    final seen = <String, int>{};
+    for (final item in value) {
+      if (item is! Map) continue;
+      final attempt = PendingRecordingAttempt.fromJson(Map<String, dynamic>.from(item));
+      if (attempt == null) continue;
+      final key = '${attempt.directoryPath}\u0000${attempt.filePrefix}';
+      final duplicate = seen[key];
+      if (duplicate == null) {
+        seen[key] = attempts.length;
+        attempts.add(attempt);
+      } else if (attempt.inputIntegrityError) {
+        attempts[duplicate] = attempt;
+      }
+    }
+    return attempts;
+  }
+
   static T _enumValue<T>(List<T> values, {dynamic name, dynamic index, required T fallback}) {
     final normalizedName = name?.toString().trim();
     if (normalizedName?.isNotEmpty == true) {
@@ -423,5 +580,37 @@ class LiveRecordTask {
       return values[parsedIndex];
     }
     return fallback;
+  }
+}
+
+class PendingRecordingAttempt {
+  const PendingRecordingAttempt({
+    required this.directoryPath,
+    required this.filePrefix,
+    this.inputIntegrityError = false,
+  });
+
+  final String directoryPath;
+  final String filePrefix;
+  // Capture evidence, not a claim that an unflagged bitstream was decoded.
+  // Retain it across retries/restarts so a later clean remux exit cannot delete
+  // source that the recording session already reported as damaged.
+  final bool inputIntegrityError;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'directoryPath': directoryPath,
+    'filePrefix': filePrefix,
+    'inputIntegrityError': inputIntegrityError,
+  };
+
+  static PendingRecordingAttempt? fromJson(Map<String, dynamic> json) {
+    final directoryPath = json['directoryPath']?.toString().trim() ?? '';
+    final filePrefix = json['filePrefix']?.toString().trim() ?? '';
+    if (directoryPath.isEmpty || filePrefix.isEmpty) return null;
+    return PendingRecordingAttempt(
+      directoryPath: directoryPath,
+      filePrefix: filePrefix,
+      inputIntegrityError: LiveRecordTask._bool(json['inputIntegrityError']),
+    );
   }
 }

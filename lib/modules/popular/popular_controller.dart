@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/modules/popular/popular_grid_controller.dart';
+import 'package:pure_live/common/base/live_directory_controller.dart';
+import 'package:pure_live/core/interface/live_directory.dart';
 
 class PopularController extends GetxController with GetTickerProviderStateMixin {
   late TabController tabController;
@@ -41,6 +43,17 @@ class PopularController extends GetxController with GetTickerProviderStateMixin 
 
       Get.lazyPut<BasePageScrollAndStateBone<LiveRoom>>(
         () {
+          final directory = site.liveSite;
+          if (directory is LiveSiteDirectoryPager) {
+            return LiveDirectoryController(
+              directory: directory as LiveSiteDirectoryPager,
+              transform: (rooms) => rankPopularRoomsByAudience(
+                rooms,
+                preferRealOnline: SettingsService.to.app.preferRealOnlineCounts.v,
+                realOnlinePlatforms: SettingsService.to.app.realOnlinePlatforms,
+              ),
+            );
+          }
           if (site.id == Sites.iptvSite) {
             return PopularLocalReactiveController(site);
           }
@@ -59,6 +72,20 @@ class PopularController extends GetxController with GetTickerProviderStateMixin 
 
           if (site.id == Sites.soopSite) {
             return PopularServerFixedController(site, fixedSize: 60);
+          }
+
+          if (site.id == Sites.twitcastingSite) {
+            // One top window, filtered before local slicing. Remote pagination
+            // changes requested sizes after exclusions and can skip cards.
+            return PopularServerFixedController(site, fixedSize: 60);
+          }
+
+          if (site.id == Sites.twitchSite) {
+            // Twitch currently permits a large first directory page without
+            // browser integrity, while follow-up cursor requests can be
+            // challenged. Cache that stable first window and slice it locally
+            // so normal mobile scrolling neither stalls nor discards cards.
+            return PopularServerFixedController(site, fixedSize: 100);
           }
 
           if (site.id == Sites.ccSite) {
@@ -154,7 +181,12 @@ class PopularController extends GetxController with GetTickerProviderStateMixin 
     }
     // Update the source list before exposing the new TabController.
     sites.assignAll(newSites);
-    tabController = TabController(length: newSites.length, vsync: this, initialIndex: index);
+    tabController = TabController(
+      length: newSites.length,
+      vsync: this,
+      initialIndex: index,
+      animationDuration: pureLiveTabTransitionDuration,
+    );
     tabController.addListener(_handleTabChange);
     _isTabControllerInitialized = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {

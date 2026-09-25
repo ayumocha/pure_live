@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:brotli/brotli.dart';
+import 'package:flutter/foundation.dart';
 
 import '../common/binary_writer.dart';
 
@@ -46,6 +48,17 @@ class BiliBiliDanmakuArgs {
 }
 
 class BiliBiliDanmaku implements LiveDanmaku {
+  factory BiliBiliDanmaku({void Function(List<int> packet)? packetSender}) => BiliBiliDanmaku._(packetSender);
+
+  BiliBiliDanmaku._(this._packetSender);
+
+  final void Function(List<int> packet)? _packetSender;
+  static const int _packetHeaderLength = 16;
+  static const int _maxTransportMessageBytes = 8 * 1024 * 1024;
+  static const int _maxDecompressedMessageBytes = 16 * 1024 * 1024;
+  static const int _maxPacketsPerMessage = 4096;
+  static const int _maxCompressedNestingDepth = 2;
+
   @override
   int heartbeatTime = 30 * 1000;
   bool _connected = false;
@@ -65,6 +78,8 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
   @override
   Function(LiveMessage msg)? onMessage;
+  @override
+  Function(String msg)? onReconnect;
   @override
   Function(String msg)? onClose;
   @override
@@ -132,7 +147,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
       onReconnect: () {
         _authTimer?.cancel();
         markDisconnected();
-        onClose?.call("与服务器断开连接，正在尝试重连");
+        onReconnect?.call("与服务器断开连接，正在尝试重连");
       },
       onClose: (e) {
         _authTimer?.cancel();
@@ -162,24 +177,42 @@ class BiliBiliDanmaku implements LiveDanmaku {
   }
 
   void joinRoom(BiliBiliDanmakuArgs args) {
-    var joinData = encodeData(
-      json.encode({
-        "uid": args.uid,
-        "roomid": args.roomId,
-        "protover": 3,
-        "buvid": args.buvid,
-        "platform": "web",
-        "type": 2,
-        "key": args.token,
-      }),
-      7,
-    );
-    webScoketUtils?.sendMessage(joinData);
+    _sendPacket(encodeData(json.encode(buildJoinPayload(args)), 7));
+  }
+
+  @visibleForTesting
+  Map<String, dynamic> buildJoinPayload(BiliBiliDanmakuArgs args, {String? queueUuid}) {
+    return {
+      "uid": args.uid,
+      "roomid": args.roomId,
+      "protover": 3,
+      "buvid": args.buvid,
+      "support_ack": true,
+      "queue_uuid": queueUuid ?? _newQueueUuid(),
+      "scene": "room",
+      "platform": "web",
+      "type": 2,
+      "key": args.token,
+    };
+  }
+
+  String _newQueueUuid() {
+    final random = Random.secure();
+    return List<String>.generate(8, (_) => random.nextInt(16).toRadixString(16)).join();
+  }
+
+  void _sendPacket(List<int> packet) {
+    final sender = _packetSender;
+    if (sender != null) {
+      sender(packet);
+      return;
+    }
+    webScoketUtils?.sendMessage(packet);
   }
 
   @override
   void heartbeat() {
-    webScoketUtils?.sendMessage(encodeData("", 2));
+    _sendPacket(encodeData("", 2));
   }
 
   @override
@@ -189,6 +222,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
     _authTimer = null;
     markDisconnected();
     onMessage = null;
+    onReconnect = null;
     onClose = null;
     onReady = null;
     await webScoketUtils?.close();
@@ -225,6 +259,9 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
   void decodeMessage(List<int> data) {
     try {
+      if (data.length > _maxTransportMessageBytes) {
+        throw FormatException('Bilibili danmaku message is too large: ${data.length} bytes');
+      }
       _decodePacketStream(data, depth: 0);
     } catch (e) {
       CoreLog.error(e);
@@ -237,18 +274,28 @@ class BiliBiliDanmaku implements LiveDanmaku {
   /// bytes away from the JSON decoder and prevents valid DANMU_MSG events from
   /// being dropped.
   void _decodePacketStream(List<int> data, {required int depth}) {
-    if (depth > 8) {
+    if (depth > _maxCompressedNestingDepth) {
       throw const FormatException('Bilibili danmaku packet nesting is too deep');
     }
 
     var offset = 0;
-    while (offset + 16 <= data.length) {
+    var packetCount = 0;
+    while (offset + _packetHeaderLength <= data.length) {
+      packetCount++;
+      if (packetCount > _maxPacketsPerMessage) {
+        throw const FormatException('Bilibili danmaku message contains too many packets');
+      }
       final packetLength = readInt(data, offset, 4);
       final headerLength = readInt(data, offset + 4, 2);
       final protocolVersion = readInt(data, offset + 6, 2);
       final operation = readInt(data, offset + 8, 4);
 
-      if (headerLength < 16 || packetLength < headerLength || offset + packetLength > data.length) {
+      // Validate both sides of the frame before slicing. In particular,
+      // packetLength=0 must not leave [offset] unchanged and spin forever.
+      if (headerLength < _packetHeaderLength ||
+          packetLength < headerLength ||
+          packetLength > _maxTransportMessageBytes ||
+          offset + packetLength > data.length) {
         throw FormatException(
           'Invalid Bilibili danmaku frame: offset=$offset, packet=$packetLength, header=$headerLength, total=${data.length}',
         );
@@ -282,7 +329,7 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
     if (operation == 5) {
       if (protocolVersion == 2 || protocolVersion == 3) {
-        final decoded = protocolVersion == 2 ? zlib.decode(body) : brotli.decode(body);
+        final decoded = _decodeCompressedBody(body, protocolVersion);
         _decodePacketStream(decoded, depth: depth + 1);
       } else {
         final text = utf8.decode(body, allowMalformed: true).trim();
@@ -310,9 +357,19 @@ class BiliBiliDanmaku implements LiveDanmaku {
     }
   }
 
+  List<int> _decodeCompressedBody(List<int> body, int protocolVersion) {
+    final sink = _BoundedBytesSink(_maxDecompressedMessageBytes);
+    final decoder = protocolVersion == 2 ? zlib.decoder : brotli.decoder;
+    final conversion = decoder.startChunkedConversion(sink);
+    conversion.add(body);
+    conversion.close();
+    return sink.takeBytes();
+  }
+
   void parseMessage(String jsonMessage) {
     try {
       var obj = json.decode(jsonMessage);
+      _acknowledgeIfRequired(obj);
       var cmd = obj["cmd"].toString();
       if (cmd.contains("DANMU_MSG")) {
         if (obj["info"] != null && obj["info"].length != 0) {
@@ -377,6 +434,16 @@ class BiliBiliDanmaku implements LiveDanmaku {
     } catch (e) {
       CoreLog.error(e);
     }
+  }
+
+  void _acknowledgeIfRequired(dynamic packet) {
+    if (packet is! Map || packet['p_is_ack'] != true) return;
+    final msgId = packet['msg_id']?.toString().trim() ?? '';
+    final cmd = packet['cmd']?.toString().trim() ?? '';
+    if (!packet.containsKey('p_msg_type')) return;
+    final msgType = int.tryParse(packet['p_msg_type']?.toString() ?? '');
+    if (msgId.isEmpty || cmd.isEmpty || msgType == null) return;
+    _sendPacket(encodeData(json.encode({'msg_id': msgId, 'cmd': cmd, 'p_msg_type': msgType}), 24));
   }
 
   String _preferredBilibiliUserName(dynamic packet, List<dynamic> metadata, String legacyName) {
@@ -445,4 +512,33 @@ class BiliBiliDanmaku implements LiveDanmaku {
 
     return result;
   }
+}
+
+/// Accumulates decompressed protocol bytes while enforcing a hard output cap.
+/// Both zlib and Brotli stream into this sink, so a highly-compressible frame
+/// is rejected before it can materialize an unbounded output list.
+class _BoundedBytesSink implements Sink<List<int>> {
+  _BoundedBytesSink(this.limit);
+
+  final int limit;
+  final BytesBuilder _builder = BytesBuilder(copy: false);
+  int _length = 0;
+  bool _closed = false;
+
+  @override
+  void add(List<int> data) {
+    if (_closed) throw StateError('Bilibili decompression sink is closed');
+    if (data.length > limit - _length) {
+      throw FormatException('Bilibili decompressed message exceeds $limit bytes');
+    }
+    _length += data.length;
+    _builder.add(data);
+  }
+
+  @override
+  void close() {
+    _closed = true;
+  }
+
+  Uint8List takeBytes() => _builder.takeBytes();
 }

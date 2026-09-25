@@ -1,4 +1,5 @@
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/utils/compact_danmaku_metrics.dart';
 import 'package:flame_barrage/flame_barrage.dart';
 import 'package:pure_live/modules/live_play/widgets/video_player/video_controller.dart';
 
@@ -24,7 +25,7 @@ class CompactDanmakuOverlay extends StatelessWidget {
       final autoScale = settings.pipDanmakuAutoScale.v;
       final noEmojiMode = settings.pipDanmakuNoEmojiMode.v;
       final configuredFontSize = settings.pipDanmakuFontSize.v;
-      final configuredFontWeight = FontWeight(settings.pipDanmakuFontWeight.value);
+      final configuredFontWeight = settings.pipDanmakuFontWeight.value;
       final area = settings.pipDanmakuArea.v;
       final speed = settings.pipDanmakuSpeed.v;
       final opacity = settings.pipDanmakuOpacity.v;
@@ -33,36 +34,47 @@ class CompactDanmakuOverlay extends StatelessWidget {
       final emitInterval = settings.pipDanmakuEmitInterval.v;
       final fontFamily = controller.danmakuFontFamilyName.value;
       final showStroke = controller.enableDanmakuStroke.value;
+      final strokeWidth = controller.danmakuFontBorder.value;
+      final typography = CompactDanmakuTypography.resolve(
+        configuredFontWeight: configuredFontWeight,
+        configuredFontFamily: fontFamily,
+        showStroke: showStroke,
+        configuredStrokeWidth: strokeWidth,
+      );
 
       return IgnorePointer(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final width = constraints.maxWidth.isFinite ? constraints.maxWidth : 350.0;
-            final scale = autoScale ? (width / 350.0).clamp(0.65, 1.0).toDouble() : 1.0;
-            final fontSize = configuredFontSize * scale;
+            final metrics = CompactDanmakuMetrics.resolve(
+              width: width,
+              autoScale: autoScale,
+              configuredFontSize: configuredFontSize,
+              configuredSpeed: speed,
+            );
 
             return RepaintBoundary(
               child: FlameBarrageWidget(
                 controller: controller.pipDanmakuController,
                 config: BarrageConfig(
-                  fontSize: fontSize,
-                  fontWeight: configuredFontWeight,
-                  fontFamily: fontFamily,
+                  fontSize: metrics.fontSize,
+                  fontWeight: FontWeight(typography.fontWeight),
+                  fontFamily: typography.fontFamily,
                   area: area,
-                  baseSpeed: speed * scale,
+                  baseSpeed: metrics.baseSpeed,
                   opacity: opacity,
-                  showStroke: showStroke,
+                  showStroke: typography.showStroke,
                   noEmojiMode: noEmojiMode,
-                  strokeWidth: 1.0,
+                  strokeWidth: typography.strokeWidth,
                   fps: fps,
                   safeArea: false,
-                  trackHeight: (fontSize * 1.8).clamp(18.0, 44.0).toDouble(),
-                  emojiSize: (fontSize * 1.35).clamp(14.0, 32.0).toDouble(),
+                  trackHeight: metrics.trackHeight,
+                  emojiSize: metrics.emojiSize,
                   maxVisibleCount: maxVisibleCount,
                   maxPendingCount: 36,
                   maxPendingAge: const Duration(seconds: 3),
                   emitInterval: emitInterval,
-                  overlapSafeGap: (fontSize * 1.5).clamp(16.0, 40.0).toDouble(),
+                  overlapSafeGap: metrics.overlapSafeGap,
                   // PiP only exposes a handful of tracks. Keeping desktop-size
                   // pools here retained hundreds of paragraphs/pictures after
                   // an overnight compact session and made repeated PiP cycles

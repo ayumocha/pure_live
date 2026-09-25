@@ -1,4 +1,6 @@
 import 'package:pure_live/player/core/live_room_volume_manager.dart';
+import 'package:pure_live/core/common/http_header_policy.dart';
+import 'package:pure_live/common/models/site_id.dart';
 
 enum LiveStatus { live, offline, replay, unknown, banned }
 
@@ -94,13 +96,207 @@ class LiveRoom {
       hasTotalViewers: false,
       onlineAvailability: AudienceOnlineAvailability.unsupported,
     ),
-    // Xiaohongshu SSR exposes a single displayCountInfo value that mixes the
-    // live heat/visibility scale; the platform does not declare an explicit
-    // concurrent head count, so it is treated as popularity.
-    'xhs': AudiencePlatformCapability(
+    // Picarto viewers and total_views have separate concurrent/cumulative meanings.
+    'picarto': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    'twitcasting': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    'openrec': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // SHOWROOM's view_num is session traffic and is not documented as a
+    // concurrent audience. Keep it in the cumulative column.
+    'showroom': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // CHZZK exposes concurrentUserCount and separately tells clients whether
+    // the value may be shown through cvExposure.
+    'chzzk': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    'kick': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // The room detail keeps current liveViewerCount separate from cumulative viewerCount.
+    '17live': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomRealtime,
+    ),
+    // LiveMe exposes platform heat, current playnumber and cumulative
+    // watchnumber as separate fields in both its directory and room response.
+    'liveme': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // TikTok LIVE exposes liveRoomStats.userCount as concurrent viewers and
+    // enterCount as cumulative room entries; keep those metrics separate.
+    'tiktok': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomRealtime,
+    ),
+    // The watch page exposes a dedicated concurrent-view renderer while a
+    // broadcast is live. Historical viewCount is deliberately not reused.
+    'youtube': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomRealtime,
+    ),
+    // The finite public directory exposes user_count for current broadcasts.
+    // Room detail has no verified concurrent field and therefore keeps it unknown.
+    'bigo': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // PandaTV's `user` value is the concurrent audience in the official
+    // directory and play response. `playCnt` remains a separate session value.
+    'pandalive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // PopkonTV documents `watchCnt` as the current audience while
+    // `totalWatchCnt` is a separate cumulative session counter.
+    'popkontv': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // The homepage live feed and session detail expose `view_count` and
+    // `viewer_count` respectively as the visible current audience metric.
+    'shopeelive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // VK Video Live exposes `count.viewers` as concurrent viewers and
+    // `count.views` as a separate cumulative stream metric.
+    'vkvideolive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // The homepage card and mobile room bootstrap both expose current viewers.
+    'nimotv': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // The public API identifies live/offline state but exposes no verified
+    // concurrent audience value. Historical views are not reused here.
+    'dailymotion': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // Live directory cards expose a dedicated current-viewer badge. The
+    // VideoObject interaction count is cumulative and stays in totalViewers.
+    'rumble': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // GoodGame's public directory and channel endpoint expose `viewers` as
+    // the live audience. Rating and premium counters are separate concepts.
+    'goodgame': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // FC2 exposes current `count` and cumulative `total` independently in
+    // both its public directory and member metadata.
+    'fc2live': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // Steam community cards and getbroadcastmpd both expose the current
+    // concurrent audience independently from the broadcast identity.
+    'steambroadcast': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // JD labels the public-directory `pv` value as views rather than current
+    // concurrency, so it remains a cumulative audience field.
+    'jdlive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // Taobao's live-detail viewCount is cumulative session traffic. It is not
+    // a concurrent audience count; broadcaster fansNum remains separate.
+    'taobaolive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: true,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // Kugou keeps directory viewerNum/getViewerNum, platform hot and
+    // broadcaster fansCount as three independent metrics.
+    'kugoulive': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // Baidu's PC feed audience_count and room online_users are live audience
+    // values. Fan counts stay in the independent follower field.
+    'baidulive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    // Six Rooms exposes a homepage `count` used by its ranking cards, without
+    // a stable public contract proving unique concurrent viewers. Keep it as
+    // platform popularity; room fans remain an independent follower metric.
+    'sixroom': AudiencePlatformCapability(
       hasPopularity: true,
       hasTotalViewers: false,
       onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // LOOK keeps recommendation popularity and onlineNumber as independent
+    // values. The latter is the current audience shown on official web cards.
+    'looklive': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    'ttinglive': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
+    ),
+    'huajiao': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    'missevan': AudiencePlatformCapability(
+      hasPopularity: true,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.unsupported,
+    ),
+    // AcFun onlineCount is independent of likes/followers; author search omits it.
+    'acfun': AudiencePlatformCapability(
+      hasPopularity: false,
+      hasTotalViewers: false,
+      onlineAvailability: AudienceOnlineAvailability.roomList,
     ),
   };
 
@@ -154,7 +350,7 @@ class LiveRoom {
   /// 是否录播
   bool? isRecord = false;
   // 直播状态
-  LiveStatus? liveStatus = LiveStatus.offline;
+  LiveStatus? liveStatus;
 
   /// EPG channel id
   String? epgId;
@@ -169,6 +365,11 @@ class LiveRoom {
   bool? isCatchUp; // 是否正在时移
   int? catchUpStart; // 时移开始时间戳
   int? catchUpEnd; // 时移结束时间戳
+  String? catchUpMode; // M3U provider catch-up mode
+  String? catchUpSource; // M3U provider URL template/query
+  double? catchUpDays; // Provider archive window
+  double? catchUpCorrectionHours; // Provider timestamp correction
+  Map<String, String> httpHeaders; // Per-channel IPTV media request fields
 
   /// Local epoch-millisecond timestamp used by the viewing-history UI.
   int? lastWatchedAt;
@@ -190,7 +391,7 @@ class LiveRoom {
     this.totalViewers = '',
     this.followers = '0',
     this.platform,
-    this.liveStatus,
+    LiveStatus? liveStatus,
     this.data,
     this.danmakuData,
     this.isRecord = false,
@@ -204,9 +405,15 @@ class LiveRoom {
     this.isCatchUp = false,
     this.catchUpStart,
     this.catchUpEnd,
+    this.catchUpMode,
+    this.catchUpSource,
+    this.catchUpDays,
+    this.catchUpCorrectionHours,
+    this.httpHeaders = const <String, String>{},
     this.lastWatchedAt,
     List<String>? tagIds,
-  }) : tagIds = tagIds ?? [];
+  }) : liveStatus = liveStatus ?? _legacyStatusToLiveStatus(status: status, isRecord: isRecord),
+       tagIds = tagIds ?? [];
 
   LiveRoom.fromJson(Map<String, dynamic> json)
     : roomId = json['roomId'] ?? '',
@@ -226,9 +433,9 @@ class LiveRoom {
       onlineViewers = json['onlineViewers']?.toString() ?? '',
       totalViewers = json['totalViewers']?.toString() ?? '',
       followers = json['followers']?.toString() ?? '0',
-      platform = json['platform'] ?? 'UNKNOWN',
+      platform = canonicalSiteId(json['platform'] ?? 'UNKNOWN'),
       tagIds = List<String>.from(json['tagIds'] ?? []),
-      liveStatus = LiveStatus.values.firstWhere((e) => e.index == json['liveStatus'], orElse: () => LiveStatus.unknown),
+      liveStatus = _liveStatusFromJson(json),
       status = json['status'] ?? false,
       notice = json['notice'] ?? '',
       introduction = json['introduction'] ?? '',
@@ -240,6 +447,11 @@ class LiveRoom {
       isCatchUp = json['isCatchUp'] ?? false,
       catchUpStart = json['catchUpStart'],
       catchUpEnd = json['catchUpEnd'],
+      catchUpMode = json['catchUpMode']?.toString(),
+      catchUpSource = json['catchUpSource']?.toString(),
+      catchUpDays = _finiteDoubleFromJson(json['catchUpDays']),
+      catchUpCorrectionHours = _finiteDoubleFromJson(json['catchUpCorrectionHours']),
+      httpHeaders = HttpHeaderPolicy.normalize(json['httpHeaders'] is Map ? json['httpHeaders'] as Map : null),
       lastWatchedAt = json['lastWatchedAt'] is num ? (json['lastWatchedAt'] as num).toInt() : null {
     // Earlier builds stored Huya's userCount/URI 8006 popularity in the
     // concurrent-viewer field. Current captures confirm both are popularity.
@@ -284,6 +496,11 @@ class LiveRoom {
     bool? isCatchUp,
     int? catchUpStart,
     int? catchUpEnd,
+    String? catchUpMode,
+    String? catchUpSource,
+    double? catchUpDays,
+    double? catchUpCorrectionHours,
+    Map<String, String>? httpHeaders,
     int? lastWatchedAt,
     List<String>? tagIds,
   }) {
@@ -317,14 +534,54 @@ class LiveRoom {
       isCatchUp: isCatchUp ?? this.isCatchUp,
       catchUpStart: catchUpStart ?? this.catchUpStart,
       catchUpEnd: catchUpEnd ?? this.catchUpEnd,
+      catchUpMode: catchUpMode ?? this.catchUpMode,
+      catchUpSource: catchUpSource ?? this.catchUpSource,
+      catchUpDays: catchUpDays ?? this.catchUpDays,
+      catchUpCorrectionHours: catchUpCorrectionHours ?? this.catchUpCorrectionHours,
+      httpHeaders: httpHeaders ?? this.httpHeaders,
       lastWatchedAt: lastWatchedAt ?? this.lastWatchedAt,
       tagIds: tagIds ?? this.tagIds,
     );
   }
 
-  String get normalizedPlatformId => platform?.trim().toLowerCase() ?? '';
+  String get normalizedPlatformId => canonicalSiteId(platform);
 
   String get normalizedRoomId => roomId?.trim() ?? '';
+
+  bool get isCatchUpActive => isCatchUp == true || (catchUpUrl?.trim().isNotEmpty ?? false);
+
+  /// Canonical room state used by presentation and playback decisions.
+  ///
+  /// The project historically carried the same fact in both [status] and
+  /// [liveStatus]. A number of adapters and persisted favourites only wrote
+  /// one of them, so sorting by `status` while painting the badge from
+  /// `liveStatus` could label the same room both live and offline. Keep the
+  /// legacy boolean readable for backup compatibility, but collapse every
+  /// consumer onto this single semantic value.
+  ///
+  /// New instances and legacy JSON without [liveStatus] derive the enum from
+  /// [status] in the constructor/deserializer. Once an enum is present it is
+  /// therefore authoritative: letting a stale boolean override an explicit
+  /// offline response is exactly how an ended room remained painted as live.
+  /// Recording/replay rooms are playable but are not classified as a current
+  /// live broadcast.
+  LiveStatus get effectiveLiveStatus {
+    if (isRecord == true || liveStatus == LiveStatus.replay) {
+      return LiveStatus.replay;
+    }
+    final canonical = liveStatus;
+    if (canonical != null) return canonical;
+    return _legacyStatusToLiveStatus(status: status, isRecord: isRecord) ?? LiveStatus.unknown;
+  }
+
+  bool get isLiveNow => effectiveLiveStatus == LiveStatus.live;
+
+  bool get isPlayableNow => effectiveLiveStatus == LiveStatus.live || effectiveLiveStatus == LiveStatus.replay;
+
+  bool get isExplicitlyOfflineNow =>
+      effectiveLiveStatus == LiveStatus.offline || effectiveLiveStatus == LiveStatus.banned;
+
+  bool get isLiveStatusPending => effectiveLiveStatus == LiveStatus.unknown;
 
   /// Stable room identity used by favourites, tags and refresh merges.
   /// Room numbers are only unique inside one platform.
@@ -333,7 +590,7 @@ class LiveRoom {
   bool hasSameIdentity(LiveRoom other) => identityKey == other.identityKey;
 
   bool hasIdentity({required String platform, required String roomId}) {
-    return normalizedPlatformId == platform.trim().toLowerCase() && normalizedRoomId == roomId.trim();
+    return normalizedPlatformId == canonicalSiteId(platform) && normalizedRoomId == roomId.trim();
   }
 
   LiveRoom normalizedIdentityCopy() {
@@ -375,11 +632,13 @@ class LiveRoom {
       'onlineViewers': onlineViewers,
       'totalViewers': totalViewers,
       'followers': followers,
-      'platform': platform,
+      'platform': canonicalSiteId(platform),
       'tagIds': tagIds,
-      'liveStatus': liveStatus?.index ?? LiveStatus.offline.index,
+      'liveStatus': effectiveLiveStatus.index,
       'isRecord': isRecord,
-      'status': status,
+      // Persist the canonical state instead of carrying a contradictory legacy
+      // boolean into the next process or backup restore.
+      'status': isLiveNow,
       'notice': notice,
       'introduction': introduction,
       'epgId': epgId,
@@ -389,8 +648,36 @@ class LiveRoom {
       'isCatchUp': isCatchUp,
       'catchUpStart': catchUpStart,
       'catchUpEnd': catchUpEnd,
+      'catchUpMode': catchUpMode,
+      'catchUpSource': catchUpSource,
+      'catchUpDays': catchUpDays,
+      'catchUpCorrectionHours': catchUpCorrectionHours,
+      'httpHeaders': HttpHeaderPolicy.normalize(httpHeaders),
       'lastWatchedAt': lastWatchedAt,
     };
+  }
+
+  static LiveStatus? _legacyStatusToLiveStatus({required bool? status, required bool? isRecord}) {
+    if (isRecord == true) return LiveStatus.replay;
+    if (status == true) return LiveStatus.live;
+    if (status == false) return LiveStatus.offline;
+    // A sparse merge object deliberately uses null to mean "not provided".
+    // Preserve that distinction; callers needing an explicit pending state pass
+    // LiveStatus.unknown and effectiveLiveStatus still normalizes null to it.
+    return null;
+  }
+
+  static LiveStatus _liveStatusFromJson(Map<String, dynamic> json) {
+    final raw = json['liveStatus'];
+    final index = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+    if (index != null && index >= 0 && index < LiveStatus.values.length) {
+      return LiveStatus.values[index];
+    }
+    return _legacyStatusToLiveStatus(
+          status: json['status'] is bool ? json['status'] as bool : null,
+          isRecord: json['isRecord'] is bool ? json['isRecord'] as bool : null,
+        ) ??
+        LiveStatus.unknown;
   }
 
   AudienceMetricType get effectiveAudienceMetricType {
@@ -398,7 +685,7 @@ class LiveRoom {
       return audienceMetricType!;
     }
     return switch (normalizedPlatformId) {
-      'bilibili' || 'douyu' || 'huya' || 'cc' || 'yy' || 'xhs' => AudienceMetricType.popularity,
+      'bilibili' || 'douyu' || 'huya' || 'cc' || 'yy' || 'missevan' => AudienceMetricType.popularity,
       'kuaishou' || 'twitch' || 'soop' => AudienceMetricType.onlineViewers,
       'douyin' => AudienceMetricType.totalViewers,
       _ => AudienceMetricType.unknown,
@@ -448,7 +735,11 @@ class LiveRoom {
     if (_hasAudienceValue(effectivePopularity)) return effectivePopularity;
     if (_hasAudienceValue(effectiveTotalViewers)) return effectiveTotalViewers;
     if (hasRealOnlineCount) return effectiveOnlineViewers;
-    return (watching ?? '0').trim();
+    final legacy = (watching ?? '').trim();
+    // The legacy default "0" is not a measurement. Unknown-metric adapters
+    // must not render it as a verified audience count.
+    if (effectiveAudienceMetricType == AudienceMetricType.unknown && !_hasAudienceValue(legacy)) return '';
+    return legacy;
   }
 
   AudienceMetricType audienceType({required bool preferRealOnline, required bool platformEnabled}) {
@@ -566,6 +857,11 @@ class LiveRoom {
     final text = value?.trim() ?? '';
     return text.isNotEmpty && text != 'null' && RegExp(r'[0-9]').hasMatch(text);
   }
+
+  static double? _finiteDoubleFromJson(dynamic value) {
+    final parsed = value is num ? value.toDouble() : double.tryParse(value?.toString().trim() ?? '');
+    return parsed != null && parsed.isFinite ? parsed : null;
+  }
 }
 
 extension LiveRoomExtension on LiveRoom {
@@ -619,6 +915,11 @@ extension LiveRoomExtension on LiveRoom {
       isCatchUp: incoming.isCatchUp ?? isCatchUp,
       catchUpStart: incoming.catchUpStart ?? catchUpStart,
       catchUpEnd: incoming.catchUpEnd ?? catchUpEnd,
+      catchUpMode: _preferValue(incoming.catchUpMode, catchUpMode),
+      catchUpSource: _preferValue(incoming.catchUpSource, catchUpSource),
+      catchUpDays: incoming.catchUpDays ?? catchUpDays,
+      catchUpCorrectionHours: incoming.catchUpCorrectionHours ?? catchUpCorrectionHours,
+      httpHeaders: incoming.normalizedPlatformId == 'iptv' ? incoming.httpHeaders : httpHeaders,
 
       lastWatchedAt: incoming.lastWatchedAt ?? lastWatchedAt,
     );
@@ -632,7 +933,28 @@ extension LiveRoomExtension on LiveRoom {
   }
 
   LiveRoom getLiveRoomWithError() {
-    return copyWith(liveStatus: LiveStatus.offline, status: false, isRecord: false);
+    // A failed detail request is not evidence that a broadcast ended. Keep
+    // the last known identity/metadata, but make playback status pending.
+    return copyWith(
+      liveStatus: LiveStatus.unknown,
+      status: false,
+      isRecord: false,
+      watching: (watching ?? '').trim() == '0' ? '' : watching,
+    );
+  }
+
+  /// Returns a fresh room snapshot for the original live stream.
+  ///
+  /// [copyWith] deliberately treats null as "keep the previous value", which
+  /// is useful for partial metadata merges but cannot clear catch-up state.
+  /// Returning to live must remove the old interval as one snapshot so a later
+  /// schedule render never highlights a retired programme.
+  LiveRoom withoutCatchUp() {
+    final liveRoom = copyWith(isCatchUp: false);
+    liveRoom.catchUpUrl = null;
+    liveRoom.catchUpStart = null;
+    liveRoom.catchUpEnd = null;
+    return liveRoom;
   }
 
   LiveRoom fillFromDetail(LiveRoom? detail) {

@@ -1,8 +1,11 @@
 # 本地构建、测试与发布
 
-本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.0`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate, not a verified release. The linked 3.2.0 acceptance reports are historical fork evidence; they do not attest to this candidate. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
 
-Current corrected release candidate: 2026-08-25, v3.0.0 build 4088, Windows 11 + Java 25 + Flutter 3.47.0. It replaces build 4087 atomically after one final quality gate, local Android/Windows stages and serial hosted Linux/macOS/iOS stages; see `STAGE_UPDATE_3_0_0.md`.
+
+本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.5`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。
+
+The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line. Candidate-specific gates, artifacts, and platform blockers must be recorded against the 3.0.8+4096 source commit before any release.
 
 ## 前置环境
 
@@ -28,7 +31,7 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\local_ci.ps1 `
 PowerShell -ExecutionPolicy Bypass -File .\tool\local_ci.ps1 -Scope Full
 ```
 
-两种模式的 Flutter 测试都从 `--concurrency=12` 起步；脚本通过共享重型任务互斥锁排队，并在 `local-artifacts/build-records/` 记录耗时和资源峰值。
+两种模式的 Flutter 测试都从 `--concurrency=12` 起步；脚本通过共享重型任务互斥锁排队，并在 `local-artifacts/build-records/` 记录排队时间、各主要阶段耗时和资源峰值。`Focused` 默认不重复全仓策略、设备夹具和 4937 文件完整性扫描；修改这些工具/策略所有者时显式增加 `-IncludeRepositoryChecks`，正式 `Full` 门禁始终包含它们。
 
 ### 默认无设备修复流程
 
@@ -47,14 +50,14 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\local_ci.ps1 -Scope Full
 
 1. 环境变量 `PURE_LIVE_FLUTTER` 指向的 `flutter.bat`；
 2. `.fvm/flutter_sdk/bin/flutter.bat`；
-3. `%LOCALAPPDATA%\Codex\flutter\sdk-3.47.0\flutter\bin\flutter.bat`；
+3. `%LOCALAPPDATA%\Codex\flutter\sdk-3.47.5\flutter\bin\flutter.bat`；
 4. `PATH` 中的 Flutter。
 
 路径较长时脚本会从 `P:` 到 `W:` 为当前工作区选择并保留一个稳定的短盘符映射，规避 FFmpeg Native Assets 在 Windows 上超过传统路径长度后的构建失败，也支持本地主工作区与临时自托管 Runner 并行构建。映射记录位于未跟踪的 `.dart_tool/pure_live_subst_drive.txt`；连续的 `pub get`、分析、测试和构建会复用同一盘符，避免 Native Assets 增量缓存引用已经释放的盘符。
 
-Android 构建使用 Java 25 运行 Gradle 与 lint，应用和插件的 Java/Kotlin 字节码目标保持 17。脚本优先读取 `PURE_LIVE_JAVA_HOME`，随后检测 Android Studio JBR，最后回退到本机 Temurin；当前工具链为 compileSdk/targetSdk 37、Gradle 9.5.0、AGP 9.3.1 和 AGP Built-in Kotlin。`tool/audit_built_in_kotlin.py` 会在本地 CI 中阻止独立 KGP、模块私有 AGP classpath 和旧 Kotlin DSL 回归。
+Android 构建使用 Java 25 运行 Gradle 与 lint，应用和插件的 Java/Kotlin 字节码目标保持 17。脚本优先读取 `PURE_LIVE_JAVA_HOME`，随后检测 Android Studio JBR，最后回退到本机 Temurin；当前工具链为 compileSdk/targetSdk 37、Gradle 9.7.1、AGP 9.3.3 和 AGP Built-in Kotlin。`tool/audit_built_in_kotlin.py` 会在本地 CI 中阻止独立 KGP、模块私有 AGP classpath 和旧 Kotlin DSL 回归。
 
-Android 打包前会由 `tool/prefetch_android_native.ps1` 下载并逐一校验 media_kit 的四个 libmpv JAR及 FFmpeg builders v0.11.0 AAR；质量门禁以 `-SkipAndroidMedia` 只准备 Windows FFmpeg ZIP。原生文件写入持久缓存和 Native Assets 共享缓存，减少重复下载并拦截损坏文件。
+Android 打包前由 `tool/prefetch_android_native.ps1` 依据当前 media_kit Native Assets 清单下载并逐一校验四个 ABI 的 libmpv 档案，以及项目固定 SHA-256 的 FFmpeg 9.0.2 AAR；质量门禁以 `-SkipAndroidMedia` 准备 media_kit 与 FFmpeg 的 Windows 档案。原生文件写入持久缓存和各自的 Native Assets 共享缓存，减少重复下载并拦截损坏文件。
 
 Windows 的 `flutter_inappwebview_windows` 需要 `nuget.exe`。脚本会自动发现 `%LOCALAPPDATA%\Codex\nuget\nuget.exe` 或 `PATH` 中的 NuGet；建议从 `https://dist.nuget.org/` 下载并核验 Microsoft Authenticode 签名。
 
@@ -74,6 +77,14 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\build_local_release.ps1 `
 产物位于 `local-artifacts/<version-build>/`，该目录不会提交到 Git。
 
 Windows 保留 Flutter/CMake 的增量构建目录，只清理可丢弃的打包暂存区；脚本检查 `AppData`、缓存数据库等运行时状态未进入便携包或安装器，并剔除 `.lib`、`.exp`、`.pdb`、`.ilk` 等仅供原生开发/链接使用的文件。请勿直接把运行过的 Release 目录手工压缩发布。
+
+Windows Release 便携 ZIP 与 EXE 安装包会把当前 Visual C++ 工具链解析出的
+`msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll` 放在 `pure_live.exe`
+同级目录。打包脚本把这三个文件列为必需运行时并逐项检查，避免构建机已安装的全局
+运行库掩盖干净 Windows 10/11 设备上的启动依赖。该布局遵循
+[Flutter Windows 部署说明](https://docs.flutter.dev/platform-integration/windows/building)；
+运行库版本必须不低于构建工具链要求，参见
+[Microsoft VC++ Redistributable 兼容规则](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)。
 
 质量模式也必须明确二选一：正式交付使用 `-FullRegression`；已经完成本轮定向验证或同提交完整门禁时使用 `-SkipQuality`。其他参数：`-SkipInstaller`、`-UseOfficialRepositories`、`-RequireReleaseSigning`、`-DedicatedBuild`。交互模式 Gradle workers 为 16；专门构建传 `-DedicatedBuild` 后为 20。
 
@@ -121,9 +132,11 @@ Linux、macOS 和 iOS 通过 `feature-build` 手动选择补建；所有平台�
 
 Linux 版使用系统浏览器承接“继续网页搜索”，避免引入额外 WPE WebKit 运行时；平台原生搜索、直播详情、弹幕与播放链路仍在应用内完成。Windows/macOS/Android/iOS 使用锁定修订版 `flutter_inappwebview`。
 
-Ubuntu 24.04 构建会同时安装 `libva`、VDPAU、PulseAudio、Wayland、EGL 与 X11 开发包，以满足当前锁定 `libmpv.so` 的 glibc 2.38 / GLIBCXX 3.4.32 基线和链接依赖；Android 使用仓库内的同版本网页内核兼容副本通过 AGP 9.3.1 / R8 构建。Linux 归档携带应用与媒体库，目标系统仍需提供 GTK、托盘、显卡驱动和音频运行库。
+Ubuntu 24.04 构建会同时安装 `libva`、VDPAU、PulseAudio、Wayland、EGL 与 X11 开发包，以满足当前锁定 `libmpv.so` 的 glibc 2.38 / GLIBCXX 3.4.32 基线和链接依赖；Android 使用仓库内的同版本网页内核兼容副本通过 AGP 9.3.3 / R8 构建。Linux 归档携带应用与媒体库，目标系统仍需提供 GTK、托盘、显卡驱动和音频运行库。
 
 ## 单独命令
+
+Android、Windows、Linux、macOS 与 iOS 的 FFmpeg Kit 使用项目[原生依赖资产预发布](https://github.com/liuchuancong/pure_live/releases/tag/native-ffmpeg-9.0.2-b1)中的 FFmpeg `n9.0.2`；不是应用版本号。运行本机完整构建脚本时会先校验下载文件的 SHA-256。直接执行下列 Flutter 命令前，也可先运行 `tool/prefetch_android_native.ps1`；最终以 APK 内 `libffmpegkit.so` 和 Windows `libffmpegkit.dll` 的版本、哈希与实际运行结果为准。Android AAR 包含 `arm64-v8a`、`armeabi-v7a`、`x86_64`；其中 arm64 与 x86_64 ELF `LOAD` 段按 16 KiB 对齐。Linux 资产使用 Ubuntu 24.04 基线，不能混用更高 glibc 环境编出的 ZIP。Apple 两端使用各自的 universal XCFramework ZIP，并在应用构建后校验实际打包的 Mach-O 架构与 `n9.0.2` 标记。
 
 ```powershell
 .\tool\flutterw.ps1 pub get --enforce-lockfile
@@ -153,7 +166,7 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\publish_local_release.ps1 `
 
 ## GitHub Actions
 
-`.github/workflows/feature-build.yml` 支持手动触发，可分别选择 Android arm64、Windows x64、Linux x64、macOS universal 和 iOS arm64 设备编译；所有平台、质量门禁和发布开关默认关闭，只有本轮明确选择的阶段进入队列。选择多个平台时按依赖链串行。`stage-linux-*`、`stage-macos-*` 与 `stage-ios-*` 标签仅用于精确单平台补建，产物保留 3 天。
+The manual `.github/workflows/feature-build.yml` workflow selects Android arm64, Windows x64, Linux x64, macOS, and iOS individually. Platform, quality, and release inputs default to off; selected jobs run serially. There are no push, stage-tag, or scheduled build triggers.
 
 代码未变化且当前提交已经在本机通过完整门禁时，可关闭手动工作流的
 `run_quality`，仅调用托管 Runner 完成 Secrets 正式签名；默认仍会执行完整门禁。
@@ -180,6 +193,6 @@ python .\tool\update_releases.py
 3. 按本轮发布范围串行运行 `tool/build_local_release.ps1 -Target <目标> -Configuration Release -SkipQuality`，逐个平台核对产物、构建记录和 SHA-256。
 4. 当前任务明确安排设备验收时，再运行 `tool/install_android_local.ps1` 覆盖安装并启动；正式 Release 使用仓库持久签名验证升级链。
 5. 提交并推送 `master`，创建与该提交一致的 tag 和草稿 Release；Android 本地暂存包通过 `sign-staged-android` 正式签名后再公开发布。
-6. 在 [维护分支 Releases](https://github.com/liuchuancong/pure_live/releases) 核对附件、固定证书指纹、校验文件和源码提交，随后刷新 `assets/releases.json` 并推送 `[skip ci]` 索引提交。
+6. 在 [维护分支 Releases](https://github.com/ayumocha/pure_live/releases) 核对附件、固定证书指纹、校验文件和源码提交，随后刷新 `assets/releases.json` 并推送 `[skip ci]` 索引提交。
 
 返回 [文档索引](README.md)。

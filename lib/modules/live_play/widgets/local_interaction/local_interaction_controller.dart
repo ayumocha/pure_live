@@ -21,7 +21,7 @@ class LocalGift {
 class LocalPlatformPack {
   const LocalPlatformPack({
     required this.id,
-    required this.name,
+    required this.nameKey,
     required this.currencyKey,
     required this.levelKey,
     required this.accentColor,
@@ -29,11 +29,13 @@ class LocalPlatformPack {
   });
 
   final String id;
-  final String name;
+  final String nameKey;
   final String currencyKey;
   final String levelKey;
   final Color accentColor;
   final String badge;
+
+  String get name => i18n(nameKey);
 }
 
 class LocalDanmakuPreset {
@@ -234,10 +236,19 @@ class LocalInteractionController extends GetxController {
     ),
   ];
 
+  static const genericPlatformPack = LocalPlatformPack(
+    id: 'generic',
+    nameKey: 'local_platform_generic',
+    currencyKey: 'local_currency_generic',
+    levelKey: 'local_level_generic',
+    accentColor: Color(0xFF607D8B),
+    badge: '✨',
+  );
+
   static const platformPacks = <LocalPlatformPack>[
     LocalPlatformPack(
       id: Sites.bilibiliSite,
-      name: '哔哩哔哩',
+      nameKey: 'site_bilibili',
       currencyKey: 'local_currency_bili',
       levelKey: 'local_level_bili',
       accentColor: Color(0xFF00AEEC),
@@ -245,7 +256,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.douyuSite,
-      name: '斗鱼',
+      nameKey: 'site_douyu',
       currencyKey: 'local_currency_douyu',
       levelKey: 'local_level_douyu',
       accentColor: Color(0xFFFF6A00),
@@ -253,7 +264,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.huyaSite,
-      name: '虎牙',
+      nameKey: 'site_huya',
       currencyKey: 'local_currency_huya',
       levelKey: 'local_level_huya',
       accentColor: Color(0xFFFF9800),
@@ -261,7 +272,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.douyinSite,
-      name: '抖音',
+      nameKey: 'site_douyin',
       currencyKey: 'local_currency_douyin',
       levelKey: 'local_level_douyin',
       accentColor: Color(0xFFFE2C55),
@@ -269,7 +280,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.kuaishouSite,
-      name: '快手',
+      nameKey: 'site_kuaishou',
       currencyKey: 'local_currency_kuaishou',
       levelKey: 'local_level_kuaishou',
       accentColor: Color(0xFFFF4906),
@@ -277,7 +288,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.ccSite,
-      name: '网易 CC',
+      nameKey: 'site_cc',
       currencyKey: 'local_currency_cc',
       levelKey: 'local_level_cc',
       accentColor: Color(0xFFFF4D7D),
@@ -285,7 +296,7 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.twitchSite,
-      name: 'Twitch',
+      nameKey: 'site_twitch',
       currencyKey: 'local_currency_twitch',
       levelKey: 'local_level_twitch',
       accentColor: Color(0xFF9146FF),
@@ -293,11 +304,315 @@ class LocalInteractionController extends GetxController {
     ),
     LocalPlatformPack(
       id: Sites.soopSite,
-      name: 'SOOP',
+      nameKey: 'site_soop',
       currencyKey: 'local_currency_soop',
       levelKey: 'local_level_soop',
       accentColor: Color(0xFF0675E8),
       badge: '🎈',
+    ),
+    LocalPlatformPack(
+      id: Sites.yySite,
+      nameKey: 'site_yy',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF6B35),
+      badge: '🎤',
+    ),
+    LocalPlatformPack(
+      id: Sites.acfunSite,
+      nameKey: 'site_acfun',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFD4C5D),
+      badge: '🅰️',
+    ),
+    LocalPlatformPack(
+      id: Sites.picartoSite,
+      nameKey: 'site_picarto',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF25BFA4),
+      badge: '🎨',
+    ),
+    LocalPlatformPack(
+      id: Sites.twitcastingSite,
+      nameKey: 'site_twitcasting',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF294DDB),
+      badge: '📡',
+    ),
+    LocalPlatformPack(
+      id: Sites.missevanSite,
+      nameKey: 'site_missevan',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFF38AAE),
+      badge: '🎧',
+    ),
+    LocalPlatformPack(
+      id: Sites.inkeSite,
+      nameKey: 'site_inke',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF4F9A),
+      badge: '✨',
+    ),
+    LocalPlatformPack(
+      id: Sites.kilakilaSite,
+      nameKey: 'site_kilakila',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF7C5CFC),
+      badge: '💫',
+    ),
+    LocalPlatformPack(
+      id: Sites.huajiaoSite,
+      nameKey: 'site_huajiao',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF3B30),
+      badge: '🌶️',
+    ),
+    LocalPlatformPack(
+      id: Sites.openrecSite,
+      nameKey: 'site_openrec',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF34C759),
+      badge: '🟢',
+    ),
+    LocalPlatformPack(
+      id: Sites.ttingSite,
+      nameKey: 'site_ttinglive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF2D7FF9),
+      badge: '📺',
+    ),
+    LocalPlatformPack(
+      id: Sites.xiaohongshuSite,
+      nameKey: 'site_xiaohongshu',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF2442),
+      badge: '📕',
+    ),
+    LocalPlatformPack(
+      id: Sites.niconicoSite,
+      nameKey: 'site_niconico',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF252525),
+      badge: '📹',
+    ),
+    LocalPlatformPack(
+      id: Sites.weiboSite,
+      nameKey: 'site_weibo',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF8200),
+      badge: '🟠',
+    ),
+    LocalPlatformPack(
+      id: Sites.showroomSite,
+      nameKey: 'site_showroom',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF2B67),
+      badge: '🎟️',
+    ),
+    LocalPlatformPack(
+      id: Sites.chzzkSite,
+      nameKey: 'site_chzzk',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF00FFA3),
+      badge: '🎮',
+    ),
+    LocalPlatformPack(
+      id: Sites.kickSite,
+      nameKey: 'site_kick',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF53FC18),
+      badge: '🟢',
+    ),
+    LocalPlatformPack(
+      id: Sites.seventeenLiveSite,
+      nameKey: 'site_17live',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF2D55),
+      badge: '17',
+    ),
+    LocalPlatformPack(
+      id: Sites.liveMeSite,
+      nameKey: 'site_liveme',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF7C4DFF),
+      badge: 'LM',
+    ),
+    LocalPlatformPack(
+      id: Sites.tiktokSite,
+      nameKey: 'site_tiktok',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFE2C55),
+      badge: 'TT',
+    ),
+    LocalPlatformPack(
+      id: Sites.youtubeSite,
+      nameKey: 'site_youtube',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF0000),
+      badge: 'YT',
+    ),
+    LocalPlatformPack(
+      id: Sites.bigoSite,
+      nameKey: 'site_bigo',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF6A5CFF),
+      badge: 'BG',
+    ),
+    LocalPlatformPack(
+      id: Sites.pandaLiveSite,
+      nameKey: 'site_pandalive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFE4D6A),
+      badge: 'PD',
+    ),
+    LocalPlatformPack(
+      id: Sites.popkonSite,
+      nameKey: 'site_popkontv',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF6A3D),
+      badge: 'PK',
+    ),
+    LocalPlatformPack(
+      id: Sites.shopeeLiveSite,
+      nameKey: 'site_shopeelive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFEE4D2D),
+      badge: 'SP',
+    ),
+    LocalPlatformPack(
+      id: Sites.vkVideoLiveSite,
+      nameKey: 'site_vkvideolive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF0077FF),
+      badge: 'VK',
+    ),
+    LocalPlatformPack(
+      id: Sites.nimoTvSite,
+      nameKey: 'site_nimotv',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF6441E7),
+      badge: 'NM',
+    ),
+    LocalPlatformPack(
+      id: Sites.dailymotionSite,
+      nameKey: 'site_dailymotion',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF0A0A0A),
+      badge: 'DM',
+    ),
+    LocalPlatformPack(
+      id: Sites.rumbleSite,
+      nameKey: 'site_rumble',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF85C742),
+      badge: 'RB',
+    ),
+    LocalPlatformPack(
+      id: Sites.goodGameSite,
+      nameKey: 'site_goodgame',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFFC400),
+      badge: 'GG',
+    ),
+    LocalPlatformPack(
+      id: Sites.fc2LiveSite,
+      nameKey: 'site_fc2live',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFEA4C89),
+      badge: 'FC',
+    ),
+    LocalPlatformPack(
+      id: Sites.steamBroadcastSite,
+      nameKey: 'site_steambroadcast',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF1B2838),
+      badge: 'ST',
+    ),
+    LocalPlatformPack(
+      id: Sites.jdLiveSite,
+      nameKey: 'site_jdlive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFE1251B),
+      badge: 'JD',
+    ),
+    LocalPlatformPack(
+      id: Sites.taobaoLiveSite,
+      nameKey: 'site_taobaolive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF5000),
+      badge: 'TB',
+    ),
+    LocalPlatformPack(
+      id: Sites.kugouLiveSite,
+      nameKey: 'site_kugoulive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF19A7FF),
+      badge: 'KG',
+    ),
+    LocalPlatformPack(
+      id: Sites.baiduLiveSite,
+      nameKey: 'site_baidulive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF2932E1),
+      badge: 'BD',
+    ),
+    LocalPlatformPack(
+      id: Sites.sixRoomSite,
+      nameKey: 'site_sixroom',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF5A5F),
+      badge: '6R',
+    ),
+    LocalPlatformPack(
+      id: Sites.lookLiveSite,
+      nameKey: 'site_looklive',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFFFF2C55),
+      badge: 'LK',
+    ),
+    LocalPlatformPack(
+      id: Sites.iptvSite,
+      nameKey: 'site_iptv',
+      currencyKey: 'local_currency_generic',
+      levelKey: 'local_level_generic',
+      accentColor: Color(0xFF00A2FF),
+      badge: '🌐',
     ),
   ];
 
@@ -616,12 +931,14 @@ class LocalInteractionController extends GetxController {
     _addHistory('${i18n('local_recharge_record')} +$amount');
   }
 
-  static List<LocalGift> giftsForPlatform(String platform) => _platformGifts[platform] ?? gifts;
+  static List<LocalGift> giftsForPlatform(String platform) => _platformGifts[platform.trim().toLowerCase()] ?? gifts;
 
-  static LocalPlatformPack packForPlatform(String platform) =>
-      platformPacks.firstWhere((pack) => pack.id == platform, orElse: () => platformPacks.first);
+  static LocalPlatformPack packForPlatform(String platform) {
+    final normalized = platform.trim().toLowerCase();
+    return platformPacks.firstWhere((pack) => pack.id == normalized, orElse: () => genericPlatformPack);
+  }
 
-  static String platformBadgeKey(String platform) => switch (platform) {
+  static String platformBadgeKey(String platform) => switch (platform.trim().toLowerCase()) {
     Sites.bilibiliSite => 'local_badge_bilibili',
     Sites.douyuSite => 'local_badge_douyu',
     Sites.huyaSite => 'local_badge_huya',

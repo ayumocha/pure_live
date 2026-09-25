@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/plugins/utils.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:pure_live/common/global/platform/desktop_tray_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pure_live/routes/app_navigation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -16,10 +16,35 @@ import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/plugins/share_command_handler.dart';
 import 'package:pure_live/routes/route_observer_controller.dart';
 import 'package:pure_live/common/utils/share_command_handler.dart';
+import 'package:pure_live/common/widgets/share_command_import_dialog.dart';
 import 'package:pure_live/modules/live_play/controllers/player_state.dart';
+import 'package:pure_live/common/services/settings/window_size_controller.dart';
+
+class DesktopTrayMenuCoordinator {
+  Future<void>? _activeTransaction;
+
+  Future<void> show({required Future<void> Function() refresh, required Future<void> Function() open}) {
+    final activeTransaction = _activeTransaction;
+    if (activeTransaction != null) return activeTransaction;
+
+    late final Future<void> transaction;
+    transaction = _run(refresh, open).whenComplete(() {
+      if (identical(_activeTransaction, transaction)) _activeTransaction = null;
+    });
+    _activeTransaction = transaction;
+    return transaction;
+  }
+
+  Future<void> _run(Future<void> Function() refresh, Future<void> Function() open) async {
+    await refresh();
+    await open();
+  }
+}
 
 class DesktopManager {
   static State? _currentState;
+  static final DesktopTrayMenuCoordinator _trayMenuCoordinator = DesktopTrayMenuCoordinator();
+
   static Future<void> initialize() async {
     if (!PlatformUtils.isDesktop) return;
 
@@ -27,12 +52,11 @@ class DesktopManager {
       await windowManager.ensureInitialized();
       await Window.initialize();
 
-      final double width = SettingsService.to.window.storedWidth.v;
-      final double height = SettingsService.to.window.storedHeight.v;
+      final storedSize = SettingsService.to.window.storedSize;
 
       final WindowOptions windowOptions = WindowOptions(
-        size: Size(width, height),
-        minimumSize: const Size(400, 300),
+        size: storedSize,
+        minimumSize: const Size(WindowSizeController.minWindowWidth, WindowSizeController.minWindowHeight),
         center: true,
         backgroundColor: Colors.transparent,
         skipTaskbar: false,
@@ -83,9 +107,6 @@ class DesktopManager {
       windowManager.addListener(state as WindowListener);
     }
 
-    if (state is TrayListener) {
-      trayManager.addListener(state as TrayListener);
-    }
   }
 
   static void disposeListeners() {
@@ -95,44 +116,46 @@ class DesktopManager {
       windowManager.removeListener(_currentState as WindowListener);
     }
 
-    if (_currentState is TrayListener) {
-      trayManager.removeListener(_currentState as TrayListener);
-    }
 
     _currentState = null;
   }
 
   static Widget buildWithTitleBar(Widget? child) {
-    return Obx(() {
-      final fullscreen = GlobalPlayerState.to.isFullscreen.value;
-      final pipMode = GlobalPlayerState.to.isPipMode.value;
-
-      if (!PlatformUtils.isWindows) {
-        return child ?? const SizedBox.shrink();
-      }
-
-      return Column(
-        children: [
-          if (!fullscreen && !pipMode) const CustomTitleBar(),
-          if (child != null) Expanded(child: child),
-        ],
-      );
-    });
+    final content = child ?? const SizedBox.shrink();
+    if (!PlatformUtils.isWindows) {
+      return content;
+    }
+    return Overlay(
+      initialEntries: [
+        OverlayEntry(
+          builder: (_) => Obx(() {
+            final fullscreen = GlobalPlayerState.to.isFullscreen.value;
+            final pipMode = GlobalPlayerState.to.isPipMode.value;
+            return Column(
+              children: [
+                if (!fullscreen && !pipMode) const CustomTitleBar(),
+                Expanded(child: content),
+              ],
+            );
+          }),
+        ),
+      ],
+    );
   }
 
   static Future<void> _initTray() async {
     if (!PlatformUtils.isDesktop) return;
 
     try {
-      if (Platform.isWindows) {
-        await trayManager.setIcon('assets/icons/app_icon.ico');
-      } else if (Platform.isMacOS) {
-        await trayManager.setIcon('assets/icons/app_icon.ico');
-      }
-      // The desktop window is created before EasyLocalization has loaded its
-      // delegate. Use a stable tooltip here and build the localized context
-      // menu after the first application frame.
-      await trayManager.setToolTip('PureLive');
+      DesktopTrayService.initialize(
+        onClick: handleTrayIconClick,
+        onRightClick: handleTrayRightClick,
+        onWindowAction: () async {
+          final isVisible = await windowManager.isVisible();
+          await handleTrayMenuClick(isVisible ? 'hide_window' : 'show_window');
+        },
+        onExit: () => handleTrayMenuClick('exit_app'),
+      );
     } catch (e) {
       debugPrint('系统托盘初始化失败: $e');
     }
@@ -143,24 +166,14 @@ class DesktopManager {
 
     try {
       final useChineseFallback = PlatformDispatcher.instance.locale.languageCode == 'zh';
-      await trayManager.setToolTip(i18nOr('app_name', useChineseFallback ? '纯粹直播' : 'PureLive'));
-
       final isVisible = await windowManager.isVisible();
-
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: isVisible ? 'hide_window' : 'show_window',
-            label: isVisible
-                ? i18nOr('hide_window', useChineseFallback ? '隐藏窗口' : 'Hide Window')
-                : i18nOr('show_window', useChineseFallback ? '显示窗口' : 'Show Window'),
-          ),
-          MenuItem.separator(),
-          MenuItem(key: 'exit_app', label: i18nOr('exit_app', useChineseFallback ? '退出应用' : 'Exit')),
-        ],
+      DesktopTrayService.update(
+        tooltip: i18nOr('app_name', useChineseFallback ? '纯粹直播' : 'PureLive'),
+        windowLabel: isVisible
+            ? i18nOr('hide_window', useChineseFallback ? '隐藏窗口' : 'Hide Window')
+            : i18nOr('show_window', useChineseFallback ? '显示窗口' : 'Show Window'),
+        exitLabel: i18nOr('exit_app', useChineseFallback ? '退出应用' : 'Exit'),
       );
-
-      await trayManager.setContextMenu(menu);
     } catch (e) {
       debugPrint('${i18n("tray_update_failed")}: $e');
     }
@@ -176,11 +189,11 @@ class DesktopManager {
     await updateTray();
   }
 
-  static Future<void> handleTrayMenuClick(MenuItem menuItem) async {
+  static Future<void> handleTrayMenuClick(String action) async {
     if (!PlatformUtils.isDesktop) return;
 
     try {
-      switch (menuItem.key) {
+      switch (action) {
         case 'show_window':
           await showWindow();
           break;
@@ -226,8 +239,7 @@ class DesktopManager {
     if (!PlatformUtils.isDesktop) return;
 
     try {
-      await updateTray();
-      await trayManager.popUpContextMenu();
+      await _trayMenuCoordinator.show(refresh: updateTray, open: () async => DesktopTrayService.openContextMenu());
     } catch (e) {
       debugPrint('托盘右键点击处理失败: $e');
     }
@@ -298,39 +310,26 @@ class CustomTitleBar extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 12),
                   child: isFullscreen
                       ? null
-                      : Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () async {
-                              final url = Uri.parse(VersionUtil.projectUrl);
-                              if (await canLaunchUrl(url)) {
-                                await launchUrl(url);
-                              }
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Image.asset('assets/icons/icon.png', width: 16, height: 16),
-                                const SizedBox(width: 6),
-                                Text(
-                                  i18nOr('app_name', 'PureLive'),
-                                  style: AppTextStyles.t13.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: iconColor,
-                                    decoration: TextDecoration.none,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                if (showSizeText && !isFullscreen)
-                                  IgnorePointer(
-                                    child: Text(
-                                      '[${currentSize.width.toInt()} × ${currentSize.height.toInt()}]',
-                                      style: AppTextStyles.t12.copyWith(color: iconColor.withValues(alpha: 0.6)),
-                                    ),
-                                  ),
-                              ],
-                            ),
+                      : TitleBarProjectLink(
+                          semanticLabel: i18nOr('project_page', 'Project Homepage'),
+                          failureMessage: i18nOr(
+                            'external_browser_not_opened',
+                            'The system browser did not open. Check the default browser settings.',
                           ),
+                          appName: i18nOr('app_name', 'PureLive'),
+                          appNameStyle: AppTextStyles.t13.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: iconColor,
+                            decoration: TextDecoration.none,
+                          ),
+                          sizeTextStyle: AppTextStyles.t12.copyWith(color: iconColor.withValues(alpha: 0.6)),
+                          projectUri: Uri.parse(VersionUtil.projectUrl),
+                          iconColor: iconColor,
+                          hoverColor: isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : theme.colorScheme.primary.withValues(alpha: 0.08),
+                          currentSize: currentSize,
+                          showSizeText: showSizeText,
                         ),
                 ),
               ),
@@ -340,6 +339,8 @@ class CustomTitleBar extends StatelessWidget {
             Row(
               children: [
                 WindowControlButton(
+                  semanticLabel: i18nOr('window_minimize', 'Minimize window'),
+                  failureMessage: i18nOr('window_close_action_failed', 'The window action failed. Try again.'),
                   icon: Icons.remove,
                   iconColor: iconColor,
                   hoverColor: isDark
@@ -350,6 +351,8 @@ class CustomTitleBar extends StatelessWidget {
                   },
                 ),
                 WindowControlButton(
+                  semanticLabel: i18nOr('window_maximize_restore', 'Maximize or restore window'),
+                  failureMessage: i18nOr('window_close_action_failed', 'The window action failed. Try again.'),
                   icon: Icons.crop_square,
                   iconColor: iconColor,
                   hoverColor: isDark
@@ -364,6 +367,8 @@ class CustomTitleBar extends StatelessWidget {
                   },
                 ),
                 WindowControlButton(
+                  semanticLabel: i18nOr('window_close', 'Close window'),
+                  failureMessage: i18nOr('window_close_action_failed', 'The window action failed. Try again.'),
                   icon: Icons.close,
                   iconColor: iconColor,
                   hoverIconColor: Colors.white,
@@ -382,8 +387,128 @@ class CustomTitleBar extends StatelessWidget {
   }
 }
 
+class TitleBarProjectLink extends StatefulWidget {
+  final String semanticLabel;
+  final String failureMessage;
+  final String appName;
+  final TextStyle appNameStyle;
+  final TextStyle sizeTextStyle;
+  final Uri projectUri;
+  final Color iconColor;
+  final Color hoverColor;
+  final Size currentSize;
+  final bool showSizeText;
+  final Future<bool> Function(Uri uri)? openExternalUrl;
+
+  const TitleBarProjectLink({
+    super.key,
+    required this.semanticLabel,
+    required this.failureMessage,
+    required this.appName,
+    required this.appNameStyle,
+    required this.sizeTextStyle,
+    required this.projectUri,
+    required this.iconColor,
+    required this.hoverColor,
+    required this.currentSize,
+    required this.showSizeText,
+    this.openExternalUrl,
+  });
+
+  @override
+  State<TitleBarProjectLink> createState() => _TitleBarProjectLinkState();
+}
+
+class _TitleBarProjectLinkState extends State<TitleBarProjectLink> {
+  bool _busy = false;
+  bool _hovered = false;
+  bool _pressed = false;
+  bool _focused = false;
+
+  Future<void> _openProject() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final opened =
+          await (widget.openExternalUrl?.call(widget.projectUri) ??
+              launchUrl(widget.projectUri, mode: LaunchMode.externalApplication));
+      if (!opened) {
+        debugPrint('Desktop project link was not accepted by the external browser.');
+        _showFailure();
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Desktop project link failed: $error\n$stackTrace');
+      _showFailure();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showFailure() {
+    if (mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(widget.failureMessage)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hovered || _pressed || _focused;
+    return Semantics(
+      link: true,
+      enabled: !_busy,
+      label: widget.semanticLabel,
+      excludeSemantics: true,
+      // MaterialApp.builder places the custom title bar beside the Navigator,
+      // outside its Overlay. Tooltip requires an Overlay at build time and
+      // otherwise raises a visible Flutter exception before any hover.
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          excludeFromSemantics: true,
+          onTap: _busy ? null : () => unawaited(_openProject()),
+          onHover: (value) => setState(() => _hovered = value),
+          onHighlightChanged: (value) => setState(() => _pressed = value),
+          onFocusChange: (value) => setState(() => _focused = value),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          child: AnimatedContainer(
+            height: 32,
+            duration: const Duration(milliseconds: 80),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: active ? widget.hoverColor : Colors.transparent,
+              border: _focused ? Border.all(color: widget.iconColor.withValues(alpha: 0.8)) : null,
+            ),
+            child: FittedBox(
+              alignment: Alignment.centerLeft,
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset('assets/icons/icon.png', width: 16, height: 16),
+                  const SizedBox(width: 6),
+                  Text(widget.appName, maxLines: 1, style: widget.appNameStyle),
+                  if (widget.showSizeText) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      '[${widget.currentSize.width.toInt()} × ${widget.currentSize.height.toInt()}]',
+                      maxLines: 1,
+                      style: widget.sizeTextStyle,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class WindowControlButton extends StatefulWidget {
-  final VoidCallback onPressed;
+  final Future<void> Function() onPressed;
+  final String semanticLabel;
+  final String failureMessage;
   final IconData icon;
 
   final Color hoverColor;
@@ -396,6 +521,8 @@ class WindowControlButton extends StatefulWidget {
   const WindowControlButton({
     super.key,
     required this.onPressed,
+    required this.semanticLabel,
+    required this.failureMessage,
     required this.icon,
     required this.hoverColor,
     required this.iconColor,
@@ -408,51 +535,56 @@ class WindowControlButton extends StatefulWidget {
 }
 
 class _WindowControlButtonState extends State<WindowControlButton> {
-  bool hover = false;
-  bool pressed = false;
+  bool _hovered = false;
+  bool _pressed = false;
+  bool _focused = false;
+  bool _busy = false;
+
+  Future<void> _runAction() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onPressed();
+    } catch (error, stackTrace) {
+      debugPrint('Desktop window control failed (${widget.semanticLabel}): $error\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(widget.failureMessage)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) {
-        setState(() {
-          hover = true;
-        });
-      },
-      onExit: (_) {
-        setState(() {
-          hover = false;
-        });
-      },
-      child: GestureDetector(
-        onTapDown: (_) {
-          setState(() {
-            pressed = true;
-          });
-        },
-
-        onTapUp: (_) {
-          setState(() {
-            pressed = false;
-          });
-        },
-
-        onTapCancel: () {
-          setState(() {
-            pressed = false;
-          });
-        },
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: Container(
-          width: 46,
-          height: 32,
-          color: hover ? widget.hoverColor : Colors.transparent,
-          alignment: Alignment.center,
-          child: Icon(
-            widget.icon,
-            size: 16,
-            color: (hover || pressed) ? (widget.hoverIconColor ?? widget.iconColor) : widget.iconColor,
+    final active = _hovered || _pressed || _focused;
+    final activeIconColor = widget.hoverIconColor ?? widget.iconColor;
+    return Semantics(
+      button: true,
+      enabled: !_busy,
+      label: widget.semanticLabel,
+      excludeSemantics: true,
+      // The title bar is built outside Navigator's Overlay; keep the
+      // accessible action label and hover/focus affordance without Tooltip.
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          excludeFromSemantics: true,
+          onTap: _busy ? null : () => unawaited(_runAction()),
+          onHover: (value) => setState(() => _hovered = value),
+          onHighlightChanged: (value) => setState(() => _pressed = value),
+          onFocusChange: (value) => setState(() => _focused = value),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          child: AnimatedContainer(
+            width: 46,
+            height: 32,
+            duration: const Duration(milliseconds: 80),
+            decoration: BoxDecoration(
+              color: active ? widget.hoverColor : Colors.transparent,
+              border: _focused ? Border.all(color: activeIconColor.withValues(alpha: 0.8)) : null,
+            ),
+            alignment: Alignment.center,
+            child: Icon(widget.icon, size: 16, color: active ? activeIconColor : widget.iconColor),
           ),
         ),
       ),
@@ -461,22 +593,25 @@ class _WindowControlButtonState extends State<WindowControlButton> {
 }
 
 mixin DesktopWindowMixin<T extends StatefulWidget> on State<T>
-    implements WindowListener, TrayListener, WidgetsBindingObserver {
+    implements WindowListener, WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'Pure Live navigator');
   bool _isDialogOpen = false;
   Timer? _windowGeometryTimer;
+  Timer? _shareCommandResumeTimer;
   final _sizeController = SettingsService.to.window;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkShareCommand();
+      if (mounted) _checkShareCommand();
     });
   }
 
   @override
   void dispose() {
     _windowGeometryTimer?.cancel();
+    _shareCommandResumeTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -484,127 +619,58 @@ mixin DesktopWindowMixin<T extends StatefulWidget> on State<T>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      Future.delayed(const Duration(seconds: 1), () {
-        _checkShareCommand();
+      _shareCommandResumeTimer?.cancel();
+      _shareCommandResumeTimer = Timer(const Duration(seconds: 1), () {
+        if (mounted) _checkShareCommand();
       });
     }
   }
 
   void _checkShareCommand() {
-    if (_isDialogOpen) return;
+    if (!mounted) return;
 
-    ShareCommandHandler.instance.checkClipboard((fullText) {
-      try {
-        final isMine = ShareCommandCodec.isMyCommand(fullText);
-        if (isMine) {
-          final roomMap = ShareCommandCodec.decodeShort(fullText);
-          final LiveRoom room = LiveRoom.fromJson(roomMap!);
-          if (_isDialogOpen) return;
-          _isDialogOpen = true;
-          _showProductSelectionDialog(room);
-        }
-      } catch (e) {
-        debugPrint(e.toString());
-      }
-    });
+    unawaited(ShareCommandHandler.instance.checkClipboard(_presentShareCommand));
   }
 
-  void _showProductSelectionDialog(LiveRoom room) {
-    final avatarUrl = normalizeNetworkImageUrl(room.avatar);
-    showDialog(
-      context: Get.context!,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
-          contentPadding: const EdgeInsets.all(16),
-          content: SizedBox(
-            width: 320,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                      child: avatarUrl.isEmpty ? const Icon(Icons.person) : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            room.title ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.t16Bold,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            room.nick ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.t13Muted,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Text('${i18n('platform')}：', style: const TextStyle(color: Colors.grey)),
-                          Text(room.platform ?? 'UNKNOWN', style: const TextStyle(fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Text('${i18n('room_id')}：', style: const TextStyle(color: Colors.grey)),
-                          Text(room.roomId ?? '', style: const TextStyle(fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(onPressed: () => Navigator.pop(context), child: Text(i18n('cancel'))),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        AppNavigator.toLiveRoomDetail(liveRoom: room);
-                      },
-                      child: Text(i18n('enter_room')),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ).then((_) {
+  Future<bool> handleIncomingShareCommand(String fullText) {
+    return ShareCommandHandler.instance.acceptCommandText(fullText, _presentShareCommand);
+  }
+
+  Future<void> _presentShareCommand(String fullText) async {
+    final navigatorContext = await _waitForShareCommandNavigator();
+    if (!mounted || !navigatorContext.mounted) {
+      throw StateError('Share command route owner is no longer mounted.');
+    }
+    if (_isDialogOpen) throw StateError('A share command dialog is already active.');
+
+    final roomMap = ShareCommandCodec.decodeShort(fullText);
+    if (roomMap == null) throw const FormatException('Share command payload disappeared after validation.');
+
+    final room = LiveRoom.fromJson(roomMap).normalizedIdentityCopy();
+    _isDialogOpen = true;
+    try {
+      final enterRoom = await ShareCommandImportDialog.show(context: navigatorContext, room: room);
+      if (enterRoom == true && mounted) {
+        AppNavigator.toLiveRoomDetail(liveRoom: room);
+      }
+    } finally {
       _isDialogOpen = false;
-    });
+    }
+  }
+
+  Future<BuildContext> _waitForShareCommandNavigator() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 8));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      final navigatorContext = appNavigatorKey.currentContext;
+      final currentRoute = Get.isRegistered<RouteObserverController>()
+          ? RouteObserverController.to.currentRoute.value
+          : '';
+      if (navigatorContext != null && currentRoute.isNotEmpty && currentRoute != RoutePath.kSplash) {
+        return navigatorContext;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    throw StateError('Share command navigator did not become ready.');
   }
 
   @override
@@ -614,28 +680,6 @@ mixin DesktopWindowMixin<T extends StatefulWidget> on State<T>
         debugPrint('处理窗口关闭失败: $e');
       }),
     );
-  }
-
-  @override
-  void onTrayIconMouseDown() {
-    DesktopManager.handleTrayIconClick();
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    DesktopManager.handleTrayRightClick();
-  }
-
-  @override
-  void onTrayIconRightMouseUp() {
-    windowManager.focus().then((_) {
-      trayManager.popUpContextMenu();
-    });
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    DesktopManager.handleTrayMenuClick(menuItem);
   }
 
   @override
@@ -698,9 +742,6 @@ mixin DesktopWindowMixin<T extends StatefulWidget> on State<T>
   void onWindowEvent(String eventName) {}
 
   @override
-  void onTrayIconMouseUp() {}
-
-  @override
   void didChangeAccessibilityFeatures() {}
 
   @override
@@ -760,14 +801,19 @@ mixin DesktopWindowMixin<T extends StatefulWidget> on State<T>
   void handleStatusBarTap() {}
 
   void _updateWindowSizeToController() {
-    if (WindowHelper.instance.currentMode == WindowLayoutMode.pip) {
-      unawaited(
-        WindowHelper.instance.capturePiPGeometry(videoRatio: GlobalPlayerService.instance.player.rawVideoAspectRatio),
-      );
+    unawaited(
+      _captureWindowGeometry().catchError((Object error, StackTrace stackTrace) {
+        debugPrint('Desktop window geometry capture failed: $error\n$stackTrace');
+      }),
+    );
+  }
+
+  Future<void> _captureWindowGeometry() async {
+    if (Platform.isWindows) {
+      await WindowHelper.instance.captureWindowGeometry(_sizeController.updateSize);
       return;
     }
-
-    windowManager.getSize().then(_sizeController.updateSize);
+    _sizeController.updateSize(await windowManager.getSize());
   }
 
   void _scheduleWindowSizeUpdate() {

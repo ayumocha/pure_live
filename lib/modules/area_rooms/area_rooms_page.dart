@@ -1,4 +1,6 @@
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/utils/category_artwork.dart';
+import 'package:pure_live/modules/area_rooms/area_rooms_controller.dart';
 import 'package:pure_live/plugins/cache_manager.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -16,7 +18,7 @@ class AreasRoomPage extends StatefulWidget {
 
 class _AreasRoomPageState extends State<AreasRoomPage> {
   BasePageScrollAndStateBone<LiveRoom> get controller =>
-      Get.find<BasePageScrollAndStateBone<LiveRoom>>(tag: "${widget.site.id}_${widget.subCategory.areaId}");
+      Get.find<BasePageScrollAndStateBone<LiveRoom>>(tag: areaRoomsControllerTag(widget.site, widget.subCategory));
 
   @override
   void initState() {
@@ -26,9 +28,11 @@ class _AreasRoomPageState extends State<AreasRoomPage> {
 
   @override
   Widget build(BuildContext context) {
+    final rawAreaName = widget.subCategory.areaName?.trim() ?? '';
+    final areaName = rawAreaName.isEmpty ? i18n('unnamed_area') : rawAreaName;
     return KeepAliveWrapper(
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.subCategory.areaName!)),
+        appBar: AppBar(title: Text(areaName)),
         body: BasePageView<BasePageScrollAndStateBone<LiveRoom>, LiveRoom>(
           controller: controller,
           enableRefresh: true,
@@ -40,33 +44,41 @@ class _AreasRoomPageState extends State<AreasRoomPage> {
           pageSizeOptions: SettingsService.to.page.pageSizeOptions,
           emptyBuilder: (context) => EmptyView(icon: Icons.live_tv_rounded, title: i18n('no_data'), subtitle: ''),
           contentBuilder: (context, list, scrollController) {
-            return LayoutBuilder(
-              builder: (context, constraint) {
-                final width = constraint.maxWidth;
-                final crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
-                final spacing = SettingsService.to.theme.crossAxisSpacing.v;
-                final itemWidth = (width - 12 - spacing * (crossAxisCount - 1)) / crossAxisCount;
-                return GridView.builder(
-                  scrollCacheExtent: ScrollCacheExtent.pixels(width > 680 ? 480 : 320),
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: true,
-                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    crossAxisSpacing: spacing,
-                    mainAxisSpacing: SettingsService.to.theme.mainAxisSpacing.v,
-                    mainAxisExtent: itemWidth * 9 / 16 + 72,
-                  ),
-                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 80),
-                  controller: scrollController,
-                  itemCount: list.length,
-                  itemBuilder: (context, index) {
-                    final room = list[index];
-                    return RoomCard(key: ValueKey('${room.platform}:${room.roomId}'), room: room, dense: true);
-                  },
-                );
-              },
-            );
+            return Obx(() {
+              final roomCardAppearance = SettingsService.to.roomCard.resolve();
+              return LayoutBuilder(
+                builder: (context, constraint) {
+                  final width = constraint.maxWidth;
+                  final crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
+                  final spacing = SettingsService.to.theme.crossAxisSpacing.v;
+                  final itemWidth = (width - 12 - spacing * (crossAxisCount - 1)) / crossAxisCount;
+                  return GridView.builder(
+                    scrollCacheExtent: ScrollCacheExtent.pixels(width > 680 ? 480 : 320),
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: true,
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      crossAxisSpacing: spacing,
+                      mainAxisSpacing: SettingsService.to.theme.mainAxisSpacing.v,
+                      mainAxisExtent: RoomCardLayoutMetrics.gridMainAxisExtent(
+                        itemWidth: itemWidth,
+                        appearance: roomCardAppearance,
+                        dense: true,
+                        textScaler: MediaQuery.textScalerOf(context),
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 80),
+                    controller: scrollController,
+                    itemCount: list.length,
+                    itemBuilder: (context, index) {
+                      final room = list[index];
+                      return RoomCard(key: ValueKey('${room.platform}:${room.roomId}'), room: room, dense: true);
+                    },
+                  );
+                },
+              );
+            });
           },
         ),
         floatingActionButton: FavoriteAreaFloatingButton(area: widget.subCategory),
@@ -75,14 +87,72 @@ class _AreasRoomPageState extends State<AreasRoomPage> {
   }
 }
 
-class FavoriteAreaFloatingButton extends StatelessWidget {
+class FavoriteAreaFloatingButton extends StatefulWidget {
   const FavoriteAreaFloatingButton({super.key, required this.area});
 
   final LiveArea area;
 
+  @override
+  State<FavoriteAreaFloatingButton> createState() => _FavoriteAreaFloatingButtonState();
+}
+
+class _FavoriteAreaFloatingButtonState extends State<FavoriteAreaFloatingButton> {
+  bool _busy = false;
+
+  LiveArea get area => widget.area;
+
+  Future<void> _toggleFavorite({required LiveArea target, required bool isFavorite}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final favorites = SettingsService.to.fav;
+    try {
+      if (!isFavorite) {
+        await favorites.addAreaDurably(target);
+        return;
+      }
+
+      final displayName = target.areaName?.trim().isNotEmpty == true ? target.areaName!.trim() : i18n('unnamed_area');
+      final confirmed = await showDialog<bool>(
+        context: context,
+        useRootNavigator: false,
+        builder: (dialogContext) => AlertDialog(
+          scrollable: true,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          title: Text(i18n('unfollow')),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Text(i18n('unfollow_message', args: {'name': displayName})),
+          ),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(i18n('cancel')),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(i18n('confirm')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) await favorites.removeAreaDurably(target);
+    } catch (error) {
+      debugPrint('Favorite area change failed: $error');
+      ToastUtil.show(i18n('favorite_changes_save_failed'));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _buildAvatar(BuildContext context) {
     final theme = Theme.of(context);
-    final String firstChar = (area.areaName?.isNotEmpty ?? false) ? area.areaName!.substring(0, 1) : "";
+    final rawAreaName = area.areaName?.trim() ?? '';
+    final displayName = rawAreaName.isEmpty ? i18n('unnamed_area') : rawAreaName;
+    final firstChar = String.fromCharCode(displayName.runes.first);
     final pictureUrl = normalizeNetworkImageUrl(area.areaPic);
     final bool hasPic = pictureUrl.isNotEmpty;
 
@@ -100,6 +170,7 @@ class FavoriteAreaFloatingButton extends StatelessWidget {
                 width: 32,
                 height: 32,
                 fit: BoxFit.cover,
+                alignment: categoryArtworkAlignment(pictureUrl),
                 memCacheWidth: 64,
                 // maxWidthDiskCache: 128,
                 fadeInDuration: Duration.zero,
@@ -126,7 +197,9 @@ class FavoriteAreaFloatingButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final isFavorite = SettingsService.to.fav.favoriteAreas.v.any((e) => e.areaId == area.areaId);
+      final isFavorite = SettingsService.to.fav.isFavoriteArea(area);
+      final rawAreaName = area.areaName?.trim() ?? '';
+      final displayName = rawAreaName.isEmpty ? i18n('unnamed_area') : rawAreaName;
 
       return Padding(
         padding: EdgeInsets.only(
@@ -138,7 +211,7 @@ class FavoriteAreaFloatingButton extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeInOutCubic,
-          height: 48,
+          constraints: const BoxConstraints(minHeight: 48),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(isFavorite ? 24 : 16),
@@ -158,35 +231,9 @@ class FavoriteAreaFloatingButton extends StatelessWidget {
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(isFavorite ? 24 : 16),
-                onTap: () {
-                  if (isFavorite) {
-                    showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: Text(i18n("unfollow")),
-                        content: Text(i18n("unfollow_message", args: {"name": area.areaName!})),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(i18n("cancel"))),
-                          ElevatedButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            child: Text(i18n("confirm")),
-                          ),
-                        ],
-                      ),
-                    ).then((value) {
-                      if (value == true) {
-                        final list = List<LiveArea>.from(SettingsService.to.fav.favoriteAreas.v);
-                        list.removeWhere((e) => e.areaId == area.areaId);
-                        SettingsService.to.fav.favoriteAreas.v = list;
-                      }
-                    });
-                  } else {
-                    final list = List<LiveArea>.from(SettingsService.to.fav.favoriteAreas.v)..add(area);
-                    SettingsService.to.fav.favoriteAreas.v = list;
-                  }
-                },
+                onTap: _busy ? null : () => _toggleFavorite(target: area, isFavorite: isFavorite),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -214,7 +261,7 @@ class FavoriteAreaFloatingButton extends StatelessWidget {
                                       ConstrainedBox(
                                         constraints: BoxConstraints(maxWidth: Get.width > 680 ? 120 : 80),
                                         child: Text(
-                                          area.areaName!,
+                                          displayName,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: AppTextStyles.t12Bold.copyWith(

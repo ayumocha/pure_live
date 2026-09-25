@@ -30,20 +30,12 @@ extension AppLayoutFactory on BuildContext {
 
       String typeString = child.runtimeType.toString();
 
-      // ✨ 核心修复：如果是包装组件，自动向下探测其内部子组件的实际类型
-      Widget underlyingChild = child;
-      if (child is StreamBuilder) {
-        underlyingChild = (child).builder(Get.context!, const AsyncSnapshot.nothing());
-      }
-
-      final String underlyingType = underlyingChild.runtimeType.toString();
       final bool isTileElement =
           child is ListTile ||
+          child is StreamBuilder ||
           typeString.contains('ListTile') ||
           typeString.contains('SwitchListTile') ||
-          typeString.contains('Obx') ||
-          underlyingType.contains('ListTile') ||
-          underlyingType.contains('SwitchListTile');
+          typeString.contains('Obx');
 
       if (isTileElement) {
         ShapeBorder effectiveShape;
@@ -69,19 +61,12 @@ extension AppLayoutFactory on BuildContext {
         final nextChild = validChildren[i + 1];
         String nextTypeString = nextChild.runtimeType.toString();
 
-        Widget nextUnderlying = nextChild;
-        if (nextChild is StreamBuilder) {
-          nextUnderlying = (nextChild).builder(Get.context!, const AsyncSnapshot.nothing());
-        }
-
-        final String nextUnderlyingType = nextUnderlying.runtimeType.toString();
         final bool isNextTile =
             nextChild is ListTile ||
+            nextChild is StreamBuilder ||
             nextTypeString.contains('ListTile') ||
             nextTypeString.contains('SwitchListTile') ||
-            nextTypeString.contains('Obx') ||
-            nextUnderlyingType.contains('ListTile') ||
-            nextUnderlyingType.contains('SwitchListTile');
+            nextTypeString.contains('Obx');
 
         if (isNextTile) {
           autoShapedChildren.add(
@@ -116,6 +101,8 @@ extension AppLayoutFactory on BuildContext {
     Color? iconColor,
     Color? subtitleColor,
     bool isLong = false,
+    bool enabled = true,
+    bool autoCommit = true,
     ValueChanged<bool>? onChanged,
   }) {
     final theme = Theme.of(this);
@@ -135,10 +122,12 @@ extension AppLayoutFactory on BuildContext {
               )
             : null,
         value: value.value,
-        onChanged: (val) {
-          value.value = val;
-          onChanged?.call(val);
-        },
+        onChanged: enabled
+            ? (val) {
+                if (autoCommit) value.value = val;
+                onChanged?.call(val);
+              }
+            : null,
         contentPadding: const EdgeInsets.only(left: 16, top: 2, bottom: 2, right: 8),
       ),
     );
@@ -154,6 +143,8 @@ extension AppLayoutFactory on BuildContext {
     Color? subtitleColor,
     Widget? trailing,
     bool isLong = false,
+    bool stackTrailingOnNarrow = false,
+    bool showNavigationChevronWhenStacked = true,
   }) {
     final theme = Theme.of(this);
 
@@ -185,24 +176,27 @@ extension AppLayoutFactory on BuildContext {
       );
     }
 
-    return ListTile(
+    final titleWidget = Text(title, style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600));
+    final subtitleWidget = subtitle != null && subtitle.isNotEmpty
+        ? Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              subtitle,
+              style: AppTextStyles.t12.copyWith(color: subtitleColor ?? theme.hintColor.withValues(alpha: 0.75)),
+              maxLines: isLong ? null : 1,
+              overflow: isLong ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          )
+        : null;
+
+    Widget standardTile() => ListTile(
       horizontalTitleGap: 12,
       minLeadingWidth: 0,
       minVerticalPadding: 0,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: leadingWidget,
-      title: Text(title, style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600)),
-      subtitle: subtitle != null && subtitle.isNotEmpty
-          ? Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                subtitle,
-                style: AppTextStyles.t12.copyWith(color: subtitleColor ?? theme.hintColor.withValues(alpha: 0.75)),
-                maxLines: isLong ? null : 1,
-                overflow: isLong ? TextOverflow.visible : TextOverflow.ellipsis,
-              ),
-            )
-          : null,
+      title: titleWidget,
+      subtitle: subtitleWidget,
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -218,6 +212,30 @@ extension AppLayoutFactory on BuildContext {
         ],
       ),
       onTap: onTap,
+    );
+
+    if (!stackTrailingOnNarrow || trailing == null) return standardTile();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        if (constraints.maxWidth >= 360 && textScale <= 1.5) return standardTile();
+        return ListTile(
+          horizontalTitleGap: 12,
+          minLeadingWidth: 0,
+          minVerticalPadding: 0,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: leadingWidget,
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [titleWidget, ?subtitleWidget, const SizedBox(height: 8), trailing],
+          ),
+          trailing: onTap != null && showNavigationChevronWhenStacked
+              ? Icon(Icons.chevron_right_rounded, color: theme.hintColor.withValues(alpha: 0.4), size: 20)
+              : null,
+          onTap: onTap,
+        );
+      },
     );
   }
 
@@ -243,9 +261,12 @@ extension AppLayoutFactory on BuildContext {
       iconColor: iconColor,
       subtitleColor: subtitleColor,
       isLong: isLong,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
+      stackTrailingOnNarrow: true,
+      showNavigationChevronWhenStacked: false,
+      trailing: Wrap(
+        spacing: 4,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text(
             displayValue,
@@ -254,7 +275,6 @@ extension AppLayoutFactory on BuildContext {
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(width: 4),
           Icon(Icons.chevron_right_rounded, color: theme.hintColor.withValues(alpha: 0.4), size: 20),
         ],
       ),
@@ -274,62 +294,36 @@ extension AppLayoutFactory on BuildContext {
         final innerTheme = Theme.of(dialogContext);
 
         return AlertDialog(
+          scrollable: true,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 8),
           contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           title: Text(title, style: AppTextStyles.t18.copyWith(fontWeight: FontWeight.bold)),
-          content: Container(
-            width: double.maxFinite,
-            constraints: const BoxConstraints(maxWidth: 340, maxHeight: 400),
-            child: SingleChildScrollView(
-              child: RadioGroup<T>(
-                groupValue: value,
-                onChanged: (T? newValue) {
-                  if (newValue != null) {
-                    Navigator.of(dialogContext).pop();
-                    onChanged.call(newValue);
-                  }
-                },
-                child: buildModernCard(
-                  valueMap.keys.map<Widget>((e) {
-                    final itemRawText = valueMap[e] ?? "$e";
-                    final itemDisplayText = itemRawText.tr;
-                    final bool isSelected = (e == value);
-
-                    return Material(
-                      color: Colors.transparent,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(width: 8),
-                          Radio<T>(value: e, activeColor: innerTheme.colorScheme.primary),
-                          Expanded(
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                Navigator.of(dialogContext).pop();
-                                onChanged.call(e);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-                                child: Text(
-                                  itemDisplayText,
-                                  style: AppTextStyles.t15.copyWith(
-                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                    color: isSelected
-                                        ? innerTheme.colorScheme.primary
-                                        : innerTheme.textTheme.bodyLarge?.color,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
+          content: RadioGroup<T>(
+            groupValue: value,
+            onChanged: (T? newValue) {
+              if (newValue != null) {
+                Navigator.of(dialogContext).pop();
+                onChanged.call(newValue);
+              }
+            },
+            child: buildModernCard(
+              valueMap.entries.map<Widget>((entry) {
+                final itemDisplayText = (entry.value).tr;
+                final isSelected = entry.key == value;
+                return RadioListTile<T>(
+                  value: entry.key,
+                  activeColor: innerTheme.colorScheme.primary,
+                  title: Text(
+                    itemDisplayText,
+                    style: AppTextStyles.t15.copyWith(
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isSelected ? innerTheme.colorScheme.primary : innerTheme.textTheme.bodyLarge?.color,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         );
@@ -341,6 +335,7 @@ extension AppLayoutFactory on BuildContext {
     BuildContext context, {
     required IconData icon,
     required String title,
+    String? subtitle,
     required double value,
     required double min,
     required double max,
@@ -363,26 +358,60 @@ extension AppLayoutFactory on BuildContext {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(title, style: AppTextStyles.t16.copyWith(fontWeight: FontWeight.w600)),
-                    Container(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final titleStyle = AppTextStyles.t16.copyWith(fontWeight: FontWeight.w600);
+                    final valueStyle = AppTextStyles.t13.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    );
+                    final scaler = MediaQuery.textScalerOf(context);
+                    final titlePainter = TextPainter(
+                      text: TextSpan(text: title, style: titleStyle),
+                      textDirection: Directionality.of(context),
+                      textScaler: scaler,
+                      maxLines: 1,
+                    )..layout();
+                    final valuePainter = TextPainter(
+                      text: TextSpan(text: displayValue, style: valueStyle),
+                      textDirection: Directionality.of(context),
+                      textScaler: scaler,
+                      maxLines: 1,
+                    )..layout();
+                    final valueBadge = Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: theme.colorScheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Text(
-                        displayValue,
-                        style: AppTextStyles.t13.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ],
+                      child: Text(displayValue, style: valueStyle),
+                    );
+                    final useRow = titlePainter.width + valuePainter.width + 28 <= constraints.maxWidth;
+                    if (useRow) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: Text(title, style: titleStyle)),
+                          const SizedBox(width: 12),
+                          valueBadge,
+                        ],
+                      );
+                    }
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: titleStyle),
+                        const SizedBox(height: 6),
+                        valueBadge,
+                      ],
+                    );
+                  },
                 ),
+                if (subtitle != null && subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: AppTextStyles.t12.copyWith(color: theme.hintColor.withValues(alpha: 0.75))),
+                ],
                 const SizedBox(height: 2),
                 Transform.translate(
                   offset: const Offset(-4, 0),

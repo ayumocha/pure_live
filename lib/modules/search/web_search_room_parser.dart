@@ -1,4 +1,38 @@
+import 'package:pure_live/core/site/niconico/niconico_link.dart';
+import 'package:pure_live/core/site/weibo/weibo_link.dart';
 import 'package:pure_live/core/sites.dart';
+import 'package:pure_live/core/site/huajiao/huajiao_link.dart';
+import 'package:pure_live/core/site/picarto/picarto_api.dart';
+import 'package:pure_live/core/site/twitcasting/twitcasting_api.dart';
+import 'package:pure_live/core/site/missevan/missevan_api.dart';
+import 'package:pure_live/core/site/inke/inke_api.dart';
+import 'package:pure_live/core/site/kilakila/kilakila_link.dart';
+import 'package:pure_live/core/site/showroom/showroom_link.dart';
+import 'package:pure_live/core/site/chzzk/chzzk_link.dart';
+import 'package:pure_live/core/site/kick/kick_link.dart';
+import 'package:pure_live/core/site/liveme/liveme_link.dart';
+import 'package:pure_live/core/site/tiktok/tiktok_link.dart';
+import 'package:pure_live/core/site/youtube/youtube_link.dart';
+import 'package:pure_live/core/site/bigo/bigo_link.dart';
+import 'package:pure_live/core/site/pandalive/pandalive_link.dart';
+import 'package:pure_live/core/site/popkontv/popkontv_link.dart';
+import 'package:pure_live/core/site/shopeelive/shopeelive_link.dart';
+import 'package:pure_live/core/site/vkvideolive/vkvideolive_link.dart';
+import 'package:pure_live/core/site/nimotv/nimotv_link.dart';
+import 'package:pure_live/core/site/dailymotion/dailymotion_link.dart';
+import 'package:pure_live/core/site/rumble/rumble_link.dart';
+import 'package:pure_live/core/site/goodgame/goodgame_link.dart';
+import 'package:pure_live/core/site/fc2live/fc2_link.dart';
+import 'package:pure_live/core/site/steambroadcast/steam_broadcast_link.dart';
+import 'package:pure_live/core/site/jdlive/jd_live_link.dart';
+import 'package:pure_live/core/site/kugoulive/kugou_live_link.dart';
+import 'package:pure_live/core/site/baidulive/baidu_live_link.dart';
+import 'package:pure_live/core/site/sixroom/sixroom_link.dart';
+import 'package:pure_live/core/site/looklive/look_live_link.dart';
+import 'package:pure_live/core/site/taobaolive/taobao_live_link.dart';
+import 'package:pure_live/core/site/seventeenlive/seventeenlive_link.dart';
+import 'package:pure_live/core/site/tting/tting_link.dart';
+import 'package:pure_live/core/site/xiaohongshu/xiaohongshu_link.dart';
 
 class WebSearchRoomTarget {
   const WebSearchRoomTarget({required this.platform, required this.roomId});
@@ -12,6 +46,10 @@ class WebSearchRoomTarget {
 /// Converts a supported platform room URL into the adapter identity used by
 /// native playback. Search/category/account URLs are deliberately ignored.
 class WebSearchRoomParser {
+  /// A broadcaster profile needs asynchronous SSR lookup before it can yield
+  /// a durable room ID. Never put its user ID into WebSearchRoomTarget.roomId.
+  static bool isXiaohongshuProfileCandidate(String rawUrl) => XiaohongshuLink.profileUserId(rawUrl) != null;
+
   const WebSearchRoomParser._();
 
   static const Set<String> _reservedSegments = {
@@ -36,8 +74,118 @@ class WebSearchRoomParser {
   };
 
   static WebSearchRoomTarget? parse(String rawUrl) {
+    final niconico = NiconicoLink.parse(rawUrl);
+    if (niconico != null) return WebSearchRoomTarget(platform: Sites.niconicoSite, roomId: niconico);
+    final taobaoLive = TaobaoLiveLink.parse(rawUrl);
+    if (taobaoLive != null) {
+      return WebSearchRoomTarget(platform: Sites.taobaoLiveSite, roomId: taobaoLive.storageKey);
+    }
+    // Broadcast shares need asynchronous owner lookup in LiveUrlTool. Only
+    // verified owner links can be mapped synchronously to a durable app ID.
+    final huajiao = HuajiaoLink.parse(rawUrl);
+    if (huajiao?.kind == HuajiaoLinkKind.owner) {
+      return WebSearchRoomTarget(platform: Sites.huajiaoSite, roomId: huajiao!.id);
+    }
+    final kilakila = KilakilaLink.parse(rawUrl.trim());
+    if (kilakila?.kind == KilakilaLinkKind.owner) {
+      return WebSearchRoomTarget(platform: Sites.kilakilaSite, roomId: kilakila!.id);
+    }
     final uri = Uri.tryParse(rawUrl.trim());
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) return null;
+    // Bare composite IDs belong to exact search, not web navigation. Preserve
+    // the raw URL for the adapter's structural dot-segment checks.
+    final xiaohongshu = XiaohongshuLink.parse(rawUrl);
+    if (xiaohongshu != null) {
+      return WebSearchRoomTarget(platform: Sites.xiaohongshuSite, roomId: xiaohongshu);
+    }
+    final tting = TtingLink.parse(rawUrl);
+    if (tting != null) {
+      return WebSearchRoomTarget(platform: Sites.ttingSite, roomId: '$tting');
+    }
+    final weibo = WeiboLink.parse(rawUrl);
+    if (weibo != null) return WebSearchRoomTarget(platform: Sites.weiboSite, roomId: weibo);
+    final missevan = MissevanApi.roomFromUri(uri);
+    final inke = InkeApi.roomFromUri(uri);
+    if (inke != null) return WebSearchRoomTarget(platform: Sites.inkeSite, roomId: inke);
+    if (missevan != null) return WebSearchRoomTarget(platform: Sites.missevanSite, roomId: missevan);
+    final picarto = PicartoApi.channelFromUri(uri);
+    if (picarto != null) return WebSearchRoomTarget(platform: Sites.picartoSite, roomId: picarto);
+    final twitcasting = TwitcastingApi.channelFromUri(uri);
+    if (twitcasting != null) return WebSearchRoomTarget(platform: Sites.twitcastingSite, roomId: twitcasting);
+    final showroom = ShowroomLink.parse(rawUrl);
+    if (showroom != null) return WebSearchRoomTarget(platform: Sites.showroomSite, roomId: showroom);
+    final chzzk = ChzzkLink.parse(rawUrl);
+    if (chzzk != null) return WebSearchRoomTarget(platform: Sites.chzzkSite, roomId: chzzk);
+    final kick = KickLink.parse(rawUrl);
+    if (kick != null) return WebSearchRoomTarget(platform: Sites.kickSite, roomId: kick);
+    final seventeenLive = SeventeenLiveLink.parse(rawUrl);
+    if (seventeenLive != null) {
+      return WebSearchRoomTarget(platform: Sites.seventeenLiveSite, roomId: seventeenLive);
+    }
+    final liveMe = LiveMeLink.parseDurableRoomId(rawUrl);
+    if (liveMe != null) return WebSearchRoomTarget(platform: Sites.liveMeSite, roomId: liveMe);
+    final tiktok = TikTokLink.parseDurableUsername(rawUrl);
+    if (tiktok != null) return WebSearchRoomTarget(platform: Sites.tiktokSite, roomId: tiktok);
+    final youtube = YouTubeLink.parseDurableVideoId(rawUrl);
+    if (youtube != null) return WebSearchRoomTarget(platform: Sites.youtubeSite, roomId: youtube);
+    final bigo = BigoLink.parse(rawUrl);
+    if (bigo != null) return WebSearchRoomTarget(platform: Sites.bigoSite, roomId: bigo);
+    final pandaLive = PandaLiveLink.parse(rawUrl);
+    if (pandaLive != null) return WebSearchRoomTarget(platform: Sites.pandaLiveSite, roomId: pandaLive);
+    final popkon = PopkonLink.parse(rawUrl);
+    if (popkon != null) return WebSearchRoomTarget(platform: Sites.popkonSite, roomId: popkon.storageKey);
+    final shopeeLive = ShopeeLiveLink.parse(rawUrl);
+    if (shopeeLive != null) {
+      return WebSearchRoomTarget(platform: Sites.shopeeLiveSite, roomId: shopeeLive.storageKey);
+    }
+    final vkVideoLive = VkVideoLiveLink.parse(rawUrl);
+    if (vkVideoLive != null) {
+      return WebSearchRoomTarget(platform: Sites.vkVideoLiveSite, roomId: vkVideoLive.storageKey);
+    }
+    final nimoTv = NimoTvLink.parse(rawUrl);
+    if (nimoTv != null) {
+      return WebSearchRoomTarget(platform: Sites.nimoTvSite, roomId: nimoTv.storageKey);
+    }
+    final dailymotion = DailymotionLink.parseVideoId(rawUrl);
+    if (dailymotion != null) {
+      return WebSearchRoomTarget(platform: Sites.dailymotionSite, roomId: dailymotion);
+    }
+    final rumble = RumbleLink.parseVideoKey(rawUrl);
+    if (rumble != null) {
+      return WebSearchRoomTarget(platform: Sites.rumbleSite, roomId: rumble);
+    }
+    final goodGame = GoodGameLink.parse(rawUrl);
+    if (goodGame != null) {
+      return WebSearchRoomTarget(platform: Sites.goodGameSite, roomId: goodGame.storageKey);
+    }
+    final fc2Live = Fc2Link.parseChannelId(rawUrl);
+    if (fc2Live != null) {
+      return WebSearchRoomTarget(platform: Sites.fc2LiveSite, roomId: fc2Live);
+    }
+    final steamBroadcast = SteamBroadcastLink.parseSteamId(rawUrl);
+    if (steamBroadcast != null) {
+      return WebSearchRoomTarget(platform: Sites.steamBroadcastSite, roomId: steamBroadcast);
+    }
+    final jdLive = JdLiveLink.parseLiveId(rawUrl);
+    if (jdLive != null) {
+      return WebSearchRoomTarget(platform: Sites.jdLiveSite, roomId: jdLive);
+    }
+    final kugouLive = KugouLiveLink.parseRoomId(rawUrl);
+    if (kugouLive != null) {
+      return WebSearchRoomTarget(platform: Sites.kugouLiveSite, roomId: kugouLive);
+    }
+    final baiduLive = BaiduLiveLink.parseRoomId(rawUrl);
+    if (baiduLive != null) {
+      return WebSearchRoomTarget(platform: Sites.baiduLiveSite, roomId: baiduLive);
+    }
+    final sixRoom = SixRoomLink.parseRoomId(rawUrl);
+    if (sixRoom != null) {
+      return WebSearchRoomTarget(platform: Sites.sixRoomSite, roomId: sixRoom);
+    }
+    final lookLive = LookLiveLink.parseRoomId(rawUrl);
+    if (lookLive != null) {
+      return WebSearchRoomTarget(platform: Sites.lookLiveSite, roomId: lookLive);
+    }
     final host = uri.host.toLowerCase();
     final segments = uri.pathSegments.where((segment) => segment.trim().isNotEmpty).toList(growable: false);
 
@@ -69,26 +217,8 @@ class WebSearchRoomParser {
     if (_matchesHost(host, 'yy.com')) {
       return _firstSegment(segments, Sites.yySite, RegExp(r'^\d+$'));
     }
-    if (_matchesHost(host, 'xiaohongshu.com')) {
-      if (segments.isNotEmpty && segments.first.toLowerCase() == 'livestream') {
-        // 实测形态：/livestream/{roomId} 与 /livestream/{dynpath}/{roomId}，
-        // 房间号是最后一段纯数字。
-        String? numeric;
-        for (final segment in segments.reversed) {
-          if (RegExp(r'^\d{6,30}$').hasMatch(segment)) {
-            numeric = segment;
-            break;
-          }
-        }
-        if (numeric != null) {
-          return _target(Sites.xhsSite, numeric, RegExp(r'^\d{6,30}$'));
-        }
-      }
-      if (segments.length == 3 &&
-          segments[0].toLowerCase() == 'user' &&
-          segments[1].toLowerCase() == 'profile') {
-        return _target(Sites.xhsSite, segments[2], RegExp(r'^[0-9a-fA-F]{8,64}$'));
-      }
+    if (host == 'live.acfun.cn' && uri.userInfo.isEmpty && segments.length == 2 && segments.first == 'live') {
+      return _target(Sites.acfunSite, segments[1], RegExp(r'^[1-9][0-9]{0,19}$'));
     }
     return null;
   }
@@ -100,9 +230,12 @@ class WebSearchRoomParser {
     return _target(platform, segments.first, pattern);
   }
 
+  static bool isRoomIdentifier(String roomId, RegExp pattern) =>
+      roomId.isNotEmpty && !_reservedSegments.contains(roomId.toLowerCase()) && pattern.hasMatch(roomId);
+
   static WebSearchRoomTarget? _target(String platform, String rawRoomId, RegExp pattern) {
     final roomId = rawRoomId.trim();
-    if (roomId.isEmpty || _reservedSegments.contains(roomId.toLowerCase()) || !pattern.hasMatch(roomId)) return null;
+    if (!isRoomIdentifier(roomId, pattern)) return null;
     return WebSearchRoomTarget(platform: platform, roomId: roomId);
   }
 }

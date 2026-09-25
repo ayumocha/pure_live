@@ -1,8 +1,8 @@
-import 'dart:convert';
+import 'package:dio/dio.dart';
 
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/model/live_category.dart';
-import 'package:pure_live/core/common/core_log.dart';
+import 'package:pure_live/core/site/cc/cc_catalog.dart';
 import 'package:pure_live/model/live_anchor_item.dart';
 import 'package:pure_live/core/common/http_client.dart';
 import 'package:pure_live/model/live_play_quality.dart';
@@ -11,8 +11,12 @@ import 'package:pure_live/core/danmaku/empty_danmaku.dart';
 import 'package:pure_live/core/interface/live_danmaku.dart';
 import 'package:pure_live/modules/live_play/controllers/player_controller.dart';
 import 'package:pure_live/core/utils/live_quality_label.dart';
+import 'package:pure_live/core/interface/live_directory.dart';
 
-class CCSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResolver {
+class CCSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResolver, LiveSiteCategoryDirectoryProvider {
+  @override
+  late final LiveSiteDirectoryPager categoryDirectory = _CCCategoryDirectory(this);
+
   @override
   String id = Sites.ccSite;
 
@@ -26,86 +30,97 @@ class CCSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResol
 
   @override
   Future<List<LiveCategory>> getCategores(int page, int pageSize) async {
-    List<LiveCategory> categories = [
-      LiveCategory(id: "1", name: "全部", children: []),
-      LiveCategory(id: "2", name: "端游", children: []),
-      LiveCategory(id: "4", name: "手游", children: []),
-      LiveCategory(id: "5", name: "其他", children: []),
-    ];
-    var res = await HttpClient.instance.getText(
-      "https://cc.163.com/category/",
-      queryParameters: {"format": "json"},
-      header: {"user-agent": kUserAgent},
+    // The legacy category endpoint now serves the Dashen HTML application.
+    // Fetch its public metadata and live-entry configuration, not an HTML
+    // fallback or a guessed static list of games.
+    final headers = {'user-agent': kUserAgent, 'referer': 'https://ds.163.com/glive/', 'origin': 'https://ds.163.com'};
+    final games = await HttpClient.instance.getJson(
+      'https://inf.ds.163.com/v1/web/game-center/basic/base-info-list/by-type',
+      queryParameters: {'gameType': 'NETEASE'},
+      header: headers,
     );
-    var result = jsonDecode(res);
-    try {
-      for (var item in categories) {
-        List games = result['game_list'];
-        if (item.id == "2") {
-          games = games.where((x) => x["game_tag"] == "pc_game").toList();
-        } else if (item.id == "4") {
-          games = games.where((x) => x["game_tag"] == "mobile_game").toList();
-        } else if (item.id == "5") {
-          games = games.where((x) => x["game_tag"] == "other").toList();
-        }
-        var items = await getSubCategores(item, games);
-        item.children.addAll(items);
-      }
-    } catch (e) {
-      CoreLog.error(e);
-    }
-    return categories;
-  }
-
-  Future<List<LiveArea>> getSubCategores(LiveCategory liveCategory, List result) async {
-    List<LiveArea> subs = [];
-    for (var item in result) {
-      var gid = item["gametype"].toString();
-      var subCategory = LiveArea(
-        areaId: gid,
-        areaName: item["gamename"] ?? '',
-        areaType: liveCategory.id,
-        platform: Sites.ccSite,
-        areaPic: item["img"],
-        typeName: liveCategory.name,
-      );
-      subs.add(subCategory);
-    }
-    return subs;
+    final configuration = await HttpClient.instance.postJson(
+      'https://inf-act.ds.163.com/v1/act-web/pageConf/commonAppConfig',
+      data: {'id': CCCatalog.configurationId},
+      header: headers,
+    );
+    return CCCatalog.parse(
+      games,
+      configuration,
+      categoryLabel: i18n('cc_live_categories'),
+      officialLabel: i18n('cc_official_entries'),
+    );
   }
 
   @override
-  Future<List<LiveRoom>> getCategoryRooms(LiveArea category, {int page = 1, int pageSize = 30}) async {
-    var result = await HttpClient.instance.getJson(
-      "https://cc.163.com/_next/data/nextjs/category/${category.areaId}.json",
-      queryParameters: {"game": category.areaId},
+  Future<List<LiveRoom>> getCategoryRooms(
+    LiveArea category, {
+    int page = 1,
+    int pageSize = 30,
+    CancelToken? cancel,
+  }) async {
+    final game = category.areaId?.trim() ?? '';
+    final platform = category.platform?.trim().toLowerCase() ?? '';
+    if (!RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(game) ||
+        (platform.isNotEmpty && platform != Sites.ccSite) ||
+        page < 1 ||
+        page > 100000 ||
+        pageSize < 1 ||
+        pageSize > 1000) {
+      throw ArgumentError('Invalid CC category or pagination');
+    }
+    // The Next.js page contains only the initial showcase. The current CC
+    // category component requests this feed for every offset, including after
+    // the official site moved its main navigation into Dashen.
+    final result = await HttpClient.instance.getJson(
+      'https://cc.163.com/api/category/$game/',
+      queryParameters: {'format': 'json', 'tag_id': 0, 'start': (page - 1) * pageSize, 'size': pageSize},
+      header: {'user-agent': kUserAgent},
+      cancel: cancel,
     );
-    var items = <LiveRoom>[];
-    try {
-      for (var item in result["pageProps"]["gametypeData"]["lives"]) {
-        final audience = parseRoomAudience(Map<String, dynamic>.from(item as Map));
-        var roomItem = LiveRoom(
-          roomId: item["cuteid"].toString(),
-          title: item["title"].toString(),
-          cover: item["cover"].toString(),
-          nick: item["nickname"].toString(),
+    if (result is! Map || result['gametype']?.toString() != game || result['lives'] is! List) {
+      throw const FormatException('Invalid CC category response');
+    }
+    final rows = result['lives'] as List;
+    if (rows.length > 1000) throw const FormatException('CC category response exceeds row limit');
+    final items = <LiveRoom>[];
+    for (final item in rows) {
+      if (item is! Map) throw const FormatException('Invalid CC category room');
+      final rawId = item['cuteid'];
+      if ((rawId is! String && rawId is! int) ||
+          (rawId is int && rawId > 9007199254740991) ||
+          !RegExp(r'^[1-9][0-9]{0,31}$').hasMatch(rawId.toString())) {
+        throw const FormatException('Invalid CC category room identity');
+      }
+      String text(Object? value) => value is String ? value : '';
+      final audience = parseRoomAudience(Map<String, dynamic>.from(item));
+      final status = int.tryParse(item['status']?.toString() ?? '');
+      items.add(
+        LiveRoom(
+          roomId: rawId.toString(),
+          title: text(item['title']),
+          cover: text(item['cover']),
+          nick: text(item['nickname']),
           watching: audience.popularity.isNotEmpty ? audience.popularity : audience.onlineViewers,
           popularity: audience.popularity,
           onlineViewers: audience.onlineViewers,
           audienceMetricType: audience.popularity.isNotEmpty
               ? AudienceMetricType.popularity
               : AudienceMetricType.onlineViewers,
-          avatar: item["purl"],
-          area: item["game_name"] ?? '',
-          liveStatus: LiveStatus.live,
-          status: true,
+          avatar: text(item['purl']),
+          area: text(item['game_name']).isNotEmpty ? text(item['game_name']) : text(item['gamename']),
+          liveStatus: status == 1
+              ? LiveStatus.live
+              : status == 0
+              ? LiveStatus.offline
+              : LiveStatus.unknown,
+          status: status == 1,
           platform: Sites.ccSite,
-        );
-        items.add(roomItem);
-      }
-    } catch (e) {
-      CoreLog.error(e);
+        ),
+      );
     }
+    // Only the API's lives collection is consumed. Its videos fallback is not
+    // a live room, and malformed responses must not commit an empty page.
     return items;
   }
 
@@ -373,7 +388,7 @@ class CCSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResol
             roomId: room.roomId ?? '',
             avatar: room.avatar ?? '',
             userName: room.nick ?? '',
-            liveStatus: room.liveStatus == LiveStatus.live,
+            liveStatus: room.isLiveNow,
           ),
         )
         .toList();
@@ -388,5 +403,22 @@ class CCSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResol
   Future<List<LiveSuperChatMessage>> getSuperChatMessage({required String roomId}) {
     //尚不支持
     return Future.value([]);
+  }
+}
+
+class _CCCategoryDirectory implements LiveSiteDirectoryPager {
+  _CCCategoryDirectory(this.site);
+  final CCSite site;
+  static const _nativePageSize = 30;
+
+  @override
+  Future<LiveDirectoryPage> getDirectoryPage({int page = 1, LiveArea? category, CancelToken? cancel}) async {
+    if (category == null) throw ArgumentError('CC category is required');
+    final rooms = await site.getCategoryRooms(category, page: page, pageSize: _nativePageSize, cancel: cancel);
+    // A stable request width keeps offsets independent of visible page size,
+    // exclusions and cached UI tails. The raw lives list is not filtered; a
+    // short page ends this snapshot, while malformed data remains retryable.
+    if (rooms.length > _nativePageSize) throw const FormatException('CC category exceeded requested page size');
+    return LiveDirectoryPage(rooms: rooms, page: page, hasMore: rooms.length == _nativePageSize);
   }
 }

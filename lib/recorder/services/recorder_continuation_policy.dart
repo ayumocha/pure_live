@@ -17,8 +17,6 @@ class RecorderContinuationPolicy {
 
     final normalizedLogs = rawLogs.toLowerCase();
     const fatalMarkers = <String>[
-      'invalid argument',
-      'no such file',
       'permission denied',
       'unable to open output',
       'error opening output',
@@ -29,6 +27,14 @@ class RecorderContinuationPolicy {
       'muxer not found',
       'invalid data found when processing output',
       'file exists',
+      'no space left on device',
+      'disk quota exceeded',
+      'not enough space on the disk',
+      'read-only file system',
+      'could not open output',
+      'failed to open segment',
+      'error writing trailer',
+      'av_interleaved_write_frame',
     ];
     return !fatalMarkers.any(normalizedLogs.contains);
   }
@@ -47,5 +53,61 @@ class RecorderContinuationPolicy {
     final exponent = failureCount.clamp(0, 20);
     final seconds = (base * (1 << exponent)).clamp(base, maximum);
     return Duration(seconds: seconds);
+  }
+
+  static Duration reconnectDelay({
+    required int failureCount,
+    required int configuredBaseSeconds,
+    required int configuredMaximumSeconds,
+    required bool enableBackoff,
+    required bool unexpectedEof,
+  }) {
+    return pollingDelay(
+      failureCount: failureCount,
+      baseSeconds: unexpectedEof ? 2 : configuredBaseSeconds,
+      maximumSeconds: unexpectedEof ? 15 : configuredMaximumSeconds,
+      enableBackoff: enableBackoff,
+    );
+  }
+
+  /// A live-stream EOF after FFmpeg has opened the media does not prove that
+  /// the room went offline. Keep resolving a fresh signed URL with bounded
+  /// delay instead of moving the task into the much slower offline poll loop.
+  static bool shouldEnterPollingAfterRetryLimit({
+    required int retryCount,
+    required int maximumRetries,
+    required bool unexpectedEof,
+  }) {
+    if (unexpectedEof) return false;
+    return retryCount >= maximumRetries.clamp(1, 100);
+  }
+
+  /// Starts acquiring the replacement a few seconds before the active input
+  /// reaches its platform refresh boundary. The result is only cached in
+  /// memory and remains constrained by the adapter's own invalid-at metadata.
+  static Duration leasePrefetchDelay({
+    required DateTime now,
+    required DateTime refreshAt,
+    Duration lead = const Duration(seconds: 5),
+  }) {
+    final remaining = refreshAt.toUtc().difference(now.toUtc()) - lead;
+    return remaining > Duration.zero ? remaining : Duration.zero;
+  }
+
+  /// A timer that is already late runs on the next event-loop turn rather than
+  /// being silently omitted. This matters after sleep/resume where wall time
+  /// may cross the signed transport boundary while Dart timers are suspended.
+  static Duration leaseRotationDelay({required DateTime now, required DateTime refreshAt}) {
+    final remaining = refreshAt.toUtc().difference(now.toUtc());
+    return remaining > Duration.zero ? remaining : Duration.zero;
+  }
+
+  /// Keep one future credential ready without cancelling a long-lived input.
+  /// Failed/missing/already-stale metadata is rate limited to one maintenance
+  /// attempt per 30 seconds; successful future leases keep their own deadline.
+  static Duration leaseMaintenanceDelay({required DateTime now, required DateTime? refreshAt}) {
+    const minimum = Duration(seconds: 30);
+    final remaining = refreshAt == null ? minimum : leasePrefetchDelay(now: now, refreshAt: refreshAt);
+    return remaining > minimum ? remaining : minimum;
   }
 }

@@ -12,16 +12,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/liuchuancong/pure_live/releases/latest">
+  <a href="https://github.com/ayumocha/pure_live/releases/latest">
     <img alt="Latest Release" src="https://img.shields.io/github/v/release/liuchuancong/pure_live">
   </a>
-  <a href="https://github.com/liuchuancong/pure_live/actions/workflows/feature-build.yml">
-    <img alt="Manual Build" src="https://github.com/liuchuancong/pure_live/actions/workflows/feature-build.yml/badge.svg">
+  <a href="https://github.com/ayumocha/pure_live/actions/workflows/feature-build.yml">
+    <img alt="Manual Build" src="https://github.com/ayumocha/pure_live/actions/workflows/feature-build.yml/badge.svg">
   </a>
   <a href="https://github.com/liuchuancong/pure_live">
     <img alt="Stars" src="https://img.shields.io/github/stars/liuchuancong/pure_live?color=yellow">
   </a>
-  <a href="https://github.com/liuchuancong/pure_live/releases">
+  <a href="https://github.com/ayumocha/pure_live/releases">
     <img alt="Downloads" src="https://img.shields.io/github/downloads/liuchuancong/pure_live/total?style=flat-square">
   </a>
   <a href="LICENSE">
@@ -44,8 +44,19 @@
 - 每个完成的 Bug 修复批次默认递增版本，优先构建 Android `arm64-v8a` 正式更新包，并同步源码、版本标签、安装包与校验文件到本仓库 GitHub Release；其他平台仍按本轮明确范围串行构建。
 - 每次同步上游、分析 Bug 和审查原项目 Issue 的来源判定、根因、兼容、验证与回滚流程见[维护范围与问题处置策略](MAINTENANCE_POLICY.md)及[上游同步审查策略](UPSTREAM_REVIEW_POLICY.md)。
 
+<!-- current-status-owner: docs/BUILD_AND_RELEASE.md -->
+<!-- stable-doc-index:start -->
+| Document | Purpose |
+| --- | --- |
+| [Build and release](docs/BUILD_AND_RELEASE.md) | Current candidate status and local workflow |
+| [Platform compatibility](docs/PLATFORM_COMPATIBILITY.md) | Platform contracts and historical evidence |
+| [Maintenance policy](MAINTENANCE_POLICY.md) | Fork maintenance scope |
+| [Upstream review policy](UPSTREAM_REVIEW_POLICY.md) | Synchronization audit requirements |
+| [Documentation index](docs/README.md) | Historical and active reference links |
+<!-- stable-doc-index:end -->
+
 - **最新稳定版**：[v3.0.7](https://github.com/ayumocha/pure_live/releases/tag/v3.0.7)
-- **当前源码版本**：`3.0.7+4095`（本轮正式交付 Windows x64 便携 ZIP）
+- **Independent upstream-sync candidate:** `3.0.8+4096` is unpublished; the latest public release remains v3.0.7. Historical 3.0.7 descriptions and prior device/build evidence do not validate this candidate. Flutter SDK: 3.47.5.
 
 **v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
 
@@ -402,7 +413,7 @@ Firebase 不是 Pure Live 使用的必要条件。
 
 ## 📥 下载
 
-前往 [维护分支 GitHub Releases](https://github.com/liuchuancong/pure_live/releases/latest) 获取最新安装包，并使用同一 Release 的 `SHA256SUMS.txt` 校验完整性。
+前往 [维护分支 GitHub Releases](https://github.com/ayumocha/pure_live/releases/latest) 获取最新安装包，并使用同一 Release 的 `SHA256SUMS.txt` 校验完整性。
 
 ### Android
 
@@ -448,7 +459,7 @@ EXE 安装向导支持选择其他磁盘，并把设置、关注、历史、IPTV
 
 ## 🧪 本地构建与验证
 
-项目固定使用 Flutter `3.47.0` / Dart `3.13.0`、AGP `9.3.1`、Gradle `9.5.0` 与 Java 25 构建运行时，Android 应用和插件字节码目标保持 Java/Kotlin 17。资源档位、串行平台阶段和增量缓存规则见 [构建资源策略](BUILD_POLICY.md)。正式交付的完整质量门禁：
+项目固定使用 Flutter `3.47.5` / Dart `3.13.0`、AGP `9.3.1`、Gradle `9.5.0` 与 Java 25 构建运行时，Android 应用和插件字节码目标保持 Java/Kotlin 17。资源档位、串行平台阶段和增量缓存规则见 [构建资源策略](BUILD_POLICY.md)。正式交付的完整质量门禁：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\tool\local_ci.ps1 -Scope Full
@@ -504,3 +515,7 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\build_local_release.ps1 `
 </p>
 
 > 您的支持是我持续维护的动力！感谢 ❤️
+
+## 独立同步候选（未发布）
+
+`codex/sync-upstream-20260925` 完整同步上游 `9b376ec9ef25`，候选版本 `3.0.8+4096`。直接采用上游斗鱼恢复机制，保留维护分支更新源与旧小红书配置迁移。局域网远程同步因未认证敏感配置接口暂缓启用。验证状态以本轮独立审查台账和候选门禁记录为准，此处不代表已发布新安装包。

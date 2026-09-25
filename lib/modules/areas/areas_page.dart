@@ -22,14 +22,20 @@ class AreasPage extends GetView<AreasController> {
               centerTitle: true,
               leading: showAction ? const MenuButton() : null,
               actions: showAction ? [CommonAppBarActions()] : null,
-              title: TabBar(
+              title: ScrollableTabBar(
+                key: const ValueKey('areas-platform-tabs'),
                 controller: controller.tabController,
                 isScrollable: true,
+                physics: const PureLiveBoundedScrollPhysics(),
                 tabs: availableSitesList.map((e) => Tab(text: e.name)).toList(),
               ),
             ),
             body: TabBarView(
               controller: controller.tabController,
+              // This route already contains a horizontal category PageView.
+              // Let the top platform tabs switch the outer page explicitly so
+              // two same-axis gesture recognizers never fight over one drag.
+              physics: const NeverScrollableScrollPhysics(),
               children: availableSitesList.map((e) => AreaGridView(e.id)).toList(),
             ),
             floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -49,21 +55,24 @@ class AreasPage extends GetView<AreasController> {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: () => Get.toNamed(RoutePath.kFavoriteAreas),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Remix.heart_add_2_line, size: 16, color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Text(
-                            i18n("favorite_areas"),
-                            style: AppTextStyles.t12Bold.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                              letterSpacing: 0.5,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Remix.heart_add_2_line, size: 16, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Text(
+                              i18n("favorite_areas"),
+                              style: AppTextStyles.t12Bold.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                letterSpacing: 0.5,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:pure_live/core/common/core_log.dart';
 import 'package:pure_live/core/site/huya/huya_utils.dart';
 import 'package:pure_live/common/models/live_message.dart';
@@ -9,7 +10,6 @@ import 'package:pure_live/core/common/web_socket_util.dart';
 import 'package:pure_live/core/interface/live_danmaku.dart';
 import 'package:pure_live/pkg/tars/codec/tars_input_stream.dart';
 import 'package:pure_live/pkg/tars/codec/tars_output_stream.dart';
-
 
 // ignore_for_file: no_leading_underscores_for_local_identifiers
 
@@ -24,7 +24,27 @@ class HuyaDanmakuArgs {
   }
 }
 
+typedef HuyaSuperChatFetcher = Future<List<LiveSuperChatMessage>> Function(int lPid);
+
 class HuyaDanmaku implements LiveDanmaku {
+  HuyaDanmaku({HuyaSuperChatFetcher? superChatFetcher, List<Duration>? superChatRetryDelays})
+    : _superChatFetcher = superChatFetcher ?? ((lPid) => getHuyaSuperChatMessageList(lPid: lPid, first: true)),
+      _superChatRetryDelays = List<Duration>.unmodifiable(superChatRetryDelays ?? defaultSuperChatRetryDelays);
+
+  static const List<Duration> defaultSuperChatRetryDelays = <Duration>[
+    Duration.zero,
+    Duration(milliseconds: 600),
+    Duration(milliseconds: 1800),
+    Duration(milliseconds: 4000),
+  ];
+
+  final HuyaSuperChatFetcher _superChatFetcher;
+  final List<Duration> _superChatRetryDelays;
+  final Set<LiveSuperChatMessage> _emittedSuperChats = <LiveSuperChatMessage>{};
+  static const int _maxRememberedSuperChats = 512;
+  Future<void>? _superChatRefreshFuture;
+  bool _superChatRefreshQueued = false;
+
   @override
   int heartbeatTime = 60 * 1000;
   bool _connected = false;
@@ -44,6 +64,8 @@ class HuyaDanmaku implements LiveDanmaku {
 
   @override
   Function(LiveMessage msg)? onMessage;
+  @override
+  Function(String msg)? onReconnect;
   @override
   Function(String msg)? onClose;
   @override
@@ -66,6 +88,9 @@ class HuyaDanmaku implements LiveDanmaku {
   @override
   Future start(dynamic args) async {
     final generation = ++_generation;
+    _superChatRefreshFuture = null;
+    _emittedSuperChats.clear();
+    _superChatRefreshQueued = false;
     await webScoketUtils?.close();
     webScoketUtils = null;
     if (generation != _generation) return;
@@ -91,7 +116,7 @@ class HuyaDanmaku implements LiveDanmaku {
       onReconnect: () {
         if (generation != _generation) return;
         markDisconnected();
-        onClose?.call("与服务器断开连接，正在尝试重连");
+        onReconnect?.call("与服务器断开连接，正在尝试重连");
       },
       onClose: (e) {
         if (generation != _generation) return;
@@ -131,8 +156,12 @@ class HuyaDanmaku implements LiveDanmaku {
   @override
   Future stop() async {
     _generation++;
+    _superChatRefreshFuture = null;
+    _superChatRefreshQueued = false;
+    _emittedSuperChats.clear();
     markDisconnected();
     onMessage = null;
+    onReconnect = null;
     onClose = null;
     onReady = null;
     await webScoketUtils?.close();
@@ -190,18 +219,85 @@ class HuyaDanmaku implements LiveDanmaku {
         ),
       );
     } else if (uri == 2001314) {
-      var sc = await getHuyaSuperChatMessageList(lPid: danmakuArgs.topSid);
-      if (sc.isNotEmpty) {
-        onMessage?.call(
-          LiveMessage(
-            type: LiveMessageType.superChat,
-            userName: "SUPER_CHAT_MESSAGE",
-            message: "SUPER_CHAT_MESSAGE",
-            color: LiveMessageColor.white,
-            data: sc.first,
-          ),
-        );
+      // The notification can arrive before the message-board WUP result is
+      // updated. Fetching once here loses that SC until a manual room refresh;
+      // awaiting the HTTP call also serializes unrelated websocket messages.
+      // Reconcile in the background with a small bounded retry window instead.
+      _scheduleSuperChatRefresh(_generation);
+    }
+  }
+
+  void _scheduleSuperChatRefresh(int generation) {
+    if (generation != _generation) return;
+    if (_superChatRefreshFuture != null) {
+      _superChatRefreshQueued = true;
+      return;
+    }
+
+    _superChatRefreshQueued = false;
+    final future = _refreshSuperChats(generation);
+    _superChatRefreshFuture = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_superChatRefreshFuture, future)) {
+          _superChatRefreshFuture = null;
+        }
+        if (_superChatRefreshQueued && generation == _generation) {
+          _scheduleSuperChatRefresh(generation);
+        }
+      }),
+    );
+  }
+
+  Future<void> _refreshSuperChats(int generation) async {
+    for (var attempt = 0; attempt < _superChatRetryDelays.length; attempt++) {
+      final delay = _superChatRetryDelays[attempt];
+      if (delay > Duration.zero) await Future<void>.delayed(delay);
+      if (generation != _generation || danmakuArgs.topSid == 0) return;
+
+      try {
+        final messages = await _superChatFetcher(danmakuArgs.topSid).timeout(const Duration(seconds: 3));
+        if (generation != _generation) return;
+
+        final hadKnownMessages = _emittedSuperChats.isNotEmpty;
+        var emittedNewMessage = false;
+        for (final message in messages) {
+          if (!_rememberSuperChat(message)) continue;
+          emittedNewMessage = true;
+          onMessage?.call(
+            LiveMessage(
+              type: LiveMessageType.superChat,
+              userName: 'SUPER_CHAT_MESSAGE',
+              message: 'SUPER_CHAT_MESSAGE',
+              color: LiveMessageColor.white,
+              data: message,
+            ),
+          );
+        }
+
+        // Once this transport already has a baseline, an unseen item proves
+        // that the delayed WUP board caught up and no later retry is needed.
+        if (hadKnownMessages && emittedNewMessage) return;
+      } catch (error) {
+        if (generation == _generation && attempt == _superChatRetryDelays.length - 1) {
+          CoreLog.error('huya_super_chat_refresh_failed: $error');
+        }
       }
+    }
+  }
+
+  bool _rememberSuperChat(LiveSuperChatMessage message) {
+    if (!_emittedSuperChats.add(message)) return false;
+    while (_emittedSuperChats.length > _maxRememberedSuperChats) {
+      _emittedSuperChats.remove(_emittedSuperChats.first);
+    }
+    return true;
+  }
+
+  @visibleForTesting
+  Future<void> waitForPendingSuperChatRefresh() async {
+    while (_superChatRefreshFuture != null) {
+      await _superChatRefreshFuture;
     }
   }
 }

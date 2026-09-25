@@ -1,15 +1,23 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
+import 'package:pure_live/core/common/request_scope.dart';
+import 'package:pure_live/core/interface/live_search.dart';
+
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/modules/search/search_capability.dart';
 import 'package:pure_live/modules/search/search_ranking.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const Duration liveSearchRequestTimeout = Duration(seconds: 12);
+const int maxConsecutiveStagnantSearchPages = 2;
+const int maxConcurrentNativeSearchSites = 12;
 
 class SearchController extends GetxController {
-  SearchController() : sites = List<Site>.unmodifiable(Sites().availableSites()) {
+  SearchController({List<Site>? searchSites, this.requestTimeout = liveSearchRequestTimeout})
+    : sites = List<Site>.unmodifiable(searchSites ?? Sites().availableSites()) {
+    if (requestTimeout <= Duration.zero) throw ArgumentError.value(requestTimeout, 'requestTimeout');
     scrollController.addListener(_handleSearchScroll);
   }
 
@@ -19,6 +27,22 @@ class SearchController extends GetxController {
   /// one snapshot prevents the tab labels, selected index and paginated
   /// adapter state (notably Twitch cursors) from drifting apart mid-search.
   final List<Site> sites;
+  final Duration requestTimeout;
+  CancelToken? _searchCancel;
+  bool _closed = false;
+  bool get _active => !_closed && !isClosed;
+  bool _isCurrent(int generation) => _active && generation == _searchGeneration;
+
+  void _invalidateSearch({bool retireInitialTask = true}) {
+    _searchGeneration++;
+    _searchCancel?.cancel();
+    _searchCancel = null;
+    if (retireInitialTask) {
+      _initialSearchKey = null;
+      _initialSearchTask = null;
+    }
+  }
+
   var index = 0.obs;
   final results = <LiveRoom>[].obs;
   final loading = false.obs;
@@ -31,17 +55,40 @@ class SearchController extends GetxController {
   final sortMode = LiveSearchSortMode.smart.obs;
   final ScrollController scrollController = createPureLiveScrollController();
   bool _isWebView2Available = true;
+  bool _webView2DialogOpen = false;
   int _searchGeneration = 0;
   int _currentPage = 0;
   String _activeKeyword = '';
+  ({int platformIndex, String keyword})? _initialSearchKey;
+  Future<void>? _initialSearchTask;
   final Map<String, LiveRoom> _rawResults = {};
   final Map<String, bool> _hasMoreByPlatform = {};
+  final Map<String, int> _stagnantPagesByPlatform = {};
   final List<Worker> _audienceWorkers = [];
   void selectPlatform(int requestedIndex) {
+    if (!_active) return;
     final selectedIndex = requestedIndex.clamp(0, sites.length).toInt();
     if (selectedIndex == index.v) return;
+    _invalidateSearch();
     index.value = selectedIndex;
-    if (searched.v) doSearch();
+    if (!searched.v) return;
+    if (searchController.text.trim().isNotEmpty) {
+      doSearch();
+      return;
+    }
+    // An empty draft must not leave old-platform results under a new tab.
+    _activeKeyword = '';
+    _currentPage = 0;
+    _rawResults.clear();
+    _hasMoreByPlatform.clear();
+    _stagnantPagesByPlatform.clear();
+    results.clear();
+    loading.v = false;
+    loadingMore.v = false;
+    pendingSiteCount.v = 0;
+    hasMore.v = false;
+    searched.v = false;
+    errorMessage.v = '';
   }
 
   void _handleSearchScroll() {
@@ -53,6 +100,26 @@ class SearchController extends GetxController {
   String buildSearchUrl(String platform, String keyword) {
     final q = Uri.encodeComponent(keyword);
     switch (platform) {
+      case Sites.weiboSite:
+        throw StateError('Weibo supports exact broadcast lookup, not web keyword search');
+      case Sites.niconicoSite:
+        return 'https://live.nicovideo.jp/search?keyword=$q&status=onair';
+      case Sites.showroomSite:
+        throw StateError('SHOWROOM web keyword search is not exposed');
+      case Sites.xiaohongshuSite:
+        throw StateError('Xiaohongshu supports exact broadcast-room lookup, not web keyword search');
+      case Sites.ttingSite:
+        throw StateError('TTing supports exact channel lookup, not web keyword search');
+      case Sites.openrecSite:
+        throw StateError('Openrec search is not integrated');
+      case Sites.huajiaoSite:
+        throw StateError('Huajiao search is not integrated');
+      case Sites.kilakilaSite:
+        return 'https://live.kilakila.cn/aboutus/serach/kw/$q';
+      case Sites.inkeSite:
+        throw StateError('Inke supports exact UID lookup, not web keyword search');
+      case Sites.missevanSite:
+        throw StateError('Missevan uses native keyword search, not web search');
       case Sites.ccSite:
         return "https://cc.163.com/search/all/?query=$q&only=all";
       case Sites.kuaishouSite:
@@ -71,6 +138,12 @@ class SearchController extends GetxController {
         return "https://www.sooplive.co.kr/?szKeyword=$q";
       case Sites.yySite:
         return "https://www.yy.com/search-$q";
+      case Sites.picartoSite:
+        return 'https://picarto.tv/search?q=$q';
+      case Sites.twitcastingSite:
+        return 'https://twitcasting.tv/search/text/?tw_search_query=$q';
+      case Sites.acfunSite:
+        return 'https://www.acfun.cn/search?keyword=$q&type=user';
       default:
         return "https://www.baidu.com/s?wd=$q&rsv_spt=1&rsv_iqid=0x84b83a1e077a0c1a&issp=1&f=8&rsv_bp=1&rsv_idx=2&ie=utf-8&tn=baiduhome_pg&rsv_dl=tb_click&rsv_enter=1&rsv_sug3=3&rsv_sug1=2&rsv_sug7=100&rsv_btype=i&prefixsug=12&rsp=0&inputT=1112&rsv_sug4=1287";
     }
@@ -105,15 +178,38 @@ class SearchController extends GetxController {
     return false;
   }
 
-  Future<void> doSearch() async {
+  Future<void> doSearch() {
+    if (!_active) return Future<void>.value();
     final keyword = searchController.text.trim();
     if (keyword.isEmpty) {
       ToastUtil.show(i18n("please_input_keyword"));
-      return;
+      return Future<void>.value();
     }
+
+    final key = (platformIndex: index.v, keyword: keyword);
+    final inFlight = _initialSearchTask;
+    // Enter and the toolbar action can dispatch in the same frame. Preserve
+    // the useful request (including a partially completed all-site search)
+    // instead of cancelling it and issuing an identical network fan-out.
+    if (inFlight != null && _initialSearchKey == key) return inFlight;
+
+    late final Future<void> task;
+    task = _startSearch(keyword).whenComplete(() {
+      if (!identical(_initialSearchTask, task)) return;
+      _initialSearchKey = null;
+      _initialSearchTask = null;
+    });
+    _initialSearchKey = key;
+    _initialSearchTask = task;
+    return task;
+  }
+
+  Future<void> _startSearch(String keyword) async {
     FocusManager.instance.primaryFocus?.unfocus();
     if (scrollController.hasClients) scrollController.jumpTo(0);
-    final generation = ++_searchGeneration;
+    _invalidateSearch(retireInitialTask: false);
+    final generation = _searchGeneration;
+    _searchCancel = CancelToken();
     _activeKeyword = keyword;
     _currentPage = 0;
     loading.v = true;
@@ -124,13 +220,14 @@ class SearchController extends GetxController {
     errorMessage.v = '';
     _rawResults.clear();
     _hasMoreByPlatform.clear();
+    _stagnantPagesByPlatform.clear();
     results.clear();
 
     await _searchPage(keyword: keyword, page: 1, generation: generation, append: false);
   }
 
   Future<void> loadMore() async {
-    if (loading.v || loadingMore.v || !hasMore.v || _activeKeyword.isEmpty) return;
+    if (!_active || loading.v || loadingMore.v || !hasMore.v || _activeKeyword.isEmpty) return;
     final generation = _searchGeneration;
     loadingMore.v = true;
     await _searchPage(keyword: _activeKeyword, page: _currentPage + 1, generation: generation, append: true);
@@ -147,6 +244,7 @@ class SearchController extends GetxController {
       for (final site in selectedSites) {
         final capability = LiveSearchCapabilities.forPlatform(site.id);
         _hasMoreByPlatform[site.id] = capability.supportsNativeSearch;
+        _stagnantPagesByPlatform[site.id] = 0;
       }
     }
     final searchableSites = selectedSites.where((site) {
@@ -155,10 +253,14 @@ class SearchController extends GetxController {
     }).toList();
 
     if (searchableSites.isEmpty) {
-      if (generation != _searchGeneration) return;
+      if (!_isCurrent(generation)) return;
       if (selectedSites.length == 1 &&
           !LiveSearchCapabilities.forPlatform(selectedSites.single.id).supportsNativeSearch) {
-        errorMessage.v = i18n('search_web_only_platform', args: {'site': selectedSites.single.name});
+        final capability = LiveSearchCapabilities.forPlatform(selectedSites.single.id);
+        errorMessage.v = i18n(
+          capability.supportsWebSearch ? 'search_web_only_platform' : 'search_coverage_unavailable',
+          args: {'site': selectedSites.single.name},
+        );
       }
       _applyFiltersAndSort();
       hasMore.v = false;
@@ -171,27 +273,15 @@ class SearchController extends GetxController {
     pendingSiteCount.v = searchableSites.length;
     final failures = <String>[];
     var completed = 0;
-    final batchStream = Stream<_SiteSearchBatch>.fromFutures(
-      searchableSites.map((site) async {
-        try {
-          final rooms = await site.liveSite
-              .searchRooms(keyword, page: page, pageSize: 20)
-              .timeout(liveSearchRequestTimeout);
-          return _SiteSearchBatch(site: site, rooms: rooms);
-        } on TimeoutException catch (error) {
-          debugPrint('Native search timed out for ${site.id}: $error');
-          return _SiteSearchBatch(site: site, rooms: const [], failed: true);
-        } catch (error) {
-          debugPrint('Native search failed for ${site.id}: $error');
-          return _SiteSearchBatch(site: site, rooms: const [], failed: true);
-        }
-      }),
-    );
+    final cancel = _searchCancel!;
+    final batchStream = _searchSitesBounded(searchableSites, keyword, page, cancel);
 
     // Render completed platforms immediately instead of holding the whole
     // result grid behind the slowest network request.
     await for (final batch in batchStream) {
-      if (generation != _searchGeneration) return;
+      // Drain cancelled batches as well, so this operation settles after all
+      // cancellation-aware provider futures; never write a retired generation.
+      if (!_isCurrent(generation)) continue;
       final capability = LiveSearchCapabilities.forPlatform(batch.site.id);
       final beforeCount = _rawResults.length;
       for (final room in batch.rooms) {
@@ -199,8 +289,13 @@ class SearchController extends GetxController {
       }
       final addedCount = _rawResults.length - beforeCount;
       if (batch.failed) failures.add(batch.site.name);
-      _hasMoreByPlatform[batch.site.id] =
-          !batch.failed && capability.supportsPagination && batch.rooms.isNotEmpty && addedCount > 0;
+      _hasMoreByPlatform[batch.site.id] = _canLoadAnotherPage(
+        site: batch.site,
+        keyword: keyword,
+        capability: capability,
+        batch: batch,
+        addedCount: addedCount,
+      );
       completed++;
       pendingSiteCount.v = searchableSites.length - completed;
       _applyFiltersAndSort();
@@ -209,7 +304,7 @@ class SearchController extends GetxController {
       }
     }
 
-    if (generation != _searchGeneration) return;
+    if (!_isCurrent(generation)) return;
     _currentPage = page;
     hasMore.v = selectedSites.any((site) => _hasMoreByPlatform[site.id] ?? false);
     if (failures.isNotEmpty) {
@@ -222,6 +317,97 @@ class SearchController extends GetxController {
     pendingSiteCount.v = 0;
   }
 
+  Stream<_SiteSearchBatch> _searchSitesBounded(
+    List<Site> searchableSites,
+    String keyword,
+    int page,
+    CancelToken cancel,
+  ) async* {
+    final active = <int, Future<_SiteSearchBatch>>{};
+    var next = 0;
+
+    void fillSlots() {
+      while (!cancel.isCancelled && active.length < maxConcurrentNativeSearchSites && next < searchableSites.length) {
+        final index = next++;
+        active[index] = _searchSite(searchableSites[index], keyword, page, cancel);
+      }
+    }
+
+    fillSlots();
+    while (active.isNotEmpty) {
+      final completed = await Future.any(
+        active.entries.map((entry) => entry.value.then((batch) => (index: entry.key, batch: batch))),
+      );
+      active.remove(completed.index);
+      yield completed.batch;
+      // Retired searches drain started requests but never open queued sites.
+      fillSlots();
+    }
+  }
+
+  bool _canLoadAnotherPage({
+    required Site site,
+    required String keyword,
+    required LiveSearchCapability capability,
+    required _SiteSearchBatch batch,
+    required int addedCount,
+  }) {
+    if (!capability.supportsPagination ||
+        (site.liveSite is LiveSearchPaginationPolicy &&
+            !(site.liveSite as LiveSearchPaginationPolicy).supportsSearchPaginationFor(keyword)) ||
+        batch.failed ||
+        batch.rooms.isEmpty) {
+      _stagnantPagesByPlatform.remove(site.id);
+      return false;
+    }
+    if (addedCount > 0) {
+      _stagnantPagesByPlatform[site.id] = 0;
+      return true;
+    }
+
+    // Search endpoints commonly overlap their page boundary by one response.
+    // Preserve a bounded chance to reach the next unique page, while stopping
+    // sticky endpoints that repeat the same payload forever.
+    final stagnantPages = (_stagnantPagesByPlatform[site.id] ?? 0) + 1;
+    _stagnantPagesByPlatform[site.id] = stagnantPages;
+    return stagnantPages < maxConsecutiveStagnantSearchPages;
+  }
+
+  Future<_SiteSearchBatch> _searchSite(Site site, String keyword, int page, CancelToken cancel) async {
+    try {
+      final rooms = await withRequestCancellation(cancel, (transport) async {
+        if (transport.isCancelled) throw transport.cancelError!;
+        var expired = false;
+        final timer = Timer(requestTimeout, () {
+          expired = true;
+          transport.cancel();
+        });
+        try {
+          final work = site.liveSite.searchRoomsWithCancellation(keyword, page: page, pageSize: 20, cancel: transport);
+          // Legacy APIs have no transport cancellation contract. Stop waiting
+          // for them without claiming their underlying HTTP has been stopped.
+          final result = site.liveSite is LiveCancellableSearch
+              ? await work
+              : await Future.any<List<LiveRoom>>([
+                  work,
+                  transport.whenCancel.then<List<LiveRoom>>((_) => throw transport.cancelError!),
+                ]);
+          if (transport.isCancelled) throw transport.cancelError!;
+          return result;
+        } catch (_) {
+          if (expired && !cancel.isCancelled) throw TimeoutException('Native search deadline', requestTimeout);
+          rethrow;
+        } finally {
+          timer.cancel();
+        }
+      });
+      return _SiteSearchBatch(site: site, rooms: rooms);
+    } catch (error) {
+      if (!cancel.isCancelled) debugPrint('Native search failed for ${site.id}: $error');
+      return _SiteSearchBatch(site: site, rooms: const [], failed: true);
+    }
+  }
+
   String _roomKey(LiveRoom room) {
     final platform = room.platform?.trim().toLowerCase() ?? 'unknown';
     final roomId = room.roomId?.trim() ?? '';
@@ -232,6 +418,7 @@ class SearchController extends GetxController {
   bool get hasFilteredOfflineResults => _rawResults.isNotEmpty && results.isEmpty && !includeOffline.v;
 
   void _applyFiltersAndSort() {
+    if (!_active) return;
     final platformOrder = sites.map((site) => site.id).toList();
     results.assignAll(
       LiveSearchRanking.apply(
@@ -245,11 +432,13 @@ class SearchController extends GetxController {
   }
 
   void setIncludeOffline(bool value) {
+    if (!_active) return;
     includeOffline.v = value;
     _applyFiltersAndSort();
   }
 
   void setSortMode(LiveSearchSortMode value) {
+    if (!_active) return;
     sortMode.v = value;
     _applyFiltersAndSort();
   }
@@ -258,23 +447,62 @@ class SearchController extends GetxController {
     if (index.v > 0 && index.v <= sites.length) {
       final site = sites[index.v - 1];
       final capability = LiveSearchCapabilities.forPlatform(site.id);
+      if (site.id == Sites.acfunSite) return i18n('search_coverage_acfun');
+      if (site.id == Sites.weiboSite) return i18n('search_coverage_weibo');
+      if (site.id == Sites.huajiaoSite) return i18n('search_coverage_huajiao');
+      if (site.id == Sites.kilakilaSite) return i18n('search_coverage_kilakila');
+      if (site.id == Sites.openrecSite) return i18n('search_coverage_openrec');
       return switch (capability.coverage) {
+        NativeSearchCoverage.roomLookup => i18n('search_coverage_room_lookup', args: {'site': site.name}),
+        NativeSearchCoverage.showcaseSnapshot => i18n('search_coverage_showcase_snapshot', args: {'site': site.name}),
+        NativeSearchCoverage.channelLookup => i18n('search_coverage_channel_lookup', args: {'site': site.name}),
         NativeSearchCoverage.liveAndOffline => i18n('search_coverage_live_and_offline', args: {'site': site.name}),
         NativeSearchCoverage.liveOnly => i18n('search_coverage_live_only', args: {'site': site.name}),
         NativeSearchCoverage.localChannels => i18n('search_coverage_local', args: {'site': site.name}),
         NativeSearchCoverage.webOnly => i18n('search_coverage_web_only', args: {'site': site.name}),
+        NativeSearchCoverage.unavailable => i18n('search_coverage_unavailable', args: {'site': site.name}),
       };
     }
 
     final nativeCount = sites.where((site) => LiveSearchCapabilities.forPlatform(site.id).supportsNativeSearch).length;
     final webOnlySites = sites
-        .where((site) => !LiveSearchCapabilities.forPlatform(site.id).supportsNativeSearch)
+        .where((site) => LiveSearchCapabilities.forPlatform(site.id).coverage == NativeSearchCoverage.webOnly)
         .map((site) => site.name)
         .join('、');
-    return i18n(
-      webOnlySites.isEmpty ? 'search_coverage_all_native' : 'search_coverage_all',
+    final unavailableSites = sites
+        .where((site) => LiveSearchCapabilities.forPlatform(site.id).coverage == NativeSearchCoverage.unavailable)
+        .map((site) => site.name)
+        .join('、');
+    final summary = i18n(
+      webOnlySites.isNotEmpty
+          ? 'search_coverage_all'
+          : (nativeCount == sites.length ? 'search_coverage_all_native' : 'search_coverage_native_partial'),
       args: {'native': '$nativeCount', 'total': '${sites.length}', 'sites': webOnlySites},
     );
+    final lookupSites = sites
+        .where((site) => LiveSearchCapabilities.forPlatform(site.id).coverage == NativeSearchCoverage.channelLookup)
+        .map((site) => site.name)
+        .join('、');
+    final roomLookupSites = sites
+        .where(
+          (site) =>
+              site.id != Sites.weiboSite &&
+              LiveSearchCapabilities.forPlatform(site.id).coverage == NativeSearchCoverage.roomLookup,
+        )
+        .map((site) => site.name)
+        .join('、');
+    final snapshotSites = sites
+        .where((site) => LiveSearchCapabilities.forPlatform(site.id).coverage == NativeSearchCoverage.showcaseSnapshot)
+        .map((site) => site.name)
+        .join('、');
+    return [
+      summary,
+      if (unavailableSites.isNotEmpty) i18n('search_coverage_unavailable', args: {'site': unavailableSites}),
+      if (lookupSites.isNotEmpty) i18n('search_coverage_channel_lookup', args: {'site': lookupSites}),
+      if (roomLookupSites.isNotEmpty) i18n('search_coverage_room_lookup', args: {'site': roomLookupSites}),
+      if (sites.any((site) => site.id == Sites.weiboSite)) i18n('search_coverage_weibo'),
+      if (snapshotSites.isNotEmpty) i18n('search_coverage_showcase_snapshot', args: {'site': snapshotSites}),
+    ].join(' ');
   }
 
   int _compareAudience(LiveRoom left, LiveRoom right) {
@@ -287,12 +515,21 @@ class SearchController extends GetxController {
     );
   }
 
+  bool get canSearchNatively {
+    if (index.v == 0) {
+      return sites.any((site) => LiveSearchCapabilities.forPlatform(site.id).supportsNativeSearch);
+    }
+    if (index.v < 0 || index.v > sites.length) return false;
+    return LiveSearchCapabilities.forPlatform(sites[index.v - 1].id).supportsNativeSearch;
+  }
+
   bool get canOpenWebSearch {
     if (index.v <= 0 || index.v > sites.length) return false;
     return LiveSearchCapabilities.forPlatform(sites[index.v - 1].id).supportsWebSearch;
   }
 
   Future<void> openWebSearch() async {
+    if (!_active) return;
     if (index.v == 0) {
       ToastUtil.show(i18n('select_platform_for_web_search'));
       return;
@@ -311,7 +548,7 @@ class SearchController extends GetxController {
     final url = buildSearchUrl(site.id, keyword);
     if (Platform.isLinux) {
       final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      if (!opened) ToastUtil.show(i18n('external_browser_not_opened'));
+      if (_active && !opened) ToastUtil.show(i18n('external_browser_not_opened'));
       return;
     }
     if (Platform.isWindows && !_isWebView2Available) {
@@ -322,42 +559,65 @@ class SearchController extends GetxController {
   }
 
   void showWebView2MissingDialog() {
-    Get.dialog(
-      Builder(
-        builder: (BuildContext dialogContext) {
-          return AlertDialog(
+    if (!_active || _webView2DialogOpen) return;
+    _webView2DialogOpen = true;
+    unawaited(_showWebView2MissingDialog());
+  }
+
+  Future<void> _showWebView2MissingDialog() async {
+    try {
+      final openDownload = await Get.dialog<bool>(
+        Builder(
+          builder: (BuildContext dialogContext) => AlertDialog(
+            scrollable: true,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             title: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.report_problem_rounded, color: Theme.of(dialogContext).colorScheme.error),
                 const SizedBox(width: 8),
-                Text(i18n("webview2_missing_title")),
+                Flexible(child: Text(i18n('webview2_missing_title'))),
               ],
             ),
-            content: Text(i18n("webview2_missing_content"), style: const TextStyle(height: 1.4)),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Text(i18n('webview2_missing_content'), style: const TextStyle(height: 1.4)),
+            ),
+            actionsOverflowDirection: VerticalDirection.down,
+            actionsOverflowButtonSpacing: 8,
             actions: [
-              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(i18n("cancel"))),
+              TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text(i18n('cancel')),
+              ),
               ElevatedButton(
-                onPressed: () async {
-                  Navigator.of(dialogContext).pop();
-                  final url = Uri.parse('https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/?form=MA13LH');
-                  if (await canLaunchUrl(url)) {
-                    await launchUrl(url, mode: LaunchMode.externalApplication);
-                  } else {
-                    ToastUtil.show(i18n("webview2_open_error"));
-                  }
-                },
                 style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(48, 48),
                   backgroundColor: Theme.of(dialogContext).colorScheme.primary,
                   foregroundColor: Theme.of(dialogContext).colorScheme.onPrimary,
                 ),
-                child: Text(i18n("confirm")),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(i18n('webview2_open_download'), textAlign: TextAlign.center),
               ),
             ],
-          );
-        },
-      ),
-      barrierDismissible: false,
-    );
+          ),
+        ),
+        barrierDismissible: false,
+      );
+      if (openDownload != true || !_active) return;
+
+      final url = Uri.parse('https://developer.microsoft.com/microsoft-edge/webview2/');
+      final canOpen = await canLaunchUrl(url);
+      if (!_active) return;
+      final opened = canOpen && await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (_active && !opened) ToastUtil.show(i18n('webview2_open_error'));
+    } catch (error, stackTrace) {
+      debugPrint('Opening the WebView2 download page failed: $error\n$stackTrace');
+      if (_active) ToastUtil.show(i18n('webview2_open_error'));
+    } finally {
+      _webView2DialogOpen = false;
+    }
   }
 
   @override
@@ -366,8 +626,10 @@ class SearchController extends GetxController {
     _audienceWorkers.add(ever(SettingsService.to.app.preferRealOnlineCounts, (_) => _applyFiltersAndSort()));
     _audienceWorkers.add(ever(SettingsService.to.app.realOnlinePlatforms, (_) => _applyFiltersAndSort()));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (Platform.isWindows) {
-        _isWebView2Available = await isWebView2Installed();
+      if (_active && Platform.isWindows) {
+        final available = await isWebView2Installed();
+        if (!_active) return;
+        _isWebView2Available = available;
         if (!_isWebView2Available) {
           showWebView2MissingDialog();
         }
@@ -377,7 +639,9 @@ class SearchController extends GetxController {
 
   @override
   void onClose() {
-    _searchGeneration++;
+    if (_closed) return;
+    _closed = true;
+    _invalidateSearch();
     scrollController
       ..removeListener(_handleSearchScroll)
       ..dispose();

@@ -1,8 +1,8 @@
-/// This file is a part of media_kit (https://github.com/media-kit/media-kit).
-///
-/// Copyright © 2021 & onwards, Hitesh Kumar Saini <saini123hitesh@gmail.com>.
-/// All rights reserved.
-/// Use of this source code is governed by MIT license that can be found in the LICENSE file.
+// This file is a part of media_kit (https://github.com/media-kit/media-kit).
+//
+// Copyright © 2021 & onwards, Hitesh Kumar Saini <saini123hitesh@gmail.com>.
+// All rights reserved.
+// Use of this source code is governed by MIT license that can be found in the LICENSE file.
 import 'dart:io';
 import 'dart:async';
 import 'dart:collection';
@@ -135,16 +135,10 @@ class NativeVideoController extends PlatformVideoController {
       return _controllers[handle]!;
     }
 
-    // In case no video-decoders are found, this means media_kit_libs_***_audio is being used.
-    // Thus, --vid=no is required to prevent libmpv from trying to decode video (otherwise bad things may happen).
-    //
-    // Search for common H264 decoder to check if video support is available.
     final decoders = await queryDecoders(handle);
     if (!decoders.contains('h264')) {
       throw UnsupportedError(
-        '[VideoController] is not available.'
-        ' '
-        'Please use media_kit_libs_***_video instead of media_kit_libs_***_audio.',
+        '[VideoController] requires a libmpv build with video decoders.',
       );
     }
 
@@ -181,21 +175,29 @@ class NativeVideoController extends PlatformVideoController {
 
     controller.id.addListener(listener);
 
-    await _channel.invokeMethod(
-      'VideoOutputManager.Create',
-      {
-        'handle': handle.toString(),
-        'configuration': {
-          'width': configuration.width.toString(),
-          'height': configuration.height.toString(),
-          'enableHardwareAcceleration':
-              configuration.enableHardwareAcceleration,
+    try {
+      await _channel.invokeMethod(
+        'VideoOutputManager.Create',
+        {
+          'libmpv': (player.platform! as NativePlayer).nativeLibraryPath,
+          'handle': handle.toString(),
+          'configuration': {
+            'width': configuration.width.toString(),
+            'height': configuration.height.toString(),
+            'enableHardwareAcceleration':
+                configuration.enableHardwareAcceleration,
+          },
         },
-      },
-    );
+      );
 
-    await completer.future;
-    controller.id.removeListener(listener);
+      await completer.future;
+    } catch (_) {
+      player.platform?.release.remove(controller._dispose);
+      await controller._dispose();
+      rethrow;
+    } finally {
+      controller.id.removeListener(listener);
+    }
 
     // Return the [VideoController].
     return controller;
@@ -211,9 +213,10 @@ class NativeVideoController extends PlatformVideoController {
   Future<void> setSize({
     int? width,
     int? height,
+    bool force = false,
   }) async {
     final handle = await player.handle;
-    if (this.width == width && this.height == height) {
+    if (!force && this.width == width && this.height == height) {
       // No need to resize if the requested size is same as the current size.
       return;
     }
@@ -289,6 +292,15 @@ class NativeVideoController extends PlatformVideoController {
                       if (!(completer?.isCompleted ?? true)) {
                         completer?.complete();
                       }
+                    }
+                    break;
+                  }
+                case 'VideoOutput.Frame':
+                  {
+                    final int handle = call.arguments['handle'];
+                    final controller = _controllers[handle];
+                    if (controller != null) {
+                      controller.frameRevision.value++;
                     }
                     break;
                   }

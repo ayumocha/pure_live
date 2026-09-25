@@ -31,6 +31,59 @@ void main() {
       expect(received, isEmpty);
     });
 
+    test('keeps unmarked room chat by default', () {
+      final danmaku = DouyuDanmaku()..debugSetRoomId('71415');
+      final received = <LiveMessage>[];
+      danmaku.onMessage = received.add;
+
+      danmaku.decodeMessage(
+        danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=7/nn@=A/txt@=ordinary/cid@=c1/col@=0/'),
+      );
+
+      expect(received, hasLength(1));
+      expect(received.single.message, 'ordinary');
+      expect(received.single.messageId, 'douyu:c1');
+    });
+
+    test('filters unmarked room chat only after explicit opt-in', () {
+      final danmaku = DouyuDanmaku(filterSuspectedAutomatedMessages: () => true)..debugSetRoomId('71415');
+      final received = <LiveMessage>[];
+      danmaku.onMessage = received.add;
+
+      danmaku.decodeMessage(
+        danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=7/nn@=A/txt@=ordinary/cid@=c1/col@=0/'),
+      );
+
+      expect(received, isEmpty);
+    });
+
+    test('applies a changed platform-filter preference without reconnecting', () {
+      var enabled = false;
+      final danmaku = DouyuDanmaku(filterSuspectedAutomatedMessages: () => enabled)..debugSetRoomId('71415');
+      final received = <LiveMessage>[];
+      danmaku.onMessage = received.add;
+
+      danmaku.decodeMessage(danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=7/nn@=A/txt@=first/cid@=c1/col@=0/'));
+      enabled = true;
+      danmaku.decodeMessage(
+        danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=8/nn@=B/txt@=second/cid@=c2/col@=0/'),
+      );
+
+      expect(received.map((message) => message.message), ['first']);
+    });
+
+    test('ignores empty chat payloads without affecting the next packet', () {
+      final danmaku = DouyuDanmaku(filterSuspectedAutomatedMessages: () => false)..debugSetRoomId('71415');
+      final received = <LiveMessage>[];
+      danmaku.onMessage = received.add;
+      final empty = danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=7/nn@=A/txt@=/cid@=empty/');
+      final valid = danmaku.serializeDouyu('type@=chatmsg/rid@=71415/uid@=8/nn@=B/txt@=next/cid@=next/');
+
+      danmaku.decodeMessage(<int>[...empty, ...valid]);
+
+      expect(received.map((message) => message.message), ['next']);
+    });
+
     test('keeps ordinary chat and a super-chat coalesced in one frame', () {
       final danmaku = DouyuDanmaku()..debugSetRoomId('100');
       final received = <LiveMessage>[];

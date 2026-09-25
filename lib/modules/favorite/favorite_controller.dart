@@ -28,6 +28,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   Timer? _autoRefreshTimer;
   Timer? _debounceTimer;
   Timer? _resumeRefreshTimer;
+  Timer? _favoriteSnapshotTimer;
   final List<Worker> _workers = [];
   bool _selectionTransaction = false;
   int? _lastSyncedFavoriteSnapshot;
@@ -36,6 +37,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   DateTime? _lastFullRefreshAt;
   final isVerifyingFavorites = false.obs;
   Future<void>? _startupRefresh;
+  Future<void>? _activeRoomRefresh;
   FavoriteVerificationPreview? _verificationPreview;
   final Map<String, DateTime> _refreshFailureCooldown = {};
   static const Duration _refreshFailureRetryAfter = Duration(minutes: 5);
@@ -51,23 +53,49 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   final replayRooms = <LiveRoom>[].obs;
   final selectedTagId = TagManagementController.allTagKey.obs;
   final visibleTags = <LiveTag>[].obs;
+  final DateTime Function() _now;
 
-  FavoriteController() : super();
+  FavoriteController({DateTime Function()? now}) : _now = now ?? DateTime.now, super();
+
+  /// Resolves the adapter once per platform in each refresh pass. Keep adapter
+  /// construction separate from snapshot ownership and persistence.
+  LiveSite createRoomRefreshSite(String platform) => Sites.of(platform).liveSite;
+
+  /// Keeps the favourites platform rail focused on platforms that actually
+  /// have saved rooms. The aggregate tab remains available for an empty list
+  /// and for cross-platform browsing.
+  List<Site> get availableFavoriteSites => favoriteSitesForRooms(SettingsService.to.fav.favoriteRooms.v);
+
+  List<Site> favoriteSitesForRooms(Iterable<LiveRoom> rooms) {
+    final available = Sites().availableSites(containsAll: true);
+    final favoriteSiteIds = rooms.map((room) => room.normalizedPlatformId).where((siteId) => siteId.isNotEmpty).toSet();
+    return available
+        .where((site) => site.id == Sites.allSite || favoriteSiteIds.contains(site.id.trim().toLowerCase()))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void>? get activePageOperation => _startupRefresh ?? _activeRoomRefresh ?? super.activePageOperation;
 
   @override
   void onInit() {
     super.onInit();
 
-    tabController = TabController(length: 3, vsync: this);
+    tabController = TabController(length: 3, vsync: this, animationDuration: pureLiveTabTransitionDuration);
     WidgetsBinding.instance.addObserver(this);
     tagController.migrateLegacyRoomTagKeys(SettingsService.to.fav.favoriteRooms.v);
 
     _workers.add(
-      debounce(SettingsService.to.fav.favoriteRooms, (_) {
-        if (!isVerifyingFavorites.value && !_isCurrentFavoriteSnapshotSynced()) {
-          applyLocalFilter();
-        }
-      }, time: const Duration(milliseconds: 1000)),
+      ever(SettingsService.to.fav.favoriteRooms, (_) {
+        if (isClosed) return;
+        _favoriteSnapshotTimer?.cancel();
+        // Own the delayed action as well as its subscription: disposing a
+        // debounce Worker alone leaves its existing Timer alive.
+        _favoriteSnapshotTimer = Timer(const Duration(milliseconds: 1000), () {
+          if (isClosed || isVerifyingFavorites.value) return;
+          if (!_isCurrentFavoriteSnapshotSynced()) applyLocalFilter();
+        });
+      }),
     );
 
     _workers.add(
@@ -85,7 +113,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
         if (!_selectionTransaction) applyLocalFilter(resyncSource: false);
       }),
     );
-    _workers.add(ever(tagController.tags, (_) => applyLocalFilter()));
+    _workers.add(ever(tagController.tags, _handleTagsChanged));
     _workers.add(ever(tagController.roomTagsMap, (_) => applyLocalFilter()));
     _workers.add(ever(SettingsService.to.app.preferRealOnlineCounts, (_) => applyLocalFilter()));
     _workers.add(ever(SettingsService.to.app.realOnlinePlatforms, (_) => applyLocalFilter()));
@@ -100,6 +128,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
 
     _setupRefreshStrategy();
     _configSubscription = refreshConfigController.configChanges.listen((config) {
+      if (!config.refreshFavoriteOnResume) _cancelPendingResumeRefresh();
       _setupRefreshStrategy();
     });
 
@@ -107,7 +136,20 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
     listenRoomChanged();
   }
 
+  void _handleTagsChanged(List<LiveTag> tags) {
+    if (isClosed) return;
+    final selected = selectedTagId.value;
+    if (selected != TagManagementController.allTagKey && !tags.any((tag) => tag.id == selected)) {
+      _selectionTransaction = true;
+      selectedTagId.value = TagManagementController.allTagKey;
+      _selectionTransaction = false;
+      currentPage = 1;
+    }
+    applyLocalFilter();
+  }
+
   void _handleStatusTabChange() {
+    if (isClosed) return;
     if (tabController.indexIsChanging) return;
     final animationValue = tabController.animation?.value ?? tabController.index.toDouble();
     if ((animationValue - tabController.index).abs() > 0.001) return;
@@ -115,6 +157,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void _setupRefreshStrategy() {
+    if (isClosed) return;
     _autoRefreshTimer?.cancel();
     final bool isEnabled = refreshConfigController.autoRefreshFavorite.value;
     final int interval = refreshConfigController.autoRefreshInterval.value;
@@ -127,6 +170,11 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void debounceRefresh() {
+    if (isClosed) return;
+    // A local favourite change already schedules a complete refresh sooner
+    // than the delayed resume pass. Keep only the user-owned trigger so one
+    // change cannot publish two consecutive network snapshots.
+    _cancelPendingResumeRefresh();
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       unawaited(_fullRefreshRooms(showLoading: false));
@@ -135,24 +183,35 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (isClosed) return;
     if (state != AppLifecycleState.resumed) {
-      _resumeRefreshTimer?.cancel();
+      _cancelPendingResumeRefresh();
       return;
     }
     if (!refreshConfigController.refreshFavoriteOnResume.value) {
+      _cancelPendingResumeRefresh();
       return;
     }
     final last = _lastFullRefreshAt;
-    if (last == null || DateTime.now().difference(last) >= _resumeRefreshStaleAfter) {
+    if (last == null || _now().difference(last) >= _resumeRefreshStaleAfter) {
       // Paint the retained snapshot first. JSON parsing and image URL updates
       // then land as one transaction instead of competing with the foreground
       // transition and producing several visibly different grids.
-      _resumeRefreshTimer?.cancel();
-      _resumeRefreshTimer = Timer(
-        const Duration(milliseconds: 450),
-        () => unawaited(_fullRefreshRooms(showLoading: true, emitFinish: false, bypassFailureCooldown: true)),
-      );
+      _cancelPendingResumeRefresh();
+      _resumeRefreshTimer = Timer(const Duration(milliseconds: 450), () {
+        _resumeRefreshTimer = null;
+        unawaited(_fullRefreshRooms(showLoading: true, emitFinish: false, bypassFailureCooldown: true));
+      });
+    } else {
+      // A full refresh may have completed after an earlier resumed event but
+      // before its debounce expired. Do not let the older timer run anyway.
+      _cancelPendingResumeRefresh();
     }
+  }
+
+  void _cancelPendingResumeRefresh() {
+    _resumeRefreshTimer?.cancel();
+    _resumeRefreshTimer = null;
   }
 
   @override
@@ -166,7 +225,8 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
     _configSubscription?.cancel();
     _autoRefreshTimer?.cancel();
     _debounceTimer?.cancel();
-    _resumeRefreshTimer?.cancel();
+    _cancelPendingResumeRefresh();
+    _favoriteSnapshotTimer?.cancel();
     for (final worker in _workers) {
       worker.dispose();
     }
@@ -174,12 +234,14 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void listenFavorite() {
+    if (isClosed) return;
     subscription = EventBus.instance.listen('refresh_favorite_rooms', (data) {
       debounceRefresh();
     });
   }
 
   void listenRoomChanged() {
+    if (isClosed) return;
     roomChangedSubscription = EventBus.instance.listen('refresh_room_changed', (data) {
       applyLocalFilter();
     });
@@ -191,7 +253,8 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   /// writes. Each write rebuilt and sorted the full favourites snapshot, so a
   /// single horizontal swipe could publish two different grids.
   void selectSiteIndex(int index) {
-    final availableSites = Sites().availableSites(containsAll: true);
+    if (isClosed) return;
+    final availableSites = availableFavoriteSites;
     if (index < 0 || index >= availableSites.length) return;
     final nextPlatformId = availableSites[index].id;
     final resetTag = selectedTagId.value != TagManagementController.allTagKey;
@@ -207,6 +270,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void selectStatusIndex(int index) {
+    if (isClosed) return;
     if (index < 0 || index >= tabController.length) return;
     final resetTag = selectedTagId.value != TagManagementController.allTagKey;
     if (tabOnlineIndex.value == index && !resetTag) return;
@@ -220,6 +284,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void animateToStatusIndex(int index) {
+    if (isClosed) return;
     if (index < 0 || index >= tabController.length) return;
     if (tabController.index == index) {
       selectStatusIndex(index);
@@ -229,13 +294,10 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void changeSelectedTag(String tagId) {
+    if (isClosed) return;
     if (selectedTagId.value == tagId) return;
     currentPage = 1;
     selectedTagId.value = tagId;
-  }
-
-  void updateRoomTags(LiveRoom room, List<String> newTagIds) {
-    tagController.setRoomTags(room, newTagIds);
   }
 
   List<LiveRoom> getAllRooms() {
@@ -245,7 +307,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   List<LiveRoom> getFilteredRoomsIgnoringLiveStatus() {
     final List<LiveRoom> source = List<LiveRoom>.from(SettingsService.to.fav.favoriteRooms.v);
 
-    final currentAvailableSites = Sites().availableSites(containsAll: true);
+    final currentAvailableSites = availableFavoriteSites;
     if (tabSiteIndex.value < 0 || tabSiteIndex.value >= currentAvailableSites.length) {
       return [];
     }
@@ -277,7 +339,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   List<LiveRoom> _filterSyncedRooms() {
-    final currentAvailableSites = Sites().availableSites(containsAll: true);
+    final currentAvailableSites = availableFavoriteSites;
     if (tabSiteIndex.value < 0 || tabSiteIndex.value >= currentAvailableSites.length) {
       return [];
     }
@@ -338,6 +400,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void syncRooms({Iterable<LiveRoom>? roomSnapshot}) {
+    if (isClosed) return;
     final preview = roomSnapshot == null ? _verificationPreview : null;
     final List<LiveRoom> roomsBase = List<LiveRoom>.from(
       roomSnapshot ?? preview?.rooms ?? SettingsService.to.fav.favoriteRooms.v,
@@ -345,15 +408,15 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
     _lastSyncedFavoriteSnapshot = _favoriteSnapshotSignature(roomsBase);
     final nextOnline = preview != null
         ? List<LiveRoom>.from(preview.onlineRooms)
-        : roomsBase.where((r) => r.liveStatus == LiveStatus.live && r.isRecord == false).toList();
+        : roomsBase.where((r) => r.isLiveNow && r.isRecord == false).toList();
     final nextOffline = preview != null
         ? List<LiveRoom>.from(preview.offlineRooms)
-        : roomsBase.where((r) => r.liveStatus != LiveStatus.live).toList();
+        : roomsBase.where((r) => !r.isPlayableNow).toList();
     final nextReplay = preview != null
         ? List<LiveRoom>.from(preview.replayRooms)
-        : roomsBase.where((r) => r.liveStatus == LiveStatus.live && r.isRecord == true).toList();
+        : roomsBase.where((r) => r.effectiveLiveStatus == LiveStatus.replay).toList();
 
-    final currentAvailableSites = Sites().availableSites(containsAll: true);
+    final currentAvailableSites = favoriteSitesForRooms(roomsBase);
     var nextVisibleTags = <LiveTag>[];
 
     if (tabSiteIndex.value >= 0 && tabSiteIndex.value < currentAvailableSites.length) {
@@ -427,7 +490,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
       rooms.map(
         (room) => Object.hash(
           room.identityKey,
-          room.liveStatus,
+          room.effectiveLiveStatus,
           room.isRecord,
           room.title,
           room.nick,
@@ -446,7 +509,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void _refreshVisibleTagsFromSyncedRooms() {
-    final sites = Sites().availableSites(containsAll: true);
+    final sites = availableFavoriteSites;
     if (tabSiteIndex.value < 0 || tabSiteIndex.value >= sites.length) {
       _assignIfSnapshotChanged(visibleTags, const <LiveTag>[]);
       return;
@@ -512,6 +575,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   void applyLocalFilter({bool resyncSource = true}) {
+    if (isClosed) return;
     if (!resyncSource) _refreshVisibleTagsFromSyncedRooms();
     final filtered = getFilteredRooms(resyncSource: resyncSource);
     updateLocalReactivePool(filtered);
@@ -519,6 +583,10 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
 
   @override
   Future<void> refreshData() async {
+    if (isClosed) return;
+    // Pull-to-refresh is authoritative for this interaction. A resume event
+    // queued just before the gesture must not follow it with another pass.
+    _cancelPendingResumeRefresh();
     final startup = _startupRefresh;
     if (startup != null) {
       // BasePageView performs a one-time mobile/desktop layout notification.
@@ -532,6 +600,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   Future<void> _fullRefreshFilterRooms({required bool showLoading, bool bypassFailureCooldown = false}) async {
+    if (isClosed) return;
     final roomsToRefresh = getFilteredRoomsIgnoringLiveStatus();
     await _runRoomRefresh(
       roomsToRefresh,
@@ -546,6 +615,8 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
     bool emitFinish = true,
     bool bypassFailureCooldown = false,
   }) async {
+    if (isClosed) return;
+    _cancelPendingResumeRefresh();
     final startup = _startupRefresh;
     if (startup != null) {
       // Cold-start verification already covers every favourite. Coalescing
@@ -566,6 +637,7 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }
 
   Future<void> refreshPersistedRoomsOnStartup() {
+    if (isClosed) return Future<void>.value();
     final current = _startupRefresh;
     if (current != null) return current;
 
@@ -601,10 +673,13 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
       );
     } finally {
       _verificationPreview = null;
-      isVerifyingFavorites.value = false;
       // Also restores a useful offline/unknown view if a controller-level
-      // exception interrupted the refresh before its normal final publish.
-      applyLocalFilter();
+      // exception interrupted a current refresh. The disposed view must not
+      // be rebuilt, nor may it read settings already released during exit.
+      if (!isClosed) {
+        isVerifyingFavorites.value = false;
+        applyLocalFilter();
+      }
     }
   }
 
@@ -616,11 +691,17 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
     bool invalidateUnverified = false,
     bool bypassFailureCooldown = false,
   }) {
+    if (isClosed) return Future<void>.value();
+    final completion = Completer<void>();
+    final operation = completion.future;
+    // The latest queued pass includes the lock wait as well as its own work.
+    // An older completion must not clear ownership of a newer queued pass.
+    _activeRoomRefresh = operation;
     // One refresh owns the snapshot transaction at a time. The former epoch
     // scheme cancelled whichever pass happened to finish second; a lifecycle
     // resume 450 ms after launch could therefore discard startup verification
     // and leave failed rooms with yesterday's live bit.
-    return _refreshLock.synchronized(() async {
+    final pending = _refreshLock.synchronized<void>(() async {
       if (isClosed) return;
       final refreshEpoch = _refreshEpoch;
       if (showLoading) loadding.value = true;
@@ -632,16 +713,28 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
         );
         if (refreshEpoch != _refreshEpoch || isClosed) return;
 
-        final latest = List<LiveRoom>.from(SettingsService.to.fav.favoriteRooms.v);
-        final merged = invalidateUnverified
-            ? mergeAuthoritativeFavoriteRefresh(latest, rooms.map(favoriteRoomIdentity), updates)
-            : mergeFavoriteRoomUpdates(latest, updates);
-        if (merged.changed) {
-          // One Hive write and one visible publication. A failed startup request
-          // remains unknown instead of carrying the previous process's live bit.
-          SettingsService.to.fav.favoriteRooms.v = merged.rooms;
+        try {
+          await SettingsService.to.fav.mutateRoomsDurably((latest) {
+            final merged = invalidateUnverified
+                ? mergeAuthoritativeFavoriteRefresh(latest, rooms.map(favoriteRoomIdentity), updates)
+                : mergeFavoriteRoomUpdates(latest, updates);
+            return merged.rooms;
+          });
+        } catch (error, stackTrace) {
+          developer.log(
+            'Persist favorite room refresh failed',
+            name: 'FavoriteController',
+            error: error,
+            stackTrace: stackTrace,
+          );
         }
-        if (markFullRefresh) _lastFullRefreshAt = DateTime.now();
+        if (markFullRefresh) {
+          _lastFullRefreshAt = _now();
+          // A resumed event can arrive while this pass is in flight. The
+          // completed full snapshot is newer than that event, so its delayed
+          // timer must not enqueue the same network work again.
+          _cancelPendingResumeRefresh();
+        }
         applyLocalFilter();
         if (emitFinish) EventBus.instance.emit('refresh_favorite_finish', true);
       } finally {
@@ -650,6 +743,19 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
         }
       }
     });
+    unawaited(
+      pending.then(
+        (_) {
+          if (identical(_activeRoomRefresh, operation)) _activeRoomRefresh = null;
+          completion.complete();
+        },
+        onError: (Object error, StackTrace stack) {
+          if (identical(_activeRoomRefresh, operation)) _activeRoomRefresh = null;
+          completion.completeError(error, stack);
+        },
+      ),
+    );
+    return operation;
   }
 
   Future<Map<String, LiveRoom>> _refreshRoomDetails(
@@ -697,23 +803,25 @@ class FavoriteController extends LocalReactivePageController<LiveRoom>
   }) async {
     final key = _roomKey(room);
     final failedAt = _refreshFailureCooldown[key];
-    if (!bypassFailureCooldown && failedAt != null && DateTime.now().difference(failedAt) < _refreshFailureRetryAfter) {
+    if (!bypassFailureCooldown && failedAt != null && _now().difference(failedAt) < _refreshFailureRetryAfter) {
       return null;
     }
 
     try {
       final platform = room.normalizedPlatformId;
       final roomId = room.normalizedRoomId;
-      final liveSite = siteCache.putIfAbsent(platform, () => Sites.of(platform).liveSite);
+      final liveSite = siteCache.putIfAbsent(platform, () => createRoomRefreshSite(platform));
       final operation = liveSite is LiveSiteRoomRefresher
           ? (liveSite as LiveSiteRoomRefresher).getRoomDetailForRefresh(roomId: roomId, platform: platform)
           : liveSite.getRoomDetail(roomId: roomId, platform: platform);
       final result = await operation.timeout(_roomRefreshTimeout);
+      if (isClosed) return null;
       _refreshFailureCooldown.remove(key);
       return result;
     } catch (error, stackTrace) {
+      if (isClosed) return null;
       final key = _roomKey(room);
-      _refreshFailureCooldown[key] = DateTime.now();
+      _refreshFailureCooldown[key] = _now();
 
       if (error is FormatException && error.message == 'Huya room metadata is unavailable') {
         developer.log('Favorite room unavailable: $key', name: 'FavoriteController');

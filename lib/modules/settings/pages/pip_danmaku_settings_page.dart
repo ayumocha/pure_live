@@ -1,10 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/utils/compact_danmaku_metrics.dart';
+import 'package:pure_live/modules/settings/widgets/app_color_picker_dialog.dart';
 import 'package:pure_live/common/consts/app_consts.dart';
 import 'package:syncfusion_flutter_sliders/sliders.dart';
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:pure_live/common/widgets/count_button.dart';
+import 'package:flame_barrage/flame_barrage.dart';
 
 class PipDanmakuSettingsPage extends StatelessWidget {
   const PipDanmakuSettingsPage({super.key});
@@ -202,6 +205,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 min: 8,
                 max: 24,
                 display: settings.pipDanmakuFontSize.v.toStringAsFixed(1),
+                semanticValueBuilder: (value) => value.toStringAsFixed(1),
                 onChanged: (value) => settings.pipDanmakuFontSize.v = value,
                 labelColor: labelColor,
                 digitColor: digitColor,
@@ -214,6 +218,8 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 max: 900,
                 stepSize: 100,
                 display: i18n(AppConsts.fontWeightLabels[settings.pipDanmakuFontWeight.value] ?? 'font_weight_normal'),
+                semanticValueBuilder: (value) =>
+                    i18n(AppConsts.fontWeightLabels[value.round()] ?? 'font_weight_normal'),
                 onChanged: (v) {
                   settings.pipDanmakuFontWeight.value = v.round();
                 },
@@ -227,6 +233,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 min: 20,
                 max: 400,
                 display: settings.pipDanmakuSpeed.v.toStringAsFixed(0),
+                semanticValueBuilder: (value) => value.toStringAsFixed(0),
                 onChanged: (value) => settings.pipDanmakuSpeed.v = value,
                 labelColor: labelColor,
                 digitColor: digitColor,
@@ -238,6 +245,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 min: 0.1,
                 max: 1,
                 display: '${(settings.pipDanmakuOpacity.v * 100).toInt()}%',
+                semanticValueBuilder: (value) => '${(value * 100).toInt()}%',
                 onChanged: (value) => settings.pipDanmakuOpacity.v = value,
                 labelColor: labelColor,
                 digitColor: digitColor,
@@ -249,6 +257,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 min: 0.1,
                 max: 1,
                 display: '${(settings.pipDanmakuArea.v * 100).toInt()}%',
+                semanticValueBuilder: (value) => '${(value * 100).toInt()}%',
                 onChanged: (value) => settings.pipDanmakuArea.v = value,
                 labelColor: labelColor,
                 digitColor: digitColor,
@@ -270,6 +279,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 min: 0.05,
                 max: 2,
                 display: '${settings.pipDanmakuEmitInterval.v.toStringAsFixed(2)}s',
+                semanticValueBuilder: (value) => '${value.toStringAsFixed(2)}s',
                 onChanged: (value) => settings.pipDanmakuEmitInterval.v = value,
                 labelColor: labelColor,
                 digitColor: digitColor,
@@ -290,6 +300,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                   min: 15,
                   max: 240,
                   display: '${settings.pipDanmakuFps.v} FPS',
+                  semanticValueBuilder: (value) => '${value.toInt()} FPS',
                   onChanged: (value) => settings.pipDanmakuFps.v = value.toInt(),
                   labelColor: labelColor,
                   digitColor: digitColor,
@@ -316,6 +327,7 @@ class PipDanmakuSettingsSection extends StatelessWidget {
     required double min,
     required double max,
     required String display,
+    required String Function(double value) semanticValueBuilder,
     required ValueChanged<double> onChanged,
     required Color labelColor,
     required Color digitColor,
@@ -361,6 +373,8 @@ class PipDanmakuSettingsSection extends StatelessWidget {
                 value: value,
                 activeColor: theme.colorScheme.primary,
                 inactiveColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+                semanticFormatterCallback: (dynamic semanticValue) =>
+                    '$title, ${semanticValueBuilder((semanticValue as num).toDouble())}',
                 onChanged: (dynamic nextValue) => onChanged((nextValue as num).toDouble()),
               ),
             ),
@@ -396,6 +410,9 @@ class PipDanmakuSettingsSection extends StatelessWidget {
             maxValue: max,
             minValue: min,
             selectedValue: value,
+            semanticLabel: title,
+            decrementSemanticLabel: i18n('decrease_value', args: {'label': title}),
+            incrementSemanticLabel: i18n('increase_value', args: {'label': title}),
             onChanged: onChanged,
             textStyle: TextStyle(color: digitColor, fontSize: 14, fontWeight: FontWeight.bold),
           ),
@@ -412,85 +429,72 @@ class PipDanmakuSettingsSection extends StatelessWidget {
     required ValueChanged<bool> onChanged,
     required Color labelColor,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600, color: labelColor),
-                ),
-                if (subtitle != null) ...[const SizedBox(height: 3), Text(subtitle, style: theme.textTheme.bodySmall)],
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Switch(value: value, activeThumbColor: theme.colorScheme.primary, onChanged: onChanged),
-        ],
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Text(
+        title,
+        style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600, color: labelColor),
       ),
+      subtitle: subtitle == null ? null : Text(subtitle, style: theme.textTheme.bodySmall),
+      value: value,
+      activeThumbColor: theme.colorScheme.primary,
+      onChanged: onChanged,
     );
   }
 
   Widget _colorPickerRow(BuildContext context, {required Color labelColor, required Color digitColor}) {
     final color = Color(SettingsService.to.danmaku.pipDanmakuColor.v);
-    return InkWell(
-      onTap: () => _showColorPicker(context, color),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(
-                i18n('pip_danmaku_color'),
-                style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600, color: labelColor),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+    final colorText = '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}';
+    return Semantics(
+      button: true,
+      label: '${i18n('pip_danmaku_color')}, $colorText',
+      child: InkWell(
+        onTap: () => _showColorPicker(context, color),
+        child: ExcludeSemantics(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                ColorIndicator(width: 28, height: 28, borderRadius: 14, color: color),
-                const SizedBox(width: 8),
-                Text(
-                  '#${color.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}',
-                  style: AppTextStyles.t12.copyWith(fontWeight: FontWeight.bold, color: digitColor),
+                Flexible(
+                  child: Text(
+                    i18n('pip_danmaku_color'),
+                    style: AppTextStyles.t15.copyWith(fontWeight: FontWeight.w600, color: labelColor),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ColorIndicator(width: 28, height: 28, borderRadius: 14, color: color),
+                    const SizedBox(width: 8),
+                    Text(
+                      colorText,
+                      style: AppTextStyles.t12.copyWith(fontWeight: FontWeight.bold, color: digitColor),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _showColorPicker(BuildContext context, Color initialColor) async {
-    final confirmed = await ColorPicker(
-      color: initialColor,
+    final isZh = Get.locale?.languageCode == 'zh';
+    await showAppColorPickerDialog(
+      context: context,
+      initialColor: initialColor,
+      title: i18n('pip_danmaku_color'),
+      enableOpacity: false,
+      labels: buildAppColorPickerLabels(translate: (key) => i18n(key), isChinese: isZh, enableOpacity: false),
+      customColorSwatchesAndNames: AppConsts.colorsNameMap,
       onColorChanged: (color) {
         SettingsService.to.danmaku.pipDanmakuColor.v = color.toARGB32();
       },
-      enableOpacity: false,
-      showColorCode: true,
-      showColorName: false,
-      showMaterialName: false,
-      pickersEnabled: const {
-        ColorPickerType.both: false,
-        ColorPickerType.primary: true,
-        ColorPickerType.accent: true,
-        ColorPickerType.bw: true,
-        ColorPickerType.custom: true,
-        ColorPickerType.wheel: true,
-      },
-    ).showPickerDialog(context);
-    if (!confirmed) {
-      SettingsService.to.danmaku.pipDanmakuColor.v = initialColor.toARGB32();
-    }
+    );
   }
 }
 
@@ -530,6 +534,9 @@ class _PipDanmakuPreviewState extends State<PipDanmakuPreview> with SingleTicker
       final unifiedColor = Color(settings.pipDanmakuColor.v);
       final configuredFontSize = settings.pipDanmakuFontSize.v;
       final fontWeight = settings.pipDanmakuFontWeight.v;
+      final fontFamily = settings.danmakuFontFamilyName.v;
+      final showStroke = settings.enableDanmakuStroke.v;
+      final strokeWidth = settings.danmakuFontBorder.v;
       final speed = settings.pipDanmakuSpeed.v;
       final opacity = enabled ? settings.pipDanmakuOpacity.v : 0.25;
       final area = settings.pipDanmakuArea.v;
@@ -555,26 +562,64 @@ class _PipDanmakuPreviewState extends State<PipDanmakuPreview> with SingleTicker
               ),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final scale = autoScale ? (constraints.maxWidth / 350).clamp(0.65, 1.0).toDouble() : 1.0;
-                  final fontSize = configuredFontSize * scale;
+                  final metrics = CompactDanmakuMetrics.resolve(
+                    width: constraints.maxWidth,
+                    autoScale: autoScale,
+                    configuredFontSize: configuredFontSize,
+                    configuredSpeed: speed,
+                  );
+                  final fontSize = metrics.fontSize;
+                  final typography = CompactDanmakuTypography.resolve(
+                    configuredFontWeight: fontWeight,
+                    configuredFontFamily: fontFamily,
+                    showStroke: showStroke,
+                    configuredStrokeWidth: strokeWidth,
+                  );
                   final areaHeight = constraints.maxHeight * area;
                   final previewText = i18n('pip_danmaku_preview_text');
-                  final painters = List<TextPainter>.generate(
+                  final previewTexts = List<String>.generate(
                     maxVisibleCount.clamp(1, 20).toInt(),
+                    (index) => '$previewText ${index + 1}${noEmojiMode ? '' : ' 🎉'}',
+                  );
+                  final painters = List<TextPainter>.generate(
+                    previewTexts.length,
                     (index) => TextPainter(
                       text: TextSpan(
-                        text: '$previewText ${index + 1}${noEmojiMode ? '' : ' 🎉'}',
+                        text: previewTexts[index],
                         style: TextStyle(
                           color: colors[index % colors.length].withValues(alpha: opacity),
                           fontSize: fontSize,
-                          fontWeight: FontWeight(fontWeight),
-                          shadows: const [Shadow(color: Colors.black, blurRadius: 2, offset: Offset(0.5, 0.5))],
+                          fontWeight: FontWeight(typography.fontWeight),
+                          fontFamily: typography.fontFamily,
+                          height: 1.15,
                         ),
                       ),
                       maxLines: 1,
                       textDirection: TextDirection.ltr,
                     )..layout(),
                   );
+                  final strokePainters = typography.showStroke
+                      ? List<TextPainter>.generate(
+                          previewTexts.length,
+                          (index) => TextPainter(
+                            text: TextSpan(
+                              text: previewTexts[index],
+                              style: TextStyle(
+                                foreground: Paint()
+                                  ..style = PaintingStyle.stroke
+                                  ..strokeWidth = typography.strokeWidth
+                                  ..color = Colors.black.withValues(alpha: resolveBarrageStrokeOpacity(opacity)),
+                                fontSize: fontSize,
+                                fontWeight: FontWeight(typography.fontWeight),
+                                fontFamily: typography.fontFamily,
+                                height: 1.15,
+                              ),
+                            ),
+                            maxLines: 1,
+                            textDirection: TextDirection.ltr,
+                          )..layout(),
+                        )
+                      : const <TextPainter>[];
 
                   return Stack(
                     children: [
@@ -594,9 +639,15 @@ class _PipDanmakuPreviewState extends State<PipDanmakuPreview> with SingleTicker
                                 painter: _PipDanmakuPreviewPainter(
                                   progress: quantizedProgress,
                                   painters: painters,
+                                  strokePainters: strokePainters,
                                   fontSize: fontSize,
-                                  fontWeight: fontWeight,
-                                  speed: speed,
+                                  fontWeight: typography.fontWeight,
+                                  fontFamily: typography.fontFamily,
+                                  showStroke: typography.showStroke,
+                                  strokeWidth: typography.strokeWidth,
+                                  speed: metrics.baseSpeed,
+                                  trackHeight: metrics.trackHeight,
+                                  overlapSafeGap: metrics.overlapSafeGap,
                                   emitInterval: emitInterval,
                                 ),
                               );
@@ -630,33 +681,47 @@ class _PipDanmakuPreviewPainter extends CustomPainter {
   const _PipDanmakuPreviewPainter({
     required this.progress,
     required this.painters,
+    required this.strokePainters,
     required this.fontSize,
     required this.fontWeight,
+    required this.fontFamily,
+    required this.showStroke,
+    required this.strokeWidth,
     required this.speed,
+    required this.trackHeight,
+    required this.overlapSafeGap,
     required this.emitInterval,
   });
 
   final double progress;
   final List<TextPainter> painters;
+  final List<TextPainter> strokePainters;
   final double fontSize;
   final int fontWeight;
+  final String fontFamily;
+  final bool showStroke;
+  final double strokeWidth;
   final double speed;
+  final double trackHeight;
+  final double overlapSafeGap;
   final double emitInterval;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
-    final laneHeight = math.max(fontSize * 1.55, 18.0);
-    final laneCount = math.max(1, (size.height / laneHeight).floor());
+    final laneCount = math.max(1, (size.height / trackHeight).floor());
     final elapsedSeconds = progress * 12;
 
     for (var index = 0; index < painters.length; index++) {
       final painter = painters[index];
-      final travel = size.width + painter.width + 24;
-      final phaseDistance = index * math.max(speed * emitInterval, painter.width * 0.7);
+      final travel = size.width + painter.width + overlapSafeGap;
+      final phaseDistance = index * math.max(speed * emitInterval, painter.width + overlapSafeGap);
       final travelled = elapsedSeconds * speed + phaseDistance;
       final x = size.width - (travelled % travel);
-      final y = (index % laneCount) * laneHeight + math.max(0, (laneHeight - painter.height) / 2);
+      final y = (index % laneCount) * trackHeight + math.max(0, (trackHeight - painter.height) / 2);
+      if (showStroke) {
+        strokePainters[index].paint(canvas, Offset(x, y));
+      }
       painter.paint(canvas, Offset(x, y));
     }
   }
@@ -665,8 +730,15 @@ class _PipDanmakuPreviewPainter extends CustomPainter {
   bool shouldRepaint(covariant _PipDanmakuPreviewPainter oldDelegate) {
     return oldDelegate.progress != progress ||
         oldDelegate.painters != painters ||
+        oldDelegate.strokePainters != strokePainters ||
         oldDelegate.fontSize != fontSize ||
+        oldDelegate.fontWeight != fontWeight ||
+        oldDelegate.fontFamily != fontFamily ||
+        oldDelegate.showStroke != showStroke ||
+        oldDelegate.strokeWidth != strokeWidth ||
         oldDelegate.speed != speed ||
+        oldDelegate.trackHeight != trackHeight ||
+        oldDelegate.overlapSafeGap != overlapSafeGap ||
         oldDelegate.emitInterval != emitInterval;
   }
 }

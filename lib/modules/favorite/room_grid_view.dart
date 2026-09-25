@@ -1,5 +1,14 @@
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/global/platform_utils.dart';
+
+@visibleForTesting
+bool shouldWrapFavoritePullToRefresh({required double viewportWidth, required bool isMobilePlatform}) {
+  // A wide Android/iOS tablet still uses the touch-first home shell and must
+  // keep pull-to-refresh. Width alone only selects the responsive grid; it is
+  // not a reliable desktop-platform signal.
+  return isMobilePlatform || viewportWidth <= 680;
+}
 
 class RoomGridView extends GetView<FavoriteController> {
   const RoomGridView({
@@ -24,6 +33,7 @@ class RoomGridView extends GetView<FavoriteController> {
           final dense = SettingsService.to.app.enableDenseFavorites.v;
           final spacing = SettingsService.to.theme.crossAxisSpacing.v;
           final mainAxisSpacing = SettingsService.to.theme.mainAxisSpacing.v;
+          final roomCardAppearance = SettingsService.to.roomCard.resolve();
           final isVerifyingFavorites = controller.isVerifyingFavorites.value;
           var crossAxisCount = width > 1280 ? 4 : (width > 960 ? 3 : (width > 640 ? 2 : 1));
           if (dense) {
@@ -65,7 +75,12 @@ class RoomGridView extends GetView<FavoriteController> {
                 crossAxisCount: crossAxisCount,
                 crossAxisSpacing: spacing,
                 mainAxisSpacing: mainAxisSpacing,
-                mainAxisExtent: itemWidth * 9 / 16 + (dense ? 72 : 84),
+                mainAxisExtent: RoomCardLayoutMetrics.gridMainAxisExtent(
+                  itemWidth: itemWidth,
+                  appearance: roomCardAppearance,
+                  dense: dense,
+                  textScaler: MediaQuery.textScalerOf(context),
+                ),
               ),
               itemCount: displayList.length,
               itemBuilder: (context, index) {
@@ -74,7 +89,7 @@ class RoomGridView extends GetView<FavoriteController> {
                   key: ValueKey('${room.platform}:${room.roomId}'),
                   room: room,
                   dense: dense,
-                  statusPending: isVerifyingFavorites || room.liveStatus == LiveStatus.unknown,
+                  statusPending: isVerifyingFavorites || room.isLiveStatusPending,
                   statusPendingLabel: isVerifyingFavorites
                       ? i18n('favorite_status_verifying')
                       : i18n('favorite_status_unknown'),
@@ -83,7 +98,7 @@ class RoomGridView extends GetView<FavoriteController> {
             );
           }
 
-          if (width > 680) {
+          if (!shouldWrapFavoritePullToRefresh(viewportWidth: width, isMobilePlatform: PlatformUtils.isMobile)) {
             return buildScrollable(const PureLiveScrollPhysics(parent: AlwaysScrollableScrollPhysics()));
           }
 

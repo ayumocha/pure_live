@@ -1,10 +1,31 @@
+import 'package:pure_live/core/site/tting/tting_api.dart';
+import 'package:pure_live/core/site/xiaohongshu/xiaohongshu_api.dart';
+import 'package:pure_live/core/site/openrec/openrec_api.dart';
 import 'package:pure_live/common/services/settings_service.dart';
 import 'package:pure_live/core/site/bilibili/bilibili_site.dart';
 import 'package:pure_live/core/site/douyin/douyin_site.dart';
 import 'package:pure_live/core/site/douyu/douyu_utils.dart';
 import 'package:pure_live/core/site/huya/huya_site.dart';
 import 'package:pure_live/core/site/twitch/twitch_site.dart';
+import 'package:pure_live/core/site/acfun/acfun_api.dart';
 import 'package:pure_live/core/sites.dart';
+import 'package:pure_live/core/site/picarto/picarto_api.dart';
+import 'package:pure_live/core/site/twitcasting/twitcasting_api.dart';
+import 'package:pure_live/core/site/missevan/missevan_api.dart';
+import 'package:pure_live/core/site/inke/inke_api.dart';
+import 'package:pure_live/core/site/kilakila/kilakila_api.dart';
+import 'package:pure_live/core/site/huajiao/huajiao_api.dart';
+import 'package:pure_live/core/site/showroom/showroom_api.dart';
+import 'package:pure_live/core/site/chzzk/chzzk_api.dart';
+import 'package:pure_live/core/site/kick/kick_api.dart';
+import 'package:pure_live/core/site/liveme/liveme_api.dart';
+import 'package:pure_live/core/site/tiktok/tiktok_api.dart';
+import 'package:pure_live/core/site/youtube/youtube_api.dart';
+import 'package:pure_live/core/site/bigo/bigo_api.dart';
+import 'package:pure_live/core/site/pandalive/pandalive_api.dart';
+import 'package:pure_live/core/site/popkontv/popkontv_api.dart';
+import 'package:pure_live/core/site/seventeenlive/seventeenlive_api.dart';
+import 'package:pure_live/core/common/http_header_policy.dart';
 
 /// Resolves the HTTP headers used to read a platform's media stream.
 ///
@@ -24,7 +45,11 @@ class PlaybackHeaderResolver {
       'AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/140.0.0.0 Safari/537.36';
 
-  static Future<Map<String, String>> resolve({required String platform, String roomId = ''}) async {
+  static Future<Map<String, String>> resolve({
+    required String platform,
+    String roomId = '',
+    Map<String, String> roomHeaders = const <String, String>{},
+  }) async {
     final normalizedPlatform = platform.trim().toLowerCase();
     final normalizedRoomId = Uri.encodeComponent(roomId.trim());
     Map<String, String> headers;
@@ -52,7 +77,7 @@ class PlaybackHeaderResolver {
         // Huya's URL signer refreshes this process-wide value while resolving
         // the stream. Falling back here avoids a second network request solely
         // for headers and keeps deterministic callers offline-safe.
-        final userAgent = HuyaSite.playUserAgent ?? HuyaSite.fallbackPlayUserAgent;
+        final userAgent = HuyaSite.playUserAgent ?? HuyaSite.nativePlayUserAgent;
         final cookie = _configuredCookie((settings) => settings.cookieManager.huyaCookie.value);
         headers = <String, String>{
           'user-agent': userAgent,
@@ -122,13 +147,76 @@ class PlaybackHeaderResolver {
         break;
       case Sites.iptvSite:
         final userAgent = _configuredValue((settings) => settings.iptv.customIptvUserAgent.value);
-        headers = userAgent.isEmpty ? const <String, String>{} : <String, String>{'user-agent': userAgent};
+        headers = <String, String>{
+          if (userAgent.isNotEmpty) 'user-agent': userAgent,
+          ...HttpHeaderPolicy.normalize(roomHeaders),
+        };
+        break;
+      case Sites.picartoSite:
+        headers = {...PicartoApi.playHeaders, 'User-Agent': _desktopUserAgent};
+        break;
+      case Sites.twitcastingSite:
+        headers = TwitcastingApi.playHeaders;
+        break;
+      case Sites.missevanSite:
+        headers = MissevanApi.playHeaders;
+        break;
+      case Sites.openrecSite:
+        headers = OpenrecApi.headers;
+        break;
+      case Sites.ttingSite:
+        headers = TtingApi.playHeaders;
+        break;
+      case Sites.xiaohongshuSite:
+        headers = XiaohongshuApi.headers;
+        break;
+      case Sites.huajiaoSite:
+        headers = HuajiaoApi.headers;
+        break;
+      case Sites.kilakilaSite:
+        headers = KilakilaApi.playHeaders;
+        break;
+      case Sites.inkeSite:
+        headers = InkeApi.playHeaders;
+        break;
+      case Sites.acfunSite:
+        headers = {...AcfunApi.playHeaders, 'origin': AcfunApi.origin};
+        break;
+      case Sites.showroomSite:
+        headers = ShowroomApi.mediaHeaders;
+        break;
+      case Sites.chzzkSite:
+        headers = ChzzkApi.mediaHeaders;
+        break;
+      case Sites.kickSite:
+        headers = KickApi.mediaHeaders(roomId);
+        break;
+      case Sites.seventeenLiveSite:
+        headers = SeventeenLiveApi.mediaHeaders(roomId);
+        break;
+      case Sites.liveMeSite:
+        headers = LiveMeApi.mediaHeaders(roomId);
+        break;
+      case Sites.tiktokSite:
+        headers = TikTokApi.mediaHeaders(roomId);
+        break;
+      case Sites.youtubeSite:
+        headers = YouTubeApi.mediaHeaders(roomId);
+        break;
+      case Sites.bigoSite:
+        headers = BigoApi.headers;
+        break;
+      case Sites.pandaLiveSite:
+        headers = PandaLiveApi.mediaHeaders(roomId);
+        break;
+      case Sites.popkonSite:
+        headers = PopkonApi.mediaHeaders(roomId);
         break;
       default:
         headers = const <String, String>{};
     }
 
-    return _sanitize(headers);
+    return HttpHeaderPolicy.normalize(headers);
   }
 
   static String _configuredCookie(String Function(SettingsService settings) read) => _configuredValue(read);
@@ -139,18 +227,5 @@ class PlaybackHeaderResolver {
     } catch (_) {
       return '';
     }
-  }
-
-  static Map<String, String> _sanitize(Map<String, String> source) {
-    final result = <String, String>{};
-    final validName = RegExp(r'^[A-Za-z0-9-]+$');
-    for (final entry in source.entries) {
-      final name = entry.key.trim().toLowerCase();
-      final value = entry.value.replaceAll(RegExp(r'[\r\n\u0000]+'), ' ').trim();
-      if (name.isNotEmpty && value.isNotEmpty && validName.hasMatch(name)) {
-        result[name] = value;
-      }
-    }
-    return Map<String, String>.unmodifiable(result);
   }
 }

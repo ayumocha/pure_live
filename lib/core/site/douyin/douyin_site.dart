@@ -34,6 +34,7 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
   /// 用户设置的 cookie
   static String cookie = "";
   static Future<String>? _anonymousCookieRequest;
+  static final String _anonymousUserUniqueId = generateAnonymousUserUniqueId();
 
   Map<String, dynamic> headers = {
     "Authority": kDefaultAuthority,
@@ -405,10 +406,9 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
     // 通过房间信息获取WebRid
     var webRid = roomData["data"]["room"]["owner"]["web_rid"].toString();
 
-    // 读取用户唯一ID，用于弹幕连接
-    // 似乎这个参数不是必须的，先随机生成一个
-    //var userUniqueId = await _getUserUniqueId(webRid);
-    var userUniqueId = generateRandomNumber(12).toString();
+    // Current web clients use a 19-digit anonymous visitor ID. Reuse one ID
+    // for the process so switching rooms does not create a new viewer identity.
+    var userUniqueId = _anonymousUserUniqueId;
 
     var room = roomData["data"]["room"];
     var owner = room["owner"];
@@ -446,7 +446,12 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
       liveStatus: roomStatus ? LiveStatus.live : LiveStatus.offline,
       introduction: owner["signature"].toString(),
       notice: "",
-      danmakuData: DouyinDanmakuArgs(webRid: webRid, roomId: roomId, userId: userUniqueId, cookie: headers["cookie"]),
+      danmakuData: DouyinDanmakuArgs(
+        webRid: webRid,
+        roomId: roomId,
+        userId: userUniqueId,
+        cookie: headers["cookie"]?.toString() ?? "",
+      ),
       data: room["stream_url"],
     );
   }
@@ -475,10 +480,7 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
     var userData = data["user"];
     var roomId = roomData["id_str"].toString();
 
-    // 读取用户唯一ID，用于弹幕连接
-    // 似乎这个参数不是必须的，先随机生成一个
-    //var userUniqueId = await _getUserUniqueId(webRid);
-    var userUniqueId = generateRandomNumber(12).toString();
+    var userUniqueId = _anonymousUserUniqueId;
 
     var owner = roomData["owner"];
 
@@ -508,7 +510,12 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
       area: '',
       introduction: owner?["signature"]?.toString() ?? "",
       notice: "",
-      danmakuData: DouyinDanmakuArgs(webRid: webRid, roomId: roomId, userId: userUniqueId, cookie: headers["cookie"]),
+      danmakuData: DouyinDanmakuArgs(
+        webRid: webRid,
+        roomId: roomId,
+        userId: userUniqueId,
+        cookie: headers["cookie"]?.toString() ?? "",
+      ),
       data: roomStatus ? roomData["stream_url"] : {},
     );
   }
@@ -521,7 +528,8 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
     var webRid = roomId;
 
     var realRoomId = detail["roomStore"]["roomInfo"]["room"]["id_str"].toString();
-    var userUniqueId = detail["userStore"]["odin"]["user_unique_id"].toString();
+    final rawUserUniqueId = detail["userStore"]["odin"]["user_unique_id"].toString();
+    var userUniqueId = RegExp(r'^\d{19}$').hasMatch(rawUserUniqueId) ? rawUserUniqueId : _anonymousUserUniqueId;
     var roomInfo = detail["roomStore"]["roomInfo"]["room"];
     var owner = roomInfo["owner"];
     var anchor = detail["roomStore"]["roomInfo"]["anchor"];
@@ -556,7 +564,7 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
         webRid: webRid,
         roomId: realRoomId,
         userId: userUniqueId,
-        cookie: headers["cookie"],
+        cookie: headers["cookie"]?.toString() ?? "",
       ),
       data: roomStatus ? roomInfo["stream_url"] : {},
     );
@@ -570,7 +578,7 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
       var webInfo = await _getRoomDataByHtml(webRid);
       return webInfo["userStore"]["odin"]["user_unique_id"].toString();
     } catch (e) {
-      return generateRandomNumber(12).toString();
+      return _anonymousUserUniqueId;
     }
   }
 
@@ -721,6 +729,11 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
       _addPlayableUrl(urls, _caseInsensitiveMapValue(flvMap, key));
       _addPlayableUrl(urls, _caseInsensitiveMapValue(hlsMap, key));
       if (urls.isEmpty) continue;
+      // Douyin may publish an `ao` entry beside its video renditions. It is
+      // an audio-only pull URL (`only_audio=1`), not a selectable video
+      // quality. Exposing it in the quality menu produced a raw "ao" button
+      // and could leave the player without a video track after selection.
+      if (_isAudioOnlyVariant(key, urls)) continue;
 
       final configuredName = descriptor['name']?.toString().trim() ?? '';
       final resolutionName = _caseInsensitiveMapValue(resolutionNames, key)?.toString().trim() ?? '';
@@ -807,6 +820,17 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
     urls.add(url);
   }
 
+  static bool _isAudioOnlyVariant(String key, List<String> urls) {
+    final token = key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+    if (const {'ao', 'audio', 'audioonly'}.contains(token)) return true;
+    if (urls.isEmpty) return false;
+    return urls.every((url) {
+      final uri = Uri.tryParse(url);
+      final value = uri?.queryParameters['only_audio']?.toLowerCase();
+      return value == '1' || value == 'true';
+    });
+  }
+
   static int _douyinQualityRank(String key) => switch (key.toUpperCase()) {
     'ORIGION' || 'ORIGIN' => 6000000,
     'FULL_HD1' || 'UHD' => 5000000,
@@ -853,6 +877,18 @@ class DouyinSite implements LiveSite, LiveSiteRecordRoomResolver {
       stringBuffer.write(item.toRadixString(16));
     }
     return stringBuffer.toString();
+  }
+
+  /// Mirrors the numeric visitor-ID range produced by Douyin's current web
+  /// client: 7.3e18 (inclusive) through 8e18 (exclusive).
+  @visibleForTesting
+  static String generateAnonymousUserUniqueId({math.Random? random}) {
+    final source = random ?? math.Random.secure();
+    final value = StringBuffer('7')..write(3 + source.nextInt(7));
+    for (var i = 0; i < 17; i++) {
+      value.write(source.nextInt(10));
+    }
+    return value.toString();
   }
 
   // 生成随机的数字

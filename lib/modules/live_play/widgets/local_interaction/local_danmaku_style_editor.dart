@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/modules/live_play/widgets/content_first_panel_layout.dart';
 import 'package:pure_live/modules/live_play/widgets/local_interaction/local_interaction_controller.dart';
@@ -56,10 +58,16 @@ class _StyleSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headerHeight = panelCompact ? 38.0 : 46.0;
+    final theme = Theme.of(context);
+    final titleStyle = panelCompact ? theme.textTheme.titleSmall : theme.textTheme.titleMedium;
+    final titleLineExtent =
+        MediaQuery.textScalerOf(context).scale(titleStyle?.fontSize ?? (panelCompact ? 14 : 16)) *
+        (titleStyle?.height ?? 1.25);
+    final headerHeight = math.max(kMinInteractiveDimension, titleLineExtent + 8);
     return Column(
       children: [
         SizedBox(
+          key: const ValueKey('local-danmaku-style-header'),
           height: headerHeight,
           child: Padding(
             padding: EdgeInsets.only(left: panelCompact ? 10 : 14, right: 2),
@@ -74,23 +82,27 @@ class _StyleSurface extends StatelessWidget {
                 Expanded(
                   child: Text(
                     i18n('local_danmaku_style'),
-                    style: panelCompact
-                        ? Theme.of(context).textTheme.titleSmall
-                        : Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: titleStyle,
                   ),
                 ),
                 IconButton(
                   tooltip: i18n('restore_default'),
-                  visualDensity: VisualDensity.compact,
-                  constraints: BoxConstraints.tightFor(width: panelCompact ? 34 : 40, height: panelCompact ? 34 : 40),
+                  constraints: const BoxConstraints.tightFor(
+                    width: kMinInteractiveDimension,
+                    height: kMinInteractiveDimension,
+                  ),
                   padding: EdgeInsets.zero,
                   onPressed: controller.resetDanmakuStyle,
                   icon: Icon(Icons.restart_alt_rounded, size: panelCompact ? 19 : 20),
                 ),
                 IconButton(
                   tooltip: i18n('close'),
-                  visualDensity: VisualDensity.compact,
-                  constraints: BoxConstraints.tightFor(width: panelCompact ? 34 : 40, height: panelCompact ? 34 : 40),
+                  constraints: const BoxConstraints.tightFor(
+                    width: kMinInteractiveDimension,
+                    height: kMinInteractiveDimension,
+                  ),
                   padding: EdgeInsets.zero,
                   onPressed: close,
                   icon: Icon(Icons.close_rounded, size: panelCompact ? 19 : 20),
@@ -401,8 +413,8 @@ class _StyleControls extends StatelessWidget {
                     avatar: CircleAvatar(backgroundColor: Color(preset.color), radius: 5),
                     label: Text(i18n(preset.labelKey)),
                     labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                    visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                    materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                    visualDensity: VisualDensity.standard,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
                     onSelected: (_) => controller.applyDanmakuPreset(preset),
                   ),
                 )
@@ -425,8 +437,8 @@ class _StyleControls extends StatelessWidget {
                       _ => Icons.trending_flat_rounded,
                     }, size: 17),
                     label: Text(i18n('local_danmaku_placement_$id')),
-                    visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                    materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                    visualDensity: VisualDensity.standard,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
                     onSelected: (_) => custom(() => controller.danmakuPlacement.v = id),
                   ),
                 )
@@ -447,8 +459,8 @@ class _StyleControls extends StatelessWidget {
                       i18n('local_danmaku_font_$id'),
                       style: TextStyle(fontFamily: LocalInteractionController.normalizeFontFamily(id)),
                     ),
-                    visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                    materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                    visualDensity: VisualDensity.standard,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
                     onSelected: (_) => custom(() => controller.danmakuFontFamily.v = id),
                   ),
                 )
@@ -532,32 +544,32 @@ class _StyleControls extends StatelessWidget {
                 selected: controller.danmakuFontWeight.v >= 700,
                 avatar: const Icon(Icons.format_bold_rounded, size: 18),
                 label: Text(i18n('local_danmaku_bold')),
-                visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 onSelected: (value) => custom(() => controller.danmakuFontWeight.v = value ? 800 : 500),
               ),
               FilterChip(
                 selected: controller.danmakuItalic.v,
                 avatar: const Icon(Icons.format_italic_rounded, size: 18),
                 label: Text(i18n('local_danmaku_italic')),
-                visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 onSelected: (value) => custom(() => controller.danmakuItalic.v = value),
               ),
               FilterChip(
                 selected: controller.danmakuShowStroke.v,
                 avatar: const Icon(Icons.border_color_rounded, size: 18),
                 label: Text(i18n('local_danmaku_stroke')),
-                visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 onSelected: (value) => custom(() => controller.danmakuShowStroke.v = value),
               ),
               FilterChip(
                 selected: controller.danmakuShowShadow.v,
                 avatar: const Icon(Icons.blur_on_rounded, size: 18),
                 label: Text(i18n('local_danmaku_shadow')),
-                visualDensity: compactUi ? VisualDensity.compact : VisualDensity.standard,
-                materialTapTargetSize: compactUi ? MaterialTapTargetSize.shrinkWrap : MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
                 onSelected: (value) => custom(() => controller.danmakuShowShadow.v = value),
               ),
             ],
@@ -663,10 +675,14 @@ class _StyleSectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 17, color: colors.primary),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(icon, size: 17, color: colors.primary),
+        ),
         const SizedBox(width: 6),
-        Text(label, style: Theme.of(context).textTheme.titleSmall),
+        Expanded(child: Text(label, style: Theme.of(context).textTheme.titleSmall)),
       ],
     );
   }
@@ -701,26 +717,42 @@ class _StyleColorPalette extends StatelessWidget {
             final foreground = ThemeData.estimateBrightnessForColor(color) == Brightness.dark
                 ? Colors.white
                 : Colors.black87;
-            return InkWell(
-              key: ValueKey('$keyPrefix-$value'),
-              borderRadius: BorderRadius.circular(24),
-              onTap: () => onSelected(value),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
-                    width: isSelected ? 2.5 : 1,
+            final colorLabel = '#${(value & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+            return Tooltip(
+              message: colorLabel,
+              child: Semantics(
+                button: true,
+                selected: isSelected,
+                label: '${i18n('local_danmaku_color')} $colorLabel',
+                child: InkWell(
+                  key: ValueKey('$keyPrefix-$value'),
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () => onSelected(value),
+                  child: SizedBox.square(
+                    dimension: kMinInteractiveDimension,
+                    child: Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: size,
+                        height: size,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+                            width: isSelected ? 2.5 : 1,
+                          ),
+                          boxShadow: isSelected
+                              ? [BoxShadow(color: theme.colorScheme.primary.withValues(alpha: .22), blurRadius: 5)]
+                              : null,
+                        ),
+                        child: isSelected
+                            ? Icon(Icons.check_rounded, size: compact ? 16 : 19, color: foreground)
+                            : null,
+                      ),
+                    ),
                   ),
-                  boxShadow: isSelected
-                      ? [BoxShadow(color: theme.colorScheme.primary.withValues(alpha: .22), blurRadius: 5)]
-                      : null,
                 ),
-                child: isSelected ? Icon(Icons.check_rounded, size: compact ? 16 : 19, color: foreground) : null,
               ),
             );
           })
@@ -775,20 +807,59 @@ class _StyleSlider extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            Expanded(child: Text(label)),
-            Text(valueLabel, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final labelStyle = DefaultTextStyle.of(context).style;
+            final valueStyle = labelStyle.copyWith(color: Theme.of(context).colorScheme.primary);
+            final scaler = MediaQuery.textScalerOf(context);
+            final direction = Directionality.of(context);
+            final labelPainter = TextPainter(
+              text: TextSpan(text: label, style: labelStyle),
+              textDirection: direction,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            final valuePainter = TextPainter(
+              text: TextSpan(text: valueLabel, style: valueStyle),
+              textDirection: direction,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            final useRow = labelPainter.width + valuePainter.width + 12 <= constraints.maxWidth;
+            labelPainter.dispose();
+            valuePainter.dispose();
+
+            if (useRow) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: Text(label, style: labelStyle)),
+                  const SizedBox(width: 12),
+                  Text(valueLabel, style: valueStyle),
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: labelStyle),
+                const SizedBox(height: 2),
+                Text(valueLabel, style: valueStyle),
+              ],
+            );
+          },
         ),
         SizedBox(
-          height: dense ? 32 : 40,
-          child: Slider(
-            value: value.clamp(min, max).toDouble(),
-            min: min,
-            max: max,
-            divisions: divisions,
-            onChanged: onChanged,
+          height: kMinInteractiveDimension,
+          child: SliderTheme(
+            data: SliderThemeData(trackHeight: dense ? 3 : 4),
+            child: Slider(
+              value: value.clamp(min, max).toDouble(),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
           ),
         ),
       ],

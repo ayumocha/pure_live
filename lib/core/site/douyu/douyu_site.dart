@@ -13,7 +13,14 @@ import 'package:pure_live/core/interface/live_danmaku.dart';
 import 'package:pure_live/core/utils/live_quality_label.dart';
 import 'package:pure_live/modules/live_play/controllers/player_controller.dart';
 
-class DouyuSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomResolver {
+class DouyuSite
+    implements
+        LiveSite,
+        LiveSiteRoomRefresher,
+        LiveSiteRecordRoomResolver,
+        LivePlayUrlResolver,
+        LivePlayRecoveryResolver,
+        LivePlayUrlCursorResolver {
   @override
   String id = Sites.douyuSite;
 
@@ -21,7 +28,9 @@ class DouyuSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomRe
   String name = "斗鱼直播";
 
   @override
-  LiveDanmaku getDanmaku() => DouyuDanmaku();
+  LiveDanmaku getDanmaku() => DouyuDanmaku(
+    filterSuspectedAutomatedMessages: () => SettingsService.to.danmaku.filterDouyuSuspectedAutomatedMessages.v,
+  );
 
   @override
   Future<List<LiveCategory>> getCategores(int page, int pageSize) async {
@@ -166,26 +175,109 @@ class DouyuSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomRe
 
   @override
   Future<List<String>> getPlayUrls({required LiveRoom detail, required LivePlayQuality quality}) async {
+    return (await resolvePlayUrlsRaw(detail: detail, quality: quality)).urls;
+  }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlsForRecoveryRaw({
+    required LiveRoom detail,
+    required LivePlayQuality quality,
+  }) async {
+    // Both the signed URL and advertised CDN set can change while a live
+    // connection is paused. Refresh the metadata, then ask for the committed
+    // rate with those current CDNs rather than reopening the old URL cohort.
+    final qualities = await getPlayQualites(detail: detail);
+    if (qualities.isEmpty) return const LivePlayUrlResolution(urls: <String>[]);
+    final requestedId = quality.selectionId.toString();
+    final matching = qualities.where((item) => item.selectionId.toString() == requestedId).firstOrNull;
+    final freshData = qualities.first.data;
+    final requestedData = quality.data;
+    final request =
+        matching ??
+        (freshData is DouyuPlayData && requestedData is DouyuPlayData
+            ? LivePlayQuality(
+                quality: quality.quality,
+                id: quality.selectionId,
+                data: DouyuPlayData(requestedData.rate, freshData.cdns),
+              )
+            : qualities.first);
+    // A no-longer-advertised rate can still be accepted or downgraded by the
+    // server. Preserve that acknowledgement for the successful-source commit;
+    // never label a fallback using only the requested rate.
+    return resolvePlayUrlsRaw(detail: detail, quality: request);
+  }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlsRaw({required LiveRoom detail, required LivePlayQuality quality}) async {
     final rawData = quality.data;
-    if (rawData is! DouyuPlayData) return const <String>[];
+    final roomId = detail.roomId?.trim() ?? '';
+    if (rawData is! DouyuPlayData || roomId.isEmpty) return const LivePlayUrlResolution(urls: []);
     final data = rawData;
-    final urls = <String>[];
+    // Each CDN may acknowledge a different rate. A single UI quality label
+    // must not cover a mixture of source and downgraded streams. Prefer an
+    // acknowledged requested rate, otherwise the first acknowledged cohort
+    // in platform order. Unknown acknowledgements remain a separate cohort.
+    final urlsByRate = <Object?, List<String>>{};
     Object? lastError;
     for (final cdn in data.cdns) {
       try {
-        final url = await getPlayUrl(detail.roomId!, data.rate, cdn);
-        if (url.isNotEmpty && !urls.contains(url)) urls.add(url);
+        final resolution = await resolvePlayUrl(roomId, data.rate, cdn);
+        if (resolution.urls.isEmpty) continue;
+        final urls = urlsByRate.putIfAbsent(resolution.appliedQualityData, () => <String>[]);
+        for (final url in resolution.urls) {
+          if (!urls.contains(url)) urls.add(url);
+        }
       } catch (error) {
         lastError = error;
       }
     }
-    if (urls.isEmpty && lastError != null) throw lastError;
-    return urls;
+    if (urlsByRate.isEmpty) {
+      if (lastError != null) throw lastError;
+      return const LivePlayUrlResolution(urls: []);
+    }
+    final acknowledgedRates = urlsByRate.keys.whereType<int>();
+    final appliedRate = urlsByRate.containsKey(data.rate) ? data.rate : acknowledgedRates.firstOrNull;
+    return LivePlayUrlResolution(
+      urls: List<String>.unmodifiable(urlsByRate[appliedRate]!),
+      appliedQualityData: appliedRate,
+      qualityUnconfirmed: appliedRate == null,
+    );
+  }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlAtRaw({
+    required LiveRoom detail,
+    required LivePlayQuality quality,
+    required int lineIndex,
+  }) async {
+    final data = quality.data;
+    if (data is! DouyuPlayData || lineIndex < 0 || lineIndex >= data.cdns.length) {
+      return const LivePlayUrlResolution(urls: <String>[]);
+    }
+    final roomId = detail.roomId?.trim() ?? '';
+    if (roomId.isEmpty) {
+      return const LivePlayUrlResolution(urls: <String>[]);
+    }
+    return resolvePlayUrl(roomId, data.rate, data.cdns[lineIndex]);
   }
 
   Future<String> getPlayUrl(String roomId, int rate, String cdn) async {
+    return (await resolvePlayUrl(roomId, rate, cdn)).urls.single;
+  }
+
+  Future<LivePlayUrlResolution> resolvePlayUrl(String roomId, int rate, String cdn) async {
     final playData = await _requestPlayData(roomId, rate: rate, cdn: cdn);
-    return parsePlayUrl(playData);
+    final rawRate = playData['rate'];
+    // Unlike a bitrate, rate is an opaque integer identifier. Do not truncate
+    // malformed fractions (e.g. 0.5) into a false source-quality acknowledgement.
+    final appliedRate = rawRate is num && rawRate.isFinite && rawRate == rawRate.roundToDouble()
+        ? rawRate.toInt()
+        : int.tryParse(rawRate?.toString().trim() ?? '');
+    return LivePlayUrlResolution(
+      urls: List<String>.unmodifiable([parsePlayUrl(playData)]),
+      appliedQualityData: appliedRate != null && appliedRate >= 0 ? appliedRate : null,
+      qualityUnconfirmed: appliedRate == null || appliedRate < 0,
+    );
   }
 
   Future<Map<String, dynamic>> _requestPlayData(String roomId, {int rate = -1, String cdn = ''}) async {
@@ -246,18 +338,33 @@ class DouyuSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomRe
   @visibleForTesting
   static String parsePlayUrl(Map<String, dynamic> data) {
     final unescape = HtmlUnescape();
-    for (final key in const <String>['flv_url', 'stream_url', 'url']) {
+    final live = unescape.convert(data['rtmp_live']?.toString().trim() ?? '');
+    // Some current H5 responses return a complete signed FLV address in
+    // rtmp_live. It must win over the separate CDN base fields; prefixing a
+    // second absolute URL produces a syntactically valid but unopenable input
+    // such as `https://cdn/live/https://other/live.flv`.
+    if (_isPlayableUrl(live)) return live;
+    // getH5PlayV1 normally separates the CDN base (`rtmp_url`, and on
+    // variants `flv_url`) from the signed media path (`rtmp_live`). A base URL
+    // is syntactically valid HTTP but is not an FFmpeg input. Returning it
+    // early was the direct cause of "input stream address format" failures.
+    for (final baseKey in const <String>['rtmp_url', 'flv_url']) {
+      final base = unescape.convert(data[baseKey]?.toString().trim() ?? '');
+      if (base.isEmpty || live.isEmpty) continue;
+      final combined = '${base.replaceFirst(RegExp(r'/+$'), '')}/${live.replaceFirst(RegExp(r'^/+'), '')}';
+      if (_isPlayableUrl(combined)) return combined;
+    }
+
+    for (final key in const <String>['player_1', 'stream_url', 'url']) {
       final value = unescape.convert(data[key]?.toString().trim() ?? '');
       if (_isPlayableUrl(value)) return value;
     }
 
-    final live = unescape.convert(data['rtmp_live']?.toString().trim() ?? '');
-    if (_isPlayableUrl(live)) return live;
-    final base = unescape.convert(data['rtmp_url']?.toString().trim() ?? '');
-    if (base.isNotEmpty && live.isNotEmpty) {
-      final combined = '${base.replaceFirst(RegExp(r'/+$'), '')}/${live.replaceFirst(RegExp(r'^/+'), '')}';
-      if (_isPlayableUrl(combined)) return combined;
-    }
+    // Compatibility with payloads that expose a complete FLV address without
+    // rtmp_live. Require a media-looking path so a bare CDN directory is never
+    // handed to the recorder again.
+    final flvUrl = unescape.convert(data['flv_url']?.toString().trim() ?? '');
+    if (_isDirectMediaUrl(flvUrl)) return flvUrl;
     throw const DouyuPlayApiException('H5 play response has no playable URL');
   }
 
@@ -269,6 +376,12 @@ class DouyuSite implements LiveSite, LiveSiteRoomRefresher, LiveSiteRecordRoomRe
   static bool _isPlayableUrl(String value) {
     final uri = Uri.tryParse(value);
     return uri != null && uri.host.isNotEmpty && const {'http', 'https', 'rtmp'}.contains(uri.scheme);
+  }
+
+  static bool _isDirectMediaUrl(String value) {
+    if (!_isPlayableUrl(value)) return false;
+    final path = Uri.parse(value).path.toLowerCase();
+    return path.endsWith('.flv') || path.endsWith('.m3u8') || path.endsWith('.mp4');
   }
 
   @override

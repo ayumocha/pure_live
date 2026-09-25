@@ -1,8 +1,28 @@
+import 'dart:math' as math;
+
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/utils/category_artwork.dart';
 import 'package:pure_live/plugins/cache_manager.dart';
 import 'package:pure_live/routes/app_navigation.dart';
 import 'package:pure_live/plugins/area_pic_mapper.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:pure_live/core/site/cc/cc_catalog.dart';
+
+/// Keeps the fixed category grid tall enough for both one-line labels when
+/// accessibility text scaling is enabled.
+///
+/// The image remains square. Only the details section grows; otherwise a
+/// three-column 320 px layout gives [ListTile] 72 px even when its two text
+/// lines need more than 100 px at a 3x scale.
+double areaCardGridMainAxisExtent(BuildContext context, double itemWidth) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final titleStyle = AppTextStyles.t12;
+  final subtitleStyle = AppTextStyles.t11;
+  final titleHeight = scaler.scale(titleStyle.fontSize ?? 12) * (titleStyle.height ?? 1.25);
+  final subtitleHeight = scaler.scale(subtitleStyle.fontSize ?? 11) * (subtitleStyle.height ?? 1.25);
+  final detailsHeight = math.max(72.0, titleHeight + subtitleHeight + 32);
+  return itemWidth + detailsHeight;
+}
 
 class AreaCard extends StatefulWidget {
   const AreaCard({super.key, required this.category});
@@ -33,6 +53,7 @@ class _AreaCardState extends State<AreaCard> {
             httpHeaders: networkImageHeaders(imageUrl),
             cacheManager: CustomImageCacheManager.instance,
             fit: BoxFit.cover,
+            alignment: categoryArtworkAlignment(imageUrl),
             filterQuality: FilterQuality.low,
             memCacheWidth: cacheWidth,
             // maxWidthDiskCache: 512,
@@ -58,6 +79,11 @@ class _AreaCardState extends State<AreaCard> {
   @override
   Widget build(BuildContext context) {
     final displayImageUrl = normalizeNetworkImageUrl(_getFinalUrl());
+    final officialEntry = CCCatalog.isOfficialEntry(widget.category);
+    final rawName = widget.category.areaName?.trim() ?? '';
+    final displayName = rawName.isEmpty ? i18n('unnamed_area') : rawName;
+    final rawTypeName = widget.category.typeName?.trim() ?? '';
+    final displayTypeName = rawTypeName.isEmpty ? i18n('no_data') : rawTypeName;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -102,17 +128,18 @@ class _AreaCardState extends State<AreaCard> {
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 10),
               title: Text(
-                widget.category.areaName!,
+                displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.t12.copyWith(fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
-                widget.category.typeName!,
+                officialEntry ? i18n('open_in_system_browser') : displayTypeName,
                 style: AppTextStyles.t11.copyWith(fontWeight: FontWeight.w500),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+              trailing: officialEntry ? const Icon(Icons.open_in_new_rounded, size: 16) : null,
             ),
           ],
         ),

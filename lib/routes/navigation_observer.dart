@@ -3,8 +3,8 @@ import 'dart:developer';
 
 import 'package:flutter/scheduler.dart';
 import 'package:pure_live/common/index.dart';
-import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/player/core/player_manager.dart';
+import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/player/utils/fullscreen.dart' show WindowService;
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 
@@ -16,6 +16,8 @@ class LiveRouteObserver extends RouteObserver<PageRoute<dynamic>> {
       case RoutePath.kLivePlay:
         _onLivePlayEnter();
         break;
+      case RoutePath.kMultiview:
+        _onMultiviewEnter();
       case RoutePath.kRecordPage:
         _setVideoLayerVisible(false);
         break;
@@ -30,13 +32,25 @@ class LiveRouteObserver extends RouteObserver<PageRoute<dynamic>> {
         _onLivePlayExit(route);
         break;
       case RoutePath.kRecordPage:
-        _setVideoLayerVisible(true);
+        _restoreVideoLayerAfterRouteExit(route);
         break;
     }
   }
 
   void _onLivePlayEnter() {
-    unawaited(GlobalPlayerService.instance.player.closeAppFloating());
+    final playerManager = GlobalPlayerService.instance.player;
+    playerManager.setVideoPresentationVisible(true);
+    unawaited(playerManager.closeAppFloating());
+  }
+
+  void _onMultiviewEnter() {
+    final playerManager = GlobalPlayerService.instance.player;
+    unawaited(playerManager.closeAppFloating());
+    unawaited(playerManager.close());
+    final controller = _findLivePlayController();
+    if (controller == null) return;
+    final state = controller.state.value;
+    state.player.videoController?.clearListener();
   }
 
   void _onLivePlayExit(Route<dynamic> route) {
@@ -46,7 +60,6 @@ class LiveRouteObserver extends RouteObserver<PageRoute<dynamic>> {
     final state = controller.state.value;
     final preventFloating = controller.takeSuppressAppFloatingOnNextPop();
 
-    controller.updateUI(displayVideoLayer: false);
     controller.updateRoom(success: false);
 
     final playerManager = GlobalPlayerService.instance.player;
@@ -65,12 +78,33 @@ class LiveRouteObserver extends RouteObserver<PageRoute<dynamic>> {
   void _setVideoLayerVisible(bool visible) {
     final controller = _findLivePlayController();
     if (controller == null) return;
+    // Windows removes the Texture subtree while this opaque route is visible.
+    // Stop presentation-only stall supervision before that intentional
+    // teardown so a long stay in recorder centre does not reopen a healthy
+    // Huya transport in the background.
+    GlobalPlayerService.instance.player.setVideoPresentationVisible(visible);
+  }
 
-    SchedulerBinding.instance.addPostFrameCallback((_) async {
-      if (!controller.isClosed) {
-        controller.updateUI(displayVideoLayer: visible);
-      }
-    });
+  /// A popped route remains in the overlay during its reverse transition.
+  /// Reattaching media_kit's Windows texture in didPop used to overlap that
+  /// transition and produced a reproducible flutter_windows.dll access
+  /// violation when returning from the recorder centre.  Wait for the route
+  /// to be fully removed, then cross one more frame boundary before restoring
+  /// the live surface.
+  void _restoreVideoLayerAfterRouteExit(Route<dynamic> route) {
+    unawaited(
+      _waitForRouteExit(route).then((_) async {
+        await SchedulerBinding.instance.endOfFrame;
+        final controller = _findLivePlayController();
+        if (controller != null && !controller.isClosed) {
+          // Let the rebuilt Texture publish its viewport before presentation
+          // supervision resumes. The first mounted layout force-reasserts the
+          // Windows native size even when it equals the previous viewport.
+          await SchedulerBinding.instance.endOfFrame;
+          GlobalPlayerService.instance.player.setVideoPresentationVisible(true);
+        }
+      }),
+    );
   }
 
   bool _shouldShowFloating(bool preventFloating) {

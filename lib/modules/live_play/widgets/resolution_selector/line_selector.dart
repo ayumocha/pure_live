@@ -3,25 +3,26 @@ import 'package:pure_live/modules/live_play/states/load_type.dart';
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 
 class LineSelector extends StatelessWidget {
-  const LineSelector({super.key});
+  const LineSelector({super.key, required this.controller});
 
-  LivePlayController get controller => Get.find<LivePlayController>();
+  final LivePlayController controller;
 
   @override
   Widget build(BuildContext context) {
     return Obx(() {
       final state = controller.state.value;
 
-      if (!state.room.success || state.player.playUrls.isEmpty) {
+      if (!state.room.success || !state.player.hasPlaybackSource) {
         return const SizedBox.shrink();
       }
 
-      final currentIndex = state.player.currentLineIndex.clamp(0, state.player.playUrls.length - 1);
+      final currentIndex = state.player.currentLineIndex.clamp(0, state.player.lineCount - 1);
       final switching = controller.playerController.isStreamSwitching.value;
 
       final currentLineName = i18n("toolbox_line", args: {"index": (currentIndex + 1).toString()});
 
       return PopupMenuButton<int>(
+        key: const ValueKey('room-line-selector'),
         enabled: !switching,
         tooltip: i18n("select_play_line"),
         color: Get.theme.colorScheme.surfaceContainerHighest,
@@ -34,24 +35,31 @@ class LineSelector extends StatelessWidget {
           controller.updateUI(isMenuOpen: false);
         },
         position: PopupMenuPosition.under,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (switching) ...[
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Get.theme.colorScheme.primary),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (switching) ...[
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.8, color: Get.theme.colorScheme.primary),
+                  ),
+                  const SizedBox(width: 5),
+                ],
+                Flexible(
+                  child: Text(
+                    currentLineName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Get.theme.textTheme.labelSmall?.copyWith(color: Get.theme.colorScheme.primary),
+                  ),
                 ),
-                const SizedBox(width: 5),
               ],
-              Text(
-                currentLineName,
-                style: Get.theme.textTheme.labelSmall?.copyWith(color: Get.theme.colorScheme.primary),
-              ),
-            ],
+            ),
           ),
         ),
         onSelected: (newLineIndex) async {
@@ -59,7 +67,7 @@ class LineSelector extends StatelessWidget {
           await controller.setResolution(ReloadDataType.changeLine, state.player.currentQuality, newLineIndex);
         },
         itemBuilder: (context) {
-          return List.generate(state.player.playUrls.length, (index) {
+          return List.generate(state.player.lineCount, (index) {
             final isSelected = index == currentIndex;
 
             return PopupMenuItem<int>(

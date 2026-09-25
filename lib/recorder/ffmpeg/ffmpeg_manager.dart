@@ -1,10 +1,17 @@
+import 'package:pure_live/recorder/services/owned_record_input.dart';
+
 import 'dart:async';
 
 import 'package:pure_live/recorder/ffmpeg/ffmpeg_event.dart';
 import 'package:pure_live/recorder/services/ffmpeg_service.dart';
+import 'package:pure_live/core/common/hls_source_query_policy.dart';
+import 'package:pure_live/recorder/services/ffmpeg_hls_input_relay.dart';
+import 'package:pure_live/recorder/services/ffmpeg_flv_input_relay.dart';
 
 class FFmpegManager {
-  FFmpegManager._internal();
+  FFmpegManager._internal() : _ffmpeg = FFmpegService.to;
+
+  FFmpegManager.forTesting(FFmpegService service) : _ffmpeg = service;
 
   static final FFmpegManager _instance = FFmpegManager._internal();
 
@@ -14,7 +21,7 @@ class FFmpegManager {
 
   Stream<FFmpegEvent> get stream => _eventController.stream;
 
-  final FFmpegService _ffmpeg = FFmpegService.to;
+  final FFmpegService _ffmpeg;
 
   Future<void>? _initializeFuture;
 
@@ -36,12 +43,25 @@ class FFmpegManager {
     return initialization;
   }
 
-  Future<void> start({required String taskId, required List<String> arguments}) async {
-    await initialize();
-
+  Future<void> start({
+    required String taskId,
+    required List<String> arguments,
+    bool liveRecording = false,
+    HlsSourceQueryPolicy? sourceQueryPolicy,
+    HlsRelayDiagnostics? hlsDiagnostics,
+    FlvRelayDiagnostics? flvDiagnostics,
+    bool hlsPrefetch = false,
+  }) async {
+    // The service reserves the attempt before initializing. Waiting here would
+    // leave a stop request with no owner and allow a late start after user exit.
     await _ffmpeg.start(
       taskId: taskId,
       arguments: arguments,
+      liveRecording: liveRecording,
+      sourceQueryPolicy: sourceQueryPolicy,
+      hlsDiagnostics: hlsDiagnostics,
+      flvDiagnostics: flvDiagnostics,
+      hlsPrefetch: hlsPrefetch,
       onEvent: (event) {
         if (!_eventController.isClosed) {
           _eventController.add(event);
@@ -50,9 +70,24 @@ class FFmpegManager {
     );
   }
 
-  Future<void> stop(String taskId) async {
+  Future<void> startOwned({
+    required String taskId,
+    required OwnedRecordSource source,
+    required RecordArgumentsBuilder buildArguments,
+  }) => _ffmpeg.startOwned(
+    taskId: taskId,
+    source: source,
+    buildArguments: buildArguments,
+    onEvent: (event) {
+      if (!_eventController.isClosed) _eventController.add(event);
+    },
+  );
+
+  Future<void> stop(String taskId) => _ffmpeg.stop(taskId);
+
+  Future<void> refreshLease(String taskId) async {
     await initialize();
-    await _ffmpeg.stop(taskId);
+    await _ffmpeg.refreshLease(taskId);
   }
 
   bool isRunning(String taskId) {

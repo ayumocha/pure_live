@@ -1,8 +1,10 @@
+import 'package:pure_live/player/core/playback_source.dart';
+
 import 'dart:io';
 import 'dart:async';
 import 'dart:developer';
 
-import 'video_controller_panel.dart';
+import 'iptv_programme_policy.dart';
 
 import 'package:flutter/scheduler.dart';
 import 'package:pure_live/common/index.dart';
@@ -11,15 +13,15 @@ import 'package:flame_barrage/flame_barrage.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:pure_live/plugins/db_service.dart';
 import 'package:pure_live/player/utils/fullscreen.dart';
-import 'package:easy_localization/easy_localization.dart';
-import 'package:screen_brightness/screen_brightness.dart';
+import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:pure_live/player/core/player_manager.dart';
-import 'package:pure_live/common/global/platform_utils.dart';
-import 'package:scrollview_observer/scrollview_observer.dart';
+import 'package:pure_live/player/core/portrait_stream_support.dart';
+import 'package:pure_live/modules/live_play/widgets/layout/portrait_fullscreen_interaction.dart';
 import 'package:pure_live/player/models/player_exception.dart';
 import 'package:pure_live/player/models/player_error_type.dart';
 import 'package:pure_live/modules/live_play/states/load_type.dart';
+import 'package:pure_live/modules/live_play/states/ui_state.dart';
 import 'package:pure_live/core/iptv/local/database.dart' as database;
 import 'package:pure_live/modules/live_play/controllers/player_state.dart';
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
@@ -27,6 +29,13 @@ import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_message_acti
 import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_settings_binding.dart';
 
 typedef AudioOnlyCallback = Future<void> Function(bool value);
+
+typedef EpgProgrammeLoader = Future<List<database.EpgProgramme>> Function({
+  required String sourceId,
+  required String epgId,
+  required DateTime start,
+  required DateTime end,
+});
 
 enum PlayerStatus { idle, loading, playing, error, disposed }
 
@@ -38,9 +47,6 @@ class PlatformHelper {
   static bool get supportsVolumeController => Platform.isAndroid || Platform.isIOS;
   static bool get supportsBatteryMonitoring => Platform.isAndroid || Platform.isIOS;
 }
-
-// 回放URL类型枚举
-enum CatchupUrlType { default_, playseek, offset }
 
 // 弹幕管理器
 class DanmakuManager {
@@ -133,7 +139,13 @@ class DanmakuManager {
     final context = Get.context;
     if (context == null) return;
     controller.pause();
-    unawaited(DanmakuMessageActions.show(context, message).whenComplete(controller.resume));
+    unawaited(
+      DanmakuMessageActions.show(
+        context,
+        message,
+        controller: videoController.livePlayController,
+      ).whenComplete(controller.resume),
+    );
   }
 
   void _scheduleConfigUpdate() {
@@ -262,9 +274,50 @@ class DanmakuManager {
   }
 }
 
+/// One-shot orientation ownership for a fullscreen presentation.
+///
+/// An explicit landscape action entered from a portrait room must restore the
+/// portrait normal room when fullscreen closes. Ordinary fullscreen entries
+/// replace any unfinished request so an earlier presentation cannot affect a
+/// later one.
+class FullscreenOrientationRestoreState {
+  bool _restorePortrait = false;
+
+  void begin({required bool restorePortraitOnExit}) {
+    _restorePortrait = restorePortraitOnExit;
+  }
+
+  bool takePortraitRestore() {
+    final restore = _restorePortrait;
+    _restorePortrait = false;
+    return restore;
+  }
+}
+
+Future<void> exitFullscreenWithOrientationRestore({
+  required FullscreenOrientationRestoreState state,
+  required Future<void> Function() exitFullscreen,
+  required Future<void> Function() restorePortrait,
+  required Future<void> Function() releaseOrientation,
+  Duration portraitSettleDelay = const Duration(milliseconds: 350),
+}) async {
+  final shouldRestorePortrait = state.takePortraitRestore();
+  await exitFullscreen();
+  if (!shouldRestorePortrait) return;
+  await restorePortrait();
+  if (portraitSettleDelay > Duration.zero) {
+    await Future<void>.delayed(portraitSettleDelay);
+  }
+  await releaseOrientation();
+}
+
 class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   // 常量定义
-  static const _controllerHideDelay = Duration(seconds: 2);
+  // Two seconds was shorter than the orientation animation plus an
+  // accessibility scan on phones, so controls could disappear before a user
+  // reached Fullscreen or the local composer. Four seconds matches common
+  // media-control behavior while any focused editor/menu still pins the bar.
+  static const _controllerHideDelay = Duration(seconds: 4);
   static const _fullscreenDelay = Duration(milliseconds: 1000);
   static const _volumeHideDelay = Duration(seconds: 1);
   static const _epgLookBackDays = 2;
@@ -282,14 +335,23 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   final int currentQuality;
   final RxBool audioOnlyState;
   bool get isAudioOnly => audioOnlyState.value;
+  bool get hasPlaybackError => _playerManager.hasError.value;
   final AudioOnlyCallback? onAudioOnlyChanged;
   final bool reuseCurrentSession;
+  final PlaybackSourceResolver? sourceResolver;
+  final DateTime? sourceRefreshAt;
+  final PlaybackSourceQualitySelection? sourceSelection;
+  final OwnedPlaybackSource? ownedSource;
+  final ValueChanged<PlaybackSourceCommitSnapshot>? onSourceCommitted;
+  int _lastSourceCommitRevision = 0;
+  bool _acceptSourceCommits = false;
 
   final Battery _battery;
   final SettingsService _settingsService;
   final DbService _dbService;
   final PlayerManager _playerManager;
   final LivePlayController _livePlayController;
+  final EpgProgrammeLoader? _loadEpgProgrammes;
 
   // 资源管理
   final List<StreamSubscription> _subscriptions = [];
@@ -297,14 +359,19 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   // 状态
   PlayerStatus _status = PlayerStatus.idle;
   PlayerStatus get status => _status;
+  bool _playerListenerBound = false;
+  String? _lastPlayerErrorSignature;
+  DateTime? _lastPlayerErrorAt;
   final isVertical = false.obs;
   final showController = true.obs;
   final showLocked = false.obs;
   final isMenuOpen = false.obs;
   final showVolume = false.obs;
   final audioModeSwitching = false.obs;
+  final catchUpSwitching = false.obs;
   final batteryLevel = 100.obs;
   final currentVolume = 1.0.obs;
+  final FullscreenOrientationRestoreState _fullscreenOrientationRestore = FullscreenOrientationRestoreState();
 
   // 弹幕相关
   final hideDanmaku = false.obs;
@@ -334,26 +401,32 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
 
   // EPG相关
   final RxList<database.EpgProgramme> currentChannelSchedule = <database.EpgProgramme>[].obs;
+  final scheduleLoading = false.obs;
+  final scheduleLoadFailed = false.obs;
   final ScrollController scheduleScrollController = createPureLiveScrollController();
-  late ListObserverController scheduleObserverController;
   bool hasScrolledToLive = false;
+  int _epgLoadEpoch = 0;
 
   // 控制器
   late final VolumeController _volumeController;
+  final VolumeController? _injectedVolumeController;
+  static const _volumeOperationTimeout = Duration(seconds: 2);
+  int _volumeRevision = 0;
+  bool get _usesSystemVolume => PlatformHelper.supportsVolumeController || _injectedVolumeController != null;
+  bool get _ownsVolume => !_isDisposed && _playerManager.ownsVideoController(this);
   late final BarrageController danmakuController;
   late final BarrageController pipDanmakuController;
   late final DanmakuManager _danmakuManager;
 
   // Keys
-  GlobalKey<BrightnessVolumnDargAreaState> brightnessKey = GlobalKey<BrightnessVolumnDargAreaState>();
   final danmuKey = GlobalKey();
   GlobalKey playerKey = GlobalKey();
 
   // 屏幕亮度
-  ScreenBrightness? _brightnessController;
-  ScreenBrightness? get brightnessController {
+  ScreenBrightnessPlatform? _brightnessController;
+  ScreenBrightnessPlatform? get brightnessController {
     if (!PlatformHelper.supportsBrightness) return null;
-    _brightnessController ??= ScreenBrightness();
+    _brightnessController ??= ScreenBrightnessPlatform.instance;
     return _brightnessController;
   }
 
@@ -373,22 +446,31 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     required this.currentLineIndex,
     required this.currentQuality,
     required bool isAudioOnly,
+    this.sourceResolver,
+    this.sourceRefreshAt,
+    this.sourceSelection,
+    this.ownedSource,
+    this.onSourceCommitted,
     this.reuseCurrentSession = false,
     this.allowScreenKeepOn = false,
     this.allowFullScreen = true,
     this.onAudioOnlyChanged,
     BoxFit fitMode = BoxFit.contain,
     Battery? battery,
+    VolumeController? systemVolumeController,
     PlayerManager? playerManager,
     SettingsService? settingsService,
     DbService? dbService,
     LivePlayController? livePlayController,
+    EpgProgrammeLoader? epgProgrammeLoader,
   }) : audioOnlyState = isAudioOnly.obs,
        _battery = battery ?? Battery(),
+       _injectedVolumeController = systemVolumeController,
        _playerManager = playerManager ?? GlobalPlayerService.instance.player,
        _settingsService = settingsService ?? SettingsService.to,
        _dbService = dbService ?? Get.find<DbService>(),
-       _livePlayController = livePlayController ?? Get.find<LivePlayController>() {
+       _livePlayController = livePlayController ?? Get.find<LivePlayController>(),
+       _loadEpgProgrammes = epgProgrammeLoader {
     currentVolume.value = room.getSavedVolume();
     _initControllers();
     _initPagesConfig();
@@ -407,7 +489,6 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   }
 
   void _initPagesConfig() {
-    scheduleObserverController = ListObserverController(controller: scheduleScrollController);
     _danmakuManager.setupWorkers();
 
     if (allowScreenKeepOn) WakelockPlus.enable();
@@ -422,9 +503,14 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   // 播放器初始化
   Future<void> initVideoController() async {
     _setStatus(PlayerStatus.loading);
+    // Bind before opening the source. Native open/decode failures can arrive
+    // synchronously while PlayerManager.play is still awaiting the adapter;
+    // binding afterwards silently lost that only terminal event and then
+    // overwrote the page with a false `playing` state.
+    initPlayerListener();
 
     await _initVolumeController();
-    if (_isDisposed) return;
+    if (!_ownsVolume) return;
 
     if (reuseCurrentSession) {
       if (_playerManager.currentPlayer == null || _playerManager.currentFloatRoom != room) {
@@ -436,32 +522,76 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     }
     if (_isDisposed) return;
 
-    initPlayerListener();
     _setupDefaultFullscreen();
 
     if (room.platform == Sites.iptvSite) {
       await loadFullChannelSchedule(room.epgId);
     }
 
-    _setStatus(PlayerStatus.playing);
+    if (_playerManager.hasError.value) {
+      _setStatus(PlayerStatus.error);
+    } else if (_playerManager.isPlayingNow) {
+      _setStatus(PlayerStatus.playing);
+    } else {
+      _setStatus(PlayerStatus.loading);
+    }
   }
 
   Future<void> _initVolumeController() async {
-    if (!PlatformHelper.supportsVolumeController) return;
-
-    _volumeController = VolumeController.instance;
+    if (!_usesSystemVolume || !_ownsVolume) return;
+    _volumeController = _injectedVolumeController ?? VolumeController.instance;
     _volumeController.showSystemUI = false;
-    registerVolumeListener();
-
-    final currentVolume = await _volumeController.getVolume();
-    if (currentVolume > 0.001) {
-      final targetVolume = room.getSavedVolume();
-      await _volumeController.setVolume(targetVolume);
+    try {
+      registerVolumeListener();
+      final revision = _volumeRevision;
+      final observed = await _volumeController.getVolume().timeout(_volumeOperationTimeout);
+      if (!_ownsVolume || revision != _volumeRevision || !observed.isFinite) return;
+      if (_settingsService.vol.globalVolumeMute.v) {
+        // Global mute is an explicit app-wide request. It remains the only
+        // preference allowed to change the shared device stream on entry.
+        await setVolume(0.0);
+        return;
+      }
+      // Android/iOS media volume belongs to the device, not to an individual
+      // room. A room-level snapshot can outlive this route while the user
+      // changes media volume elsewhere; replaying it here would unexpectedly
+      // overwrite that newer device choice (most visibly when the stale value
+      // is zero). Adopt the current native level without writing it back or
+      // erasing the desktop/multiview room preference.
+      currentVolume.value = observed.clamp(0.0, 1.0).toDouble();
+    } catch (error, stack) {
+      // An optional volume plugin must not prevent the room from opening.
+      log('Initialize system volume failed', name: 'VideoController.Volume', error: error, stackTrace: stack);
     }
   }
 
   Future<void> _playVideo() async {
-    await _playerManager.play(datasource, playUrs, headers, room: room, audioOnly: isAudioOnly);
+    // play() invalidates the previous intent synchronously before it queues
+    // native work. Only from this point may a newly constructed route consume
+    // events; its volume initialization must not replay the old same-room URL.
+    _acceptSourceCommits = true;
+    final owned = ownedSource;
+    if (owned != null) {
+      await _playerManager.playSource(
+        owned,
+        room: room,
+        audioOnly: isAudioOnly,
+        sourceResolver: sourceResolver,
+        sourceRefreshAt: sourceRefreshAt,
+        sourceSelection: sourceSelection,
+      );
+      return;
+    }
+    await _playerManager.play(
+      datasource,
+      playUrs,
+      headers,
+      room: room,
+      audioOnly: isAudioOnly,
+      sourceResolver: sourceResolver,
+      sourceRefreshAt: sourceRefreshAt,
+      sourceSelection: sourceSelection,
+    );
   }
 
   /// Rebinds the existing room controller to a freshly-created native player.
@@ -517,10 +647,12 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   }
 
   Future<void> _cancelAllSubscriptions() async {
+    _acceptSourceCommits = false;
     for (final sub in _subscriptions) {
       await sub.cancel();
     }
     _subscriptions.clear();
+    _playerListenerBound = false;
   }
 
   void _cancelAllTimers() {
@@ -540,21 +672,76 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   bool get _isDisposed => _status == PlayerStatus.disposed;
 
   void _setStatus(PlayerStatus newStatus) {
+    if (_status == newStatus) return;
     _status = newStatus;
     notifyListeners();
   }
 
   // 播放器监听
   void initPlayerListener() {
+    if (_playerListenerBound || _isDisposed) return;
+    _playerListenerBound = true;
+    _acceptSourceCommits = reuseCurrentSession;
+    // Subscribe before replaying the canonical snapshot: a retained native
+    // session may commit a new source while the old room route is gone.
+    _addSubscription(_playerManager.onSourceCommitted.listen(_handleSourceCommit));
+    final sourceCommit = _playerManager.currentSourceCommit;
+    if (reuseCurrentSession && sourceCommit != null) _handleSourceCommit(sourceCommit);
     final errorSub = _playerManager.onError.listen((error) {
       log('error: ${error.toString()}', name: 'initPlayerListener');
       _handlePlayerError(error);
     });
     _addSubscription(errorSub);
+    _addSubscription(
+      _playerManager.onPlaying.distinct().listen((playing) {
+        if (_isDisposed) return;
+        if (playing) {
+          _setStatus(PlayerStatus.playing);
+        } else if (_playerManager.hasError.value) {
+          _setStatus(PlayerStatus.error);
+        }
+      }),
+    );
+    _addSubscription(
+      _playerManager.onLoading.distinct().listen((loading) {
+        if (_isDisposed || _playerManager.hasError.value) return;
+        if (loading) _setStatus(PlayerStatus.loading);
+      }),
+    );
+  }
+
+  void _handleSourceCommit(PlaybackSourceCommitSnapshot commit) {
+    if (_isDisposed ||
+        !_acceptSourceCommits ||
+        commit.revision <= _lastSourceCommitRevision ||
+        commit.room.roomId != room.roomId ||
+        commit.room.platform != room.platform ||
+        !_playerManager.isSourceCommitCurrent(commit)) {
+      return;
+    }
+    _lastSourceCommitRevision = commit.revision;
+    try {
+      onSourceCommitted?.call(commit);
+    } catch (error, stackTrace) {
+      // Presentation callbacks must not roll a successfully opened native
+      // source back or leave a broadcast subscription with an unhandled error.
+      log('Source commit presentation failed', name: 'VideoController', error: error, stackTrace: stackTrace);
+    }
   }
 
   void _handlePlayerError(PlayerException error) {
+    if (_isDisposed) return;
     _setStatus(PlayerStatus.error);
+
+    final now = DateTime.now();
+    final signature = error.toString();
+    if (_lastPlayerErrorSignature == signature &&
+        _lastPlayerErrorAt != null &&
+        now.difference(_lastPlayerErrorAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastPlayerErrorSignature = signature;
+    _lastPlayerErrorAt = now;
 
     final errorMessage = switch (error.type) {
       PlayerErrorType.network => i18n("error_network"),
@@ -587,13 +774,22 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
 
   // 音量管理
   void registerVolumeListener() {
+    if (!_ownsVolume) return;
     final volumeSub = _volumeController.addListener((volume) {
-      room.saveCurrentVolume(volume);
-    }, fetchInitialVolume: true);
+      if (!_ownsVolume || !volume.isFinite) return;
+      _volumeRevision++;
+      final resolved = volume.clamp(0.0, 1.0).toDouble();
+      currentVolume.value = resolved;
+      unawaited(room.saveCurrentVolume(resolved));
+    }, fetchInitialVolume: false);
+    volumeSub.onError((Object error, StackTrace stack) {
+      log('Observe system volume failed', name: 'VideoController.Volume', error: error, stackTrace: stack);
+    });
     _addSubscription(volumeSub);
   }
 
   void updateVolumn(double volume) {
+    if (!_ownsVolume) return;
     _hideVolumeTimer?.cancel();
     showVolume.value = true;
     _hideVolumeTimer = Timer(_volumeHideDelay, () {
@@ -603,21 +799,48 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   }
 
   Future<double?> volume() async {
-    if (PlatformHelper.isDesktop) {
-      return room.getSavedVolume();
+    if (!_ownsVolume) return null;
+    if (!_usesSystemVolume) return room.getSavedVolume();
+    final revision = _volumeRevision;
+    try {
+      final observed = await _volumeController.getVolume().timeout(_volumeOperationTimeout);
+      if (!_ownsVolume) return null;
+      if (revision != _volumeRevision || !observed.isFinite) return currentVolume.value;
+      return observed.clamp(0.0, 1.0).toDouble();
+    } catch (error, stack) {
+      log('Read system volume failed', name: 'VideoController.Volume', error: error, stackTrace: stack);
+      return _ownsVolume ? currentVolume.value : null;
     }
-    return await _volumeController.getVolume();
   }
 
   Future<void> setVolume(double value) async {
+    await trySetVolume(value);
+  }
+
+  /// Applies a user-requested volume and reports whether the active room still
+  /// owned the operation. Ordinary controls keep using [setVolume], while
+  /// transactional UI can retain its draft when the platform write fails.
+  Future<bool> trySetVolume(double value) async {
+    if (!_ownsVolume || !value.isFinite) return false;
+    final revision = ++_volumeRevision;
     final resolved = value.clamp(0.0, 1.0).toDouble();
-    if (PlatformHelper.isDesktop) {
-      await _playerManager.setVolume(resolved);
-    } else {
-      await _volumeController.setVolume(resolved);
+    try {
+      if (_usesSystemVolume) {
+        await _volumeController.setVolume(resolved).timeout(_volumeOperationTimeout);
+      } else {
+        await _playerManager.setVolume(resolved).timeout(_volumeOperationTimeout);
+      }
+      // A system event can report the actual, quantized device level before
+      // the setter completes. Never replace that event or a newer room's state.
+      if (!_ownsVolume) return false;
+      if (revision != _volumeRevision) return true;
+      currentVolume.value = resolved;
+      await room.saveCurrentVolume(resolved);
+      return true;
+    } catch (error, stack) {
+      log('Set volume failed', name: 'VideoController.Volume', error: error, stackTrace: stack);
+      return false;
     }
-    currentVolume.value = resolved;
-    await room.saveCurrentVolume(resolved);
   }
 
   // 亮度管理
@@ -628,9 +851,12 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     throw Exception('Brightness not supported on this platform');
   }
 
-  void setBrightness(double value) async {
-    if (PlatformHelper.supportsBrightness) {
-      await brightnessController!.setApplicationScreenBrightness(value);
+  Future<void> setBrightness(double value) async {
+    if (!PlatformHelper.supportsBrightness || !value.isFinite) return;
+    try {
+      await brightnessController!.setApplicationScreenBrightness(value.clamp(0.0, 1.0).toDouble());
+    } catch (error, stackTrace) {
+      log('Set brightness failed', name: 'VideoController.Brightness', error: error, stackTrace: stackTrace);
     }
   }
 
@@ -638,7 +864,11 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   void enableController() {
     if (_isDisposed) return;
     showController.value = true;
+    _armControllerHide();
+  }
 
+  void _armControllerHide() {
+    if (_isDisposed) return;
     if (!_isMouseOverController && !_isMouseOverPlayer) {
       _controllerIdleClock.start();
       _controllerHideDeadlineMs = _controllerIdleClock.elapsedMilliseconds + _controllerHideDelay.inMilliseconds;
@@ -667,16 +897,18 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   }
 
   // 鼠标进入控制器区域
-  void onMouseEnterController() {
-    _isMouseOverController = true;
+  void onMouseEnterController([Object? owner]) {
+    if (_isDisposed || !_controlHoverOwners.add(owner ?? _legacyControlHoverOwner)) return;
     stopHideController();
     showController.value = true;
   }
 
   // 鼠标离开控制器区域
-  void onMouseExitController() {
-    _isMouseOverController = false;
-    enableController(); // 重新开始计时
+  void onMouseExitController([Object? owner]) {
+    if (_isDisposed || !_controlHoverOwners.remove(owner ?? _legacyControlHoverOwner)) return;
+    // Unmount can occur during build. Re-arm without publishing Rx changes,
+    // and never release another mounted control bar's hover ownership.
+    _armControllerHide();
   }
 
   // 鼠标进入播放器区域
@@ -773,30 +1005,69 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
 
   // EPG管理
   Future<void> loadFullChannelSchedule(String? epgId) async {
-    currentChannelSchedule.clear();
-    if (epgId == null || epgId.isEmpty) return;
-
-    try {
-      final programmes = await _fetchEpgProgrammes(epgId);
-      currentChannelSchedule.value = programmes;
-      _logEpgLoadSuccess(programmes.length);
-    } catch (e, stackTrace) {
-      _logEpgLoadError(e, stackTrace);
+    final loadEpoch = ++_epgLoadEpoch;
+    if (_isDisposed) return;
+    final normalizedEpgId = epgId?.trim() ?? '';
+    final sourceId = _settingsService.iptv.selectedSourceId.v.trim();
+    scheduleLoadFailed.value = false;
+    if (normalizedEpgId.isEmpty || sourceId.isEmpty) {
+      scheduleLoading.value = false;
+      currentChannelSchedule.clear();
+      hasScrolledToLive = false;
+      return;
     }
-  }
+    scheduleLoading.value = true;
+    currentChannelSchedule.clear();
+    hasScrolledToLive = false;
 
-  Future<List<database.EpgProgramme>> _fetchEpgProgrammes(String epgId) async {
-    final db = _dbService.db;
     final now = DateTime.now();
     final startTime = now.subtract(const Duration(days: _epgLookBackDays));
     final endTime = now.add(const Duration(days: _epgLookForwardDays));
 
-    return db.getProgrammes(epgChannelId: epgId, start: startTime, end: endTime);
+    try {
+      final loader = _loadEpgProgrammes;
+      final programmes = loader == null
+          ? await _fetchEpgProgrammes(sourceId: sourceId, epgId: normalizedEpgId, start: startTime, end: endTime)
+          : await loader(sourceId: sourceId, epgId: normalizedEpgId, start: startTime, end: endTime);
+      if (!_isEpgLoadCurrent(loadEpoch, sourceId)) return;
+      currentChannelSchedule.value = programmes;
+      _logEpgLoadSuccess(programmes.length);
+    } catch (e, stackTrace) {
+      if (!_isEpgLoadCurrent(loadEpoch, sourceId)) return;
+      scheduleLoadFailed.value = true;
+      _logEpgLoadError(e, stackTrace);
+    } finally {
+      if (!_isDisposed && loadEpoch == _epgLoadEpoch) {
+        scheduleLoading.value = false;
+      }
+    }
+  }
+
+  bool claimInitialScheduleScroll(int liveIndex) {
+    if (liveIndex < 0 || hasScrolledToLive) return false;
+    hasScrolledToLive = true;
+    return true;
+  }
+
+  bool _isEpgLoadCurrent(int loadEpoch, String sourceId) {
+    return !_isDisposed && loadEpoch == _epgLoadEpoch && _settingsService.iptv.selectedSourceId.v.trim() == sourceId;
+  }
+
+  Future<List<database.EpgProgramme>> _fetchEpgProgrammes({
+    required String sourceId,
+    required String epgId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final db = _dbService.db;
+    final resolved = await db.resolveEpgChannelId(sourceId, epgId);
+    if (resolved == null) return [];
+    return db.getProgrammes(epgChannelId: resolved, start: start, end: end);
   }
 
   void _logEpgLoadSuccess(int count) {
     debugPrint(
-      "📅 [EPG Matrix] Loaded $count total program rows spanning the (-${_epgLookBackDays}h to +${_epgLookForwardDays}h) timeline.",
+      "📅 [EPG Matrix] Loaded $count total program rows spanning the (-${_epgLookBackDays}d to +${_epgLookForwardDays}d) timeline.",
     );
   }
 
@@ -810,60 +1081,165 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     required String originalUrl,
     required database.EpgProgramme programme,
     CatchupUrlType type = CatchupUrlType.default_,
+    DateTime? now,
   }) {
-    final Uri uri = Uri.parse(originalUrl);
-    final formatter = DateFormat('yyyyMMddHHmmss');
-    final String startStr = formatter.format(programme.start);
-    final String stopStr = formatter.format(programme.stop);
-
-    switch (type) {
-      case CatchupUrlType.playseek:
-        final Map<String, String> newParams = Map<String, String>.from(uri.queryParameters);
-        newParams['playseek'] = '$startStr-$stopStr';
-        return uri.replace(queryParameters: newParams).toString();
-
-      case CatchupUrlType.offset:
-        final int offsetSeconds = DateTime.now().difference(programme.start).inSeconds;
-        final Map<String, String> newParams = Map<String, String>.from(uri.queryParameters);
-        newParams['catchup'] = 'default';
-        newParams['offset'] = offsetSeconds.toString();
-        return uri.replace(queryParameters: newParams).toString();
-
-      case CatchupUrlType.default_:
-        return originalUrl.contains('?') ? '$originalUrl&timeshift=$startStr' : '$originalUrl?timeshift=$startStr';
-    }
-  }
-
-  void onProgrammeTapped(database.EpgProgramme programme) async {
-    final now = DateTime.now();
-
-    if (programme.start.isAfter(now)) {
-      ToastUtil.show(i18n('program_scheduled_hint'));
-      return;
-    }
-
-    if (programme.start.isBefore(now) && programme.stop.isAfter(now)) {
-      Navigator.of(Get.context!).pop();
-      return;
-    }
-
-    String catchupUrl = generateCatchupUrl(
-      originalUrl: room.link!,
-      programme: programme,
-      type: CatchupUrlType.playseek,
+    return buildIptvCatchupUrl(
+      originalUrl: originalUrl,
+      start: programme.start,
+      stop: programme.stop,
+      type: type,
+      now: now,
+      mode: room.catchUpMode,
+      source: room.catchUpSource,
+      correctionHours: room.catchUpCorrectionHours,
+      catchupId: programme.catchupId,
     );
-
-    Navigator.of(Get.context!).pop();
-    await _reloadWithCatchup(catchupUrl, programme);
-
-    ToastUtil.show('${i18n('playing_catchup')}: ${programme.title}');
   }
 
-  Future<void> _reloadWithCatchup(String catchupUrl, database.EpgProgramme programme) async {
+  Future<IptvProgrammeSelectionResult> onProgrammeTapped(
+    database.EpgProgramme programme, {
+    DateTime? now,
+    VoidCallback? closeSchedule,
+    ValueChanged<String>? showMessage,
+  }) async {
+    if (catchUpSwitching.value) return IptvProgrammeSelectionResult.busy;
+    final actionTime = now ?? DateTime.now();
+    final phase = classifyIptvProgramme(start: programme.start, stop: programme.stop, now: actionTime);
+    final notify = showMessage ?? ToastUtil.show;
+
+    if (phase == IptvProgrammePhase.scheduled) {
+      notify(i18n('program_scheduled_hint'));
+      return IptvProgrammeSelectionResult.scheduled;
+    }
+
+    if (phase == IptvProgrammePhase.live) {
+      return returnToLive(closeSchedule: closeSchedule, showMessage: showMessage);
+    }
+
+    final availability = evaluateIptvCatchupAvailability(
+      programmeStop: programme.stop,
+      now: actionTime,
+      mode: room.catchUpMode,
+      source: room.catchUpSource,
+      days: room.catchUpDays,
+      catchupId: programme.catchupId,
+    );
+    if (availability != IptvCatchupAvailability.available) {
+      notify(i18n('catchup_unavailable'));
+      return IptvProgrammeSelectionResult.catchupUnavailable;
+    }
+
+    final originalUrl = room.link?.trim() ?? '';
+    if (originalUrl.isEmpty) {
+      notify(i18n('invalid_play_url'));
+      return IptvProgrammeSelectionResult.invalidUrl;
+    }
+
+    late final String catchupUrl;
+    try {
+      catchupUrl = generateCatchupUrl(
+        originalUrl: originalUrl,
+        programme: programme,
+        type: CatchupUrlType.playseek,
+        now: actionTime,
+      );
+    } on FormatException {
+      notify(i18n('invalid_play_url'));
+      return IptvProgrammeSelectionResult.invalidUrl;
+    } on ArgumentError {
+      notify(i18n('invalid_play_url'));
+      return IptvProgrammeSelectionResult.invalidUrl;
+    } on UnsupportedError {
+      notify(i18n('catchup_unavailable'));
+      return IptvProgrammeSelectionResult.catchupUnavailable;
+    }
+
+    catchUpSwitching.value = true;
+    _closeSchedule(closeSchedule);
+    try {
+      final switchResult = await _reloadWithCatchup(catchupUrl, programme);
+      if (switchResult == IptvPlaybackSwitchResult.superseded) {
+        return IptvProgrammeSelectionResult.superseded;
+      }
+      if (switchResult == IptvPlaybackSwitchResult.failed) {
+        notify(i18n('play_video_failed'));
+        return IptvProgrammeSelectionResult.failed;
+      }
+      notify('${i18n('playing_catchup')}: ${programme.title}');
+      return IptvProgrammeSelectionResult.catchupStarted;
+    } catch (error, stackTrace) {
+      log('IPTV catch-up switch failed', name: 'VideoController', error: error, stackTrace: stackTrace);
+      notify(i18n('play_video_failed'));
+      return IptvProgrammeSelectionResult.failed;
+    } finally {
+      catchUpSwitching.value = false;
+    }
+  }
+
+  Future<IptvProgrammeSelectionResult> returnToLive({
+    VoidCallback? closeSchedule,
+    ValueChanged<String>? showMessage,
+  }) async {
+    if (catchUpSwitching.value) return IptvProgrammeSelectionResult.busy;
+    if (!room.isCatchUpActive) {
+      _closeSchedule(closeSchedule);
+      return IptvProgrammeSelectionResult.live;
+    }
+    if ((room.link?.trim() ?? '').isEmpty) {
+      (showMessage ?? ToastUtil.show)(i18n('invalid_play_url'));
+      return IptvProgrammeSelectionResult.invalidUrl;
+    }
+
+    catchUpSwitching.value = true;
+    _closeSchedule(closeSchedule);
+    final notify = showMessage ?? ToastUtil.show;
+    try {
+      final switchResult = await _reloadWithLive();
+      if (switchResult == IptvPlaybackSwitchResult.superseded) {
+        return IptvProgrammeSelectionResult.superseded;
+      }
+      if (switchResult == IptvPlaybackSwitchResult.failed) {
+        notify(i18n('play_video_failed'));
+        return IptvProgrammeSelectionResult.failed;
+      }
+      notify(i18n('returned_to_live'));
+      return IptvProgrammeSelectionResult.live;
+    } catch (error, stackTrace) {
+      log('IPTV return-to-live switch failed', name: 'VideoController', error: error, stackTrace: stackTrace);
+      notify(i18n('play_video_failed'));
+      return IptvProgrammeSelectionResult.failed;
+    } finally {
+      catchUpSwitching.value = false;
+    }
+  }
+
+  void _closeSchedule(VoidCallback? closeSchedule) {
+    if (closeSchedule != null) {
+      closeSchedule();
+      return;
+    }
+    final context = Get.context;
+    if (context != null && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<IptvPlaybackSwitchResult> _reloadWithCatchup(String catchupUrl, database.EpgProgramme programme) async {
     clearListener();
     await _playerManager.close();
     await destory();
-    _livePlayController.startCatchUp(catchUpUrl: catchupUrl, startTime: programme.start.millisecondsSinceEpoch);
+    return _livePlayController.startCatchUp(
+      catchUpUrl: catchupUrl,
+      startTime: programme.start.millisecondsSinceEpoch,
+      endTime: programme.stop.millisecondsSinceEpoch,
+    );
+  }
+
+  Future<IptvPlaybackSwitchResult> _reloadWithLive() async {
+    clearListener();
+    await _playerManager.close();
+    await destory();
+    return _livePlayController.returnToLive();
   }
 
   // 播放控制
@@ -890,18 +1266,6 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     }
   }
 
-  void retryRoom() async {
-    var liveRoom = await Sites.of(room.platform!).liveSite
-        .getRoomDetail(roomId: room.roomId!, platform: room.platform!);
-
-    if (liveRoom.liveStatus == LiveStatus.offline) {
-      _livePlayController.setNormalScreen();
-      ToastUtil.show(i18n("room_offline"));
-    } else {
-      changeLine();
-    }
-  }
-
   Future<void> refresh() async {
     _livePlayController.invalidateRoomLoad();
     clearListener();
@@ -919,8 +1283,14 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   }
 
   void clearListener() {
+    _acceptSourceCommits = false;
     final listenersToRemove = _subscriptions
-        .where((s) => s is StreamSubscription<PlayerException> || s is StreamSubscription<bool>)
+        .where(
+          (s) =>
+              s is StreamSubscription<PlayerException> ||
+              s is StreamSubscription<bool> ||
+              s is StreamSubscription<PlaybackSourceCommitSnapshot>,
+        )
         .toList();
 
     for (final sub in listenersToRemove) {
@@ -939,7 +1309,12 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
 
   // 全屏管理
   Future<void> exitFullScreen() async {
-    await WindowService().doExitFullScreen();
+    await exitFullscreenWithOrientationRestore(
+      state: _fullscreenOrientationRestore,
+      exitFullscreen: WindowService().doExitFullScreen,
+      restorePortrait: WindowService().verticalScreen,
+      releaseOrientation: WindowService().followSystemOrientation,
+    );
     GlobalPlayerState.to.isFullscreen.value = false;
   }
 
@@ -973,7 +1348,9 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     }
   }
 
-  Future<void> enterFullScreen() async {
+  Future<void> enterFullScreen({bool forceLandscape = false}) async {
+    final isMobile = Platform.isAndroid || Platform.isIOS;
+    _fullscreenOrientationRestore.begin(restorePortraitOnExit: isMobile && forceLandscape);
     await WindowService().doEnterFullScreen();
     GlobalPlayerState.to.isFullscreen.value = true;
 
@@ -981,12 +1358,115 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     // landScape there issued a second setFullScreen(true) while the first
     // native transition was still running, producing inconsistent work-area
     // bounds on Windows systems with a side taskbar.
-    if (PlatformUtils.isMobile) {
-      if (_playerManager.isVerticalVideo.value) {
-        await WindowService().verticalScreen();
-      } else {
+    if (Platform.isAndroid || Platform.isIOS) {
+      if (forceLandscape) {
         await WindowService().landScape();
+      } else {
+        await applyFullscreenOrientationPolicy();
       }
+    }
+  }
+
+  /// Explicit landscape-fullscreen action for a portrait live room.
+  ///
+  /// This is intentionally a one-shot presentation action rather than a
+  /// settings mutation: users keep their preferred automatic policy while the
+  /// visible room control can always request a conventional landscape view.
+  Future<void> enterLandscapeFullScreen() async {
+    if (_fullscreenTransitioning) return;
+    _fullscreenTransitioning = true;
+    showLocked.value = false;
+    stopHideController();
+    GlobalPlayerState.to.isWindowFullscreen.value = false;
+    try {
+      _livePlayController.setFullScreen();
+      await enterFullScreen(forceLandscape: true);
+      enableController();
+    } finally {
+      _fullscreenTransitioning = false;
+    }
+  }
+
+  /// Enters the panel-dismiss fullscreen used only by a trusted portrait live
+  /// source on Android phones. It bypasses the user's ordinary fullscreen
+  /// orientation preference because the downward gesture explicitly requests
+  /// a portrait presentation rather than the conventional landscape action.
+  Future<void> enterPortraitFullScreen() async {
+    final settings = _settingsService.player;
+    if (_fullscreenTransitioning ||
+        _livePlayController.state.value.ui.screenMode != VideoMode.normal ||
+        GlobalPlayerState.to.isFullscreen.value ||
+        !canEnterPortraitPanelFullscreen(
+          isPortraitSource: _playerManager.isVerticalVideo.value,
+          adaptationEnabled: settings.enablePortraitStreamAdaptation.v,
+          adaptiveHeightEnabled: settings.portraitAdaptiveHeight.v,
+          compatibilityLayout: settings.portraitLayoutMode == PortraitLayoutMode.compatibility,
+          mobilePlatform: Platform.isAndroid,
+        )) {
+      return;
+    }
+    _fullscreenTransitioning = true;
+    showLocked.value = false;
+    stopHideController();
+    GlobalPlayerState.to.isWindowFullscreen.value = false;
+    try {
+      _livePlayController.setPortraitFullScreen();
+      await WindowService().doEnterFullScreen();
+      final stillEligible = canEnterPortraitPanelFullscreen(
+        isPortraitSource: _playerManager.isVerticalVideo.value,
+        adaptationEnabled: settings.enablePortraitStreamAdaptation.v,
+        adaptiveHeightEnabled: settings.portraitAdaptiveHeight.v,
+        compatibilityLayout: settings.portraitLayoutMode == PortraitLayoutMode.compatibility,
+        mobilePlatform: Platform.isAndroid,
+      );
+      if (_livePlayController.state.value.ui.screenMode != VideoMode.portraitFullscreen || !stillEligible) {
+        _livePlayController.setNormalScreen();
+        await exitFullScreen();
+        return;
+      }
+      GlobalPlayerState.to.isFullscreen.value = true;
+      await WindowService().verticalScreen();
+      enableController();
+    } finally {
+      _fullscreenTransitioning = false;
+    }
+  }
+
+  Future<void> exitPortraitFullScreen() async {
+    if (_fullscreenTransitioning || _livePlayController.state.value.ui.screenMode != VideoMode.portraitFullscreen) {
+      return;
+    }
+    _fullscreenTransitioning = true;
+    try {
+      _livePlayController.setNormalScreen();
+      await exitFullScreen();
+      enableController();
+    } finally {
+      _fullscreenTransitioning = false;
+    }
+  }
+
+  Future<void> applyFullscreenOrientationPolicy() async {
+    if (_isDisposed || !GlobalPlayerState.to.isFullscreen.value || !(Platform.isAndroid || Platform.isIOS)) return;
+    if (_livePlayController.state.value.ui.screenMode == VideoMode.portraitFullscreen) {
+      if (!_playerManager.isVerticalVideo.value) {
+        await exitPortraitFullScreen();
+      } else {
+        await WindowService().verticalScreen();
+      }
+      return;
+    }
+    switch (_settingsService.player.portraitFullscreenPolicy) {
+      case PortraitFullscreenPolicy.followSource:
+        if (_playerManager.isVerticalVideo.value) {
+          await WindowService().verticalScreen();
+        } else {
+          await WindowService().landScape();
+        }
+      case PortraitFullscreenPolicy.followSystem:
+        await WindowService().followSystemOrientation();
+      case PortraitFullscreenPolicy.landscape:
+        await WindowService().landScape();
     }
   }
 
@@ -1029,6 +1509,7 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   @override
   void dispose() {
     if (_isDisposed) return;
+    _epgLoadEpoch++;
     _setStatus(PlayerStatus.disposed);
 
     // 清理资源
@@ -1036,7 +1517,7 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
     _danmakuManager.dispose();
     _cancelAllTimers();
     scheduleScrollController.dispose();
-    _isMouseOverController = false;
+    _controlHoverOwners.clear();
     _isMouseOverPlayer = false;
     // 异步清理
     unawaited(_disposeAsync());
@@ -1054,7 +1535,9 @@ class VideoController with ChangeNotifier implements DanmakuSettingsBinding {
   final Stopwatch _controllerIdleClock = Stopwatch();
   int? _controllerHideDeadlineMs;
   // 添加鼠标状态跟踪
-  bool _isMouseOverController = false;
+  final _controlHoverOwners = <Object>{};
+  final _legacyControlHoverOwner = Object();
+  bool get _isMouseOverController => _controlHoverOwners.isNotEmpty;
   bool _isMouseOverPlayer = false;
   Timer? _defaultFullscreenTimer;
   Timer? _controllerTransitionTimer;

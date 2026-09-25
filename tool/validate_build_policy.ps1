@@ -1,8 +1,25 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+# Windows PowerShell 5.1 decodes a UTF-8 script without a BOM through the
+# active ANSI code page. Non-ASCII UI semantics can then become different
+# labels or even syntax characters before a fixture/device script starts.
+$trackedPowerShellFiles = @(& git -C $repoRoot ls-files -- '*.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Failed to enumerate tracked PowerShell files.' }
+foreach ($relativePath in $trackedPowerShellFiles) {
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $repoRoot $relativePath))
+    $hasUtf8Bom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+    $hasNonAscii = $false
+    foreach ($byte in $bytes) {
+        if ($byte -ge 0x80) { $hasNonAscii = $true; break }
+    }
+    if ($hasNonAscii -and -not $hasUtf8Bom) {
+        throw "PowerShell file with non-ASCII text must use a UTF-8 BOM for Windows PowerShell 5.1: $relativePath"
+    }
+}
 
 $requiredFiles = @(
     'BUILD_POLICY.md',
@@ -133,6 +150,7 @@ $powerShellFiles = @(
     'tool\publish_local_release.ps1',
     'tool\prefetch_windows_native.ps1',
     'tool\flutterw.ps1',
+    'tool\android_ui.ps1',
     'tool\review_upstream_update.ps1',
     'tool\validate_build_policy.ps1'
 )
@@ -148,6 +166,30 @@ foreach ($relativePath in $powerShellFiles) {
         $details = ($parseErrors | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" }) -join '; '
         throw "PowerShell parse error in ${relativePath}: $details"
     }
+}
+
+# ADB options such as `-p`, `-n` and `-f` overlap PowerShell common-parameter
+# abbreviations. Keep every wrapper invocation array-shaped so device evidence
+# capture cannot mask the original UI failure with a parameter-binding error.
+$androidUiPath = Join-Path $repoRoot 'tool\android_ui.ps1'
+$tokens = $null
+$parseErrors = $null
+$androidUiAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    $androidUiPath,
+    [ref] $tokens,
+    [ref] $parseErrors
+)
+$adbCalls = @(
+    $androidUiAst.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Invoke-Adb'
+    }, $true)
+)
+$positionalAdbCalls = @($adbCalls | Where-Object { $_.Extent.Text -notmatch '-AdbArguments' })
+if ($positionalAdbCalls.Count -gt 0) {
+    $lines = ($positionalAdbCalls | ForEach-Object { $_.Extent.StartLineNumber }) -join ', '
+    throw "android_ui.ps1 must pass ADB arguments through -AdbArguments arrays (lines: $lines)."
 }
 
 $properties = @{}
@@ -213,10 +255,52 @@ foreach ($marker in @(
     "Join-Path `$PSScriptRoot 'prefetch_windows_native.ps1'",
     '/DArtifactVersion=$artifactVersion',
     'build\windows\x64\install_manifest.txt',
+    '$manifestSourceMarker = "\build\windows\x64\runner\$configurationDirectory\"',
+    "'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'",
+    'The staged Windows package is missing the app-local MSVC runtime',
+    'Keep dependency resolution single-owner',
     'Retired QuickJS runtime files appeared in the Windows package',
     'automatic_follow_up = $false'
 )) {
     if (-not $buildScript.Contains($marker)) { throw "Build script policy marker is missing: $marker" }
+}
+
+$windowsCmake = Get-Content -LiteralPath (Join-Path $repoRoot 'windows\CMakeLists.txt') -Raw
+foreach ($marker in @(
+    'include(InstallRequiredSystemLibraries)',
+    'CMAKE_INSTALL_UCRT_LIBRARIES FALSE',
+    'PURELIVE_REQUIRED_MSVC_RUNTIME_NAMES',
+    'CONFIGURATIONS Release'
+)) {
+    if (-not $windowsCmake.Contains($marker)) {
+        throw "Windows app-local runtime policy marker is missing: $marker"
+    }
+}
+
+$windowsInstaller = Get-Content -LiteralPath (Join-Path $repoRoot 'windows\packaging\exe\local_release.iss') -Raw
+foreach ($marker in @(
+    '[InstallDelete]',
+    'Type: filesandordirs; Name: "{app}\data"',
+    'Type: files; Name: "{app}\*.dll"',
+    'Name: "{app}\AppData"; Flags: uninsneveruninstall'
+)) {
+    if (-not $windowsInstaller.Contains($marker)) {
+        throw "Windows installer upgrade-cleanup marker is missing: $marker"
+    }
+}
+
+$windowsFlutterRunner = Get-Content -LiteralPath (Join-Path $repoRoot 'windows\runner\flutter_window.cpp') -Raw
+if ($windowsFlutterRunner -notmatch '(?s)FlutterWindow::~FlutterWindow\(\)\s*\{.*?Destroy\(\);.*?\}') {
+    throw 'Windows FlutterWindow must destroy its child controller while derived teardown guards are still alive.'
+}
+foreach ($marker in @(
+    'flutter_controller_destroying_ = true;',
+    'flutter_controller_.reset();',
+    'flutter_controller_ && !flutter_controller_destroying_'
+)) {
+    if (-not $windowsFlutterRunner.Contains($marker)) {
+        throw "Windows Flutter controller teardown guard is missing: $marker"
+    }
 }
 
 $androidVerifier = Get-Content -LiteralPath (Join-Path $repoRoot 'tool\verify_android_apk.ps1') -Raw
@@ -225,11 +309,63 @@ foreach ($marker in @(
     'assets/flutter_assets/assets/version.json',
     'libffmpegkit.so',
     'libsqlite3.so',
-    '$flutterAssets.Count -lt 1000'
+    '$flutterAssets.Count -lt 1000',
+    'verify_android_elf_alignment.ps1',
+    'zipalign.exe',
+    '-P 16',
+    "minSdkVersion:",
+    'manifest_min_sdk'
 )) {
     if (-not $androidVerifier.Contains($marker)) {
         throw "Android APK integrity marker is missing: $marker"
     }
+}
+
+$androidElfVerifier = Get-Content -LiteralPath (Join-Path $repoRoot 'tool\verify_android_elf_alignment.ps1') -Raw
+foreach ($marker in @(
+    'llvm-readelf.exe',
+    'minimum LOAD alignment',
+    'MinimumLoadAlignment = 0x4000'
+)) {
+    if (-not $androidElfVerifier.Contains($marker)) {
+        throw "Android 16 KB ELF verifier marker is missing: $marker"
+    }
+}
+
+$fplayerPluginBuildPath = Join-Path $repoRoot 'plugins\flv_lzc\android\build.gradle'
+$fplayerPluginBuild = Get-Content -LiteralPath $fplayerPluginBuildPath -Raw
+$androidRootBuild = Get-Content -LiteralPath (Join-Path $repoRoot 'android\build.gradle.kts') -Raw
+$fplayerCoreVersion = '1.0.4-purelive16k'
+$fplayerCoreRelativePath =
+    "plugins\flv_lzc\android\libs\io\github\flutterplayer\fplayer-core\$fplayerCoreVersion\fplayer-core-$fplayerCoreVersion.aar"
+$fplayerCorePath = Join-Path $repoRoot $fplayerCoreRelativePath
+foreach ($marker in @(
+    'url = uri("$projectDir/libs")',
+    'includeModule("io.github.flutterplayer", "fplayer-core")',
+    "io.github.flutterplayer:fplayer-core:$fplayerCoreVersion"
+)) {
+    if (-not $fplayerPluginBuild.Contains($marker)) {
+        throw "Local 16 KB fplayer dependency marker is missing: $marker"
+    }
+}
+foreach ($marker in @(
+    'maven(rootProject.file("../plugins/flv_lzc/android/libs"))',
+    'includeModule("io.github.flutterplayer", "fplayer-core")'
+)) {
+    if (-not $androidRootBuild.Contains($marker)) {
+        throw "Android app local fplayer repository marker is missing: $marker"
+    }
+}
+if ($fplayerPluginBuild.Contains("io.github.flutterplayer:fplayer-core:1.0.4'")) {
+    throw 'The 4 KB-aligned Maven fplayer-core 1.0.4 artifact must not be restored.'
+}
+if (-not (Test-Path -LiteralPath $fplayerCorePath -PathType Leaf)) {
+    throw "Local 16 KB fplayer AAR is missing: $fplayerCoreRelativePath"
+}
+$expectedFplayerCoreHash = '3643B36BC906F1FED56B313AC98669EEAA9DA0D2262409808429C5B614C676DA'
+$actualFplayerCoreHash = (Get-FileHash -LiteralPath $fplayerCorePath -Algorithm SHA256).Hash
+if ($actualFplayerCoreHash -ne $expectedFplayerCoreHash) {
+    throw "Local 16 KB fplayer AAR hash mismatch: $actualFplayerCoreHash"
 }
 
 $androidSigningWorkflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\sign-staged-android.yml') -Raw
@@ -238,7 +374,11 @@ foreach ($marker in @(
     'assets/flutter_assets/assets/version.json',
     'libffmpegkit.so',
     'libsqlite3.so',
-    'Flutter asset file count is incomplete'
+    'Flutter asset file count is incomplete',
+    'verify_android_16kb',
+    'zipalign" -c -P 16 4',
+    'Android 16 KB ELF alignment failed',
+    'verify_android_16kb "$final_apk"'
 )) {
     if (-not $androidSigningWorkflow.Contains($marker)) {
         throw "Android signing workflow integrity marker is missing: $marker"
@@ -274,14 +414,43 @@ foreach ($marker in @(
 }
 
 $qualityScript = Get-Content -LiteralPath (Join-Path $repoRoot 'tool\local_ci.ps1') -Raw
-foreach ($marker in @("[ValidateSet('Focused', 'Full')]", '[int] $TestConcurrency = 12', 'Enter-PureLiveHeavyTaskSlot')) {
+foreach ($marker in @(
+    "[ValidateSet('Focused', 'Full')]",
+    '[switch] $IncludeRepositoryChecks',
+    '$runRepositoryChecks = $Scope -eq ''Full'' -or $IncludeRepositoryChecks.IsPresent',
+    '$formatMode = if ($Scope -eq ''Focused'') { ''apply'' } else { ''check'' }',
+    '& $flutterw dart format @dartFiles',
+    '& $flutterw dart format --output=none --set-exit-if-changed @dartFiles',
+    '[int] $TestConcurrency = 12',
+    'Enter-PureLiveHeavyTaskSlot',
+    'test_acceptance_status_alignment.py',
+    'failed_phase = $failurePhase',
+    'source_worktree_dirty = $sourceDirty',
+    'source_changed_during_run = $sourceCommit -ne $sourceCommitEnd',
+    'format_mode = $formatMode',
+    'dart_format_files = $dartFiles',
+    'lease_wait_seconds = $leaseWaitSeconds',
+    'phase_seconds = $phaseSeconds'
+)) {
     if (-not $qualityScript.Contains($marker)) { throw "Quality script policy marker is missing: $marker" }
 }
 if (-not $qualityScript.Contains("audit_repository.py') --output `$repositoryAuditPath")) {
     throw 'Quality gate must run the whole-repository audit.'
 }
+$resourceGuard = Get-Content -LiteralPath (Join-Path $repoRoot 'tool\build_resource_guard.ps1') -Raw
+if (-not $resourceGuard.Contains("Get-CimInstance Win32_Process -Filter `$processFilter") -or
+    [regex]::Matches($resourceGuard, 'Get-CimInstance\s+Win32_Process').Count -ne 1) {
+    throw 'Heavy-task discovery must fetch process command lines in one filtered CIM query.'
+}
 if ([regex]::Matches($qualityScript, [regex]::Escape('& $flutterw analyze')).Count -ne 1) {
     throw 'Quality script must contain exactly one Flutter Analyze invocation.'
+}
+$focusedTestIndex = $qualityScript.IndexOf("Assert-PureLiveCommandSucceeded 'Focused Flutter tests'")
+$analyzeIndex = $qualityScript.IndexOf("Assert-PureLiveCommandSucceeded 'Flutter Analyze'")
+$fullTestIndex = $qualityScript.IndexOf("Assert-PureLiveCommandSucceeded 'Full Flutter test suite'")
+if ($focusedTestIndex -lt 0 -or $analyzeIndex -lt 0 -or $fullTestIndex -lt 0 -or
+    -not ($focusedTestIndex -lt $analyzeIndex -and $analyzeIndex -lt $fullTestIndex)) {
+    throw 'Quality script must fail fast with Focused tests before Analyze while keeping Full tests after Analyze.'
 }
 
 $featureWorkflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\feature-build.yml') -Raw
@@ -307,9 +476,12 @@ foreach ($marker in @(
     'needs: [quality, android]',
     'needs: [quality, android, windows]',
     'needs: [quality, android, windows, linux]',
-    "needs.android.result == 'success'",
-    "needs.windows.result == 'success'",
-    "needs.linux.result == 'success'"
+    "(needs.android.result == 'success' || needs.android.result == 'skipped')",
+    "(needs.windows.result == 'success' || needs.windows.result == 'skipped')",
+    "(needs.linux.result == 'success' || needs.linux.result == 'skipped')",
+    "(!inputs.build_android || needs.android.result == 'success')",
+    "(!inputs.build_windows || needs.windows.result == 'success')",
+    "(!inputs.build_linux || needs.linux.result == 'success')"
 )) {
     if (-not $allPlatformWorkflow.Contains($marker)) {
         throw "All-platform workflow is missing serial-stage marker: $marker"
@@ -441,13 +613,13 @@ if (-not $fullscreenPolicy.Contains('supportsOrientationLockForLogicalDisplay') 
     -not $fullscreenPolicy.Contains('logicalDisplaySize.shortestSide < 600')) {
     throw 'Android large-screen orientation policy must remain adaptive.'
 }
-if ($featureWorkflow -match 'stage-build-' -or $featureWorkflow -match 'stage-apple-') {
-    throw 'Feature workflow must use precise single-platform stage tags.'
+if ($featureWorkflow -match 'stage-(?:build|apple|linux|macos|ios)-' -or $featureWorkflow -match "github.event_name == 'push'") {
+    throw 'Feature workflow must remain an explicit manual build without stage-tag branches.'
 }
 foreach ($marker in @(
     'needs: [quality, android]',
-    'needs: [quality, windows]',
-    'needs: [quality, linux]',
+    'needs: [quality, android, windows]',
+    'needs: [quality, android, windows, linux]',
     'cancel-in-progress: false',
     'flutter test --concurrency=12',
     '--target-platform android-arm64',
@@ -455,8 +627,7 @@ foreach ($marker in @(
     'Prefetch verified Firebase C++ SDK',
     'steps.version.outputs.artifact_version',
     "!inputs.build_windows || needs.windows.result == 'success'",
-    "!(inputs.build_macos || inputs.build_ios) || needs.apple.result == 'success'",
-    'stage-macos-'
+    "!(inputs.build_macos || inputs.build_ios) || needs.apple.result == 'success'"
 )) {
     if (-not $featureWorkflow.Contains($marker)) { throw "Feature workflow policy marker is missing: $marker" }
 }
@@ -511,11 +682,13 @@ if ($pubspecText -notmatch '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)\s
 $displayVersion = $Matches[1]
 $buildNumber = [int]$Matches[2]
 $releaseTag = "v$displayVersion"
-$msixConfig = Get-Content -LiteralPath (Join-Path $repoRoot 'windows\packaging\msix\make_config.yaml') -Raw
-if ($msixConfig -notmatch "(?m)^msix_version:\s*$([regex]::Escape($displayVersion))\.$buildNumber\s*$") {
-    throw 'Windows MSIX version must match pubspec.yaml display version and build number.'
-}
 $versionFeed = Get-Content -LiteralPath (Join-Path $repoRoot 'assets\version.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$msixConfig = Get-Content -LiteralPath (Join-Path $repoRoot 'windows\packaging\msix\make_config.yaml') -Raw
+$windowsDisplayVersion = $versionFeed.platforms.windows.version
+$windowsBuildNumber = [int]$versionFeed.platforms.windows.build_number
+if ($msixConfig -notmatch "(?m)^msix_version:\s*$([regex]::Escape($windowsDisplayVersion))\.$windowsBuildNumber\s*$") {
+    throw 'Windows MSIX version must match the Windows platform entry in assets/version.json.'
+}
 if ($versionFeed.version -ne $displayVersion -or [int]$versionFeed.build_number -ne $buildNumber) {
     throw 'assets/version.json top-level version must match pubspec.yaml.'
 }
@@ -523,7 +696,7 @@ if ($versionFeed.platforms.android.version -ne $displayVersion -or
     [int]$versionFeed.platforms.android.build_number -ne $buildNumber) {
     throw 'assets/version.json Android version must match the current application version.'
 }
-if ($versionFeed.download_url -ne "https://github.com/liuchuancong/pure_live/releases/tag/$releaseTag") {
+if ($versionFeed.download_url -ne "https://github.com/ayumocha/pure_live/releases/tag/$releaseTag") {
     throw 'assets/version.json must advertise the maintained repository release.'
 }
 foreach ($workflowName in @('feature-build.yml', 'stage-hosted-artifacts.yml', 'publish-staged-release.yml')) {
@@ -537,9 +710,9 @@ foreach ($workflowName in @('feature-build.yml', 'stage-hosted-artifacts.yml', '
 
 $environmentText = Get-Content -LiteralPath (Join-Path $repoRoot '.env.prod') -Raw
 $generatedEnvironment = Get-Content -LiteralPath (Join-Path $repoRoot 'lib\gen\env.g.dart') -Raw
-if ($environmentText -notmatch '(?m)^PURELIVE_UPDATE_OWNER=liuchuancong\s*$' -or
-    $generatedEnvironment -notmatch "pureliveUpdateOwner = 'liuchuancong'") {
-    throw 'Production and generated update repositories must both target liuchuancong/pure_live.'
+if ($environmentText -notmatch '(?m)^PURELIVE_UPDATE_OWNER=ayumocha\s*$' -or
+    $generatedEnvironment -notmatch "pureliveUpdateOwner = 'ayumocha'") {
+    throw 'Production and generated update repositories must both target ayumocha/pure_live.'
 }
 
 Write-Host 'Build policy static validation passed.'

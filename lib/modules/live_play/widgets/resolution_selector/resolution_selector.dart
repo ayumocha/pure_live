@@ -1,11 +1,12 @@
+import 'package:pure_live/common/utils/play_quality_label.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/modules/live_play/states/load_type.dart';
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 
 class ResolutionSelector extends StatelessWidget {
-  const ResolutionSelector({super.key});
+  const ResolutionSelector({super.key, required this.controller});
 
-  LivePlayController get controller => Get.find<LivePlayController>();
+  final LivePlayController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -17,10 +18,11 @@ class ResolutionSelector extends StatelessWidget {
       }
 
       final currentIndex = state.player.currentQuality.clamp(0, state.player.qualites.length - 1);
-      final currentQualityName = state.player.qualites[currentIndex].quality;
+      final currentQualityName = state.player.qualitySafe.playbackLabel;
       final switching = controller.playerController.isStreamSwitching.value;
 
       return PopupMenuButton<int>(
+        key: const ValueKey('room-quality-selector'),
         enabled: !switching,
         tooltip: i18n('toolbox_select_quality'),
         color: Get.theme.colorScheme.surfaceContainerHighest,
@@ -33,24 +35,31 @@ class ResolutionSelector extends StatelessWidget {
           controller.updateUI(isMenuOpen: false);
         },
         position: PopupMenuPosition.under,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (switching) ...[
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Get.theme.colorScheme.primary),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: kMinInteractiveDimension, minHeight: kMinInteractiveDimension),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (switching) ...[
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.8, color: Get.theme.colorScheme.primary),
+                  ),
+                  const SizedBox(width: 5),
+                ],
+                Flexible(
+                  child: Text(
+                    currentQualityName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Get.theme.textTheme.labelSmall?.copyWith(color: Get.theme.colorScheme.primary),
+                  ),
                 ),
-                const SizedBox(width: 5),
               ],
-              Text(
-                currentQualityName,
-                style: Get.theme.textTheme.labelSmall?.copyWith(color: Get.theme.colorScheme.primary),
-              ),
-            ],
+            ),
           ),
         ),
         onSelected: (newQualityIndex) async {

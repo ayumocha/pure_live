@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:developer' as developer;
 
@@ -24,7 +25,6 @@ class LivePlayMenuButton extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       offset: const Offset(12, 0),
       position: PopupMenuPosition.under,
-      icon: const Icon(Remix.apps_2_line),
       onOpened: () {
         controller.updateUI(isMenuOpen: true);
       },
@@ -35,6 +35,7 @@ class LivePlayMenuButton extends StatelessWidget {
         _handleSelected(context, index);
       },
       itemBuilder: _buildItems,
+      child: const SizedBox.square(dimension: kMinInteractiveDimension, child: Icon(Remix.apps_2_line)),
     );
   }
 
@@ -45,11 +46,11 @@ class LivePlayMenuButton extends StatelessWidget {
         break;
 
       case 1:
-        _switchLiveRoom();
+        _switchLiveRoom(context);
         break;
 
       case 2:
-        _castScreen();
+        _castScreen(context);
         break;
 
       case 3:
@@ -61,7 +62,7 @@ class LivePlayMenuButton extends StatelessWidget {
         break;
 
       case 5:
-        _getDirectLink();
+        _getDirectLink(context);
         break;
 
       case 6:
@@ -84,14 +85,27 @@ class LivePlayMenuButton extends StatelessWidget {
     controller.openNaviteAPP();
   }
 
-  void _switchLiveRoom() {
-    Get.dialog(PlayOther(controller: controller));
+  void _switchLiveRoom(BuildContext context) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (_) => PlayOther(controller: controller),
+      ),
+    );
   }
 
-  void _castScreen() {
+  void _castScreen(BuildContext context) {
     final detail = controller.state.value.room.detail;
 
-    LiveUrlTool.castPlayUrlByRoomId(roomId: detail?.roomId ?? '', platform: detail?.platform ?? '');
+    LiveUrlTool.castPlayUrlByRoomId(
+      context: context,
+      roomId: detail?.roomId ?? '',
+      platform: detail?.platform ?? '',
+      isCurrentRoom: () =>
+          !controller.isClosed &&
+          detail != null &&
+          (controller.state.value.room.detail?.hasSameIdentity(detail) ?? false),
+    );
   }
 
   void _showTimer(BuildContext context) {
@@ -102,14 +116,20 @@ class LivePlayMenuButton extends StatelessWidget {
     RoomVolumeDialog.show(context: context, controller: controller);
   }
 
-  void _getDirectLink() {
+  void _getDirectLink(BuildContext context) {
     final detail = controller.state.value.room.detail;
 
     if (detail == null) {
       return;
     }
 
-    LiveUrlTool.getPlayUrlByRoomId(roomId: detail.roomId ?? '', platform: detail.platform ?? '');
+    LiveUrlTool.getPlayUrlByRoomId(
+      context: context,
+      roomId: detail.roomId ?? '',
+      platform: detail.platform ?? '',
+      isCurrentRoom: () =>
+          !controller.isClosed && (controller.state.value.room.detail?.hasSameIdentity(detail) ?? false),
+    );
   }
 
   void _shareRoom() {

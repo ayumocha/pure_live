@@ -81,17 +81,22 @@ class RoutePath {
 
   static const kHuyaCookie = "/huya_cookie";
 
+  static const kDouyuAccountCookie = "/douyu_account_cookie";
+
   static const kDouyinCookie = "/douyin_cookie";
 
   static const kTwitchCookie = "/twitch_cookie";
 
   static const kYyCookie = "/yy_cookie";
 
+  static const kTaobaoCookie = "/taobao_cookie";
+
   static const kSoop = "/soop";
 
   // WebDavPage
   static const kWebDavPage = "/web_dav_page";
 
+  /// Historical alias that opened the Douyin cookie page in older releases.
   static const kDouyuCookie = "/douyu_cookie";
 
   static const kKuaishouCookie = "/kuaishou_cookie";

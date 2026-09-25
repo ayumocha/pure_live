@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pure_live/modules/live_play/widgets/danmaku/danmaku_tab.dart';
+import 'package:pure_live/modules/live_play/dialogs/play_other.dart';
 import 'package:pure_live/modules/live_play/widgets/content_first_panel_layout.dart';
+import 'package:pure_live/modules/live_play/widgets/layout/portrait_fullscreen_interaction.dart';
 import 'package:pure_live/modules/live_play/widgets/video_player/video_controller_panel.dart';
+import 'package:pure_live/modules/live_play/states/ui_state.dart';
 
 void main() {
   testWidgets('portrait danmaku section tabs fill the row and stay horizontally fixed', (tester) async {
@@ -55,6 +58,54 @@ void main() {
     }
   });
 
+  test('player expansion controls expose stable accessibility action labels', () {
+    expect(fullscreenActionLabelKey(false), 'enter_fullscreen');
+    expect(fullscreenActionLabelKey(true), 'exit_fullscreen');
+    expect(playerWindowActionLabelKey(false), 'expand_player_window');
+    expect(playerWindowActionLabelKey(true), 'collapse_player_window');
+  });
+
+  test('visible playback bars reserve their hit area from danmaku interactions', () {
+    const size = Size(800, 450);
+
+    expect(
+      shouldHandleVideoSurfaceTap(localPosition: const Offset(400, 20), surfaceSize: size, controlsVisible: true),
+      isFalse,
+      reason: 'top actions such as audio, cast and PiP must keep the tap',
+    );
+    expect(
+      shouldHandleVideoSurfaceTap(localPosition: const Offset(400, 430), surfaceSize: size, controlsVisible: true),
+      isFalse,
+      reason: 'bottom playback actions must keep the tap',
+    );
+    expect(
+      shouldHandleVideoSurfaceTap(localPosition: const Offset(400, 225), surfaceSize: size, controlsVisible: true),
+      isTrue,
+    );
+    expect(
+      shouldHandleVideoSurfaceTap(localPosition: const Offset(400, 20), surfaceSize: size, controlsVisible: false),
+      isTrue,
+      reason: 'hidden bars leave the whole video surface interactive',
+    );
+  });
+
+  test('portrait fullscreen reserves a two-row bottom controller while other modes keep one row', () {
+    expect(resolveBottomActionBarHeight(VideoMode.portraitFullscreen), portraitFullscreenBottomBarHeight);
+    expect(resolveBottomActionBarHeight(VideoMode.normal), 56);
+
+    const size = Size(360, 780);
+    expect(
+      shouldHandleVideoSurfaceTap(
+        localPosition: const Offset(300, 700),
+        surfaceSize: size,
+        controlsVisible: true,
+        controlBarHeight: resolveBottomActionBarHeight(VideoMode.portraitFullscreen),
+      ),
+      isFalse,
+      reason: 'both portrait controller rows must receive taps instead of the video/danmaku layer',
+    );
+  });
+
   test('landscape playback panels occupy the compact right half of a phone viewport', () {
     const viewport = Size(915, 412);
     final rooms = resolveContentFirstPanelLayout(viewport, ContentFirstPanelKind.roomHistory);
@@ -70,7 +121,7 @@ void main() {
     expect(style.splitContent, isTrue, reason: 'phone landscape keeps preview left and controls right');
     expect(resolveStreamChoiceColumns(streams.size.width - 24), 3);
 
-    final roomGridSize = Size(rooms.size.width, rooms.size.height - 36 - 30 - 1);
+    final roomGridSize = Size(rooms.size.width, rooms.size.height - contentFirstPanelHeaderActionExtent - 30 - 1);
     final cardHeight = resolveRoomHistoryCardHeight(contentSize: roomGridSize, columns: 2);
     expect(cardHeight * 2 + 6 * 2 + 5, lessThanOrEqualTo(roomGridSize.height));
   });
@@ -91,7 +142,7 @@ void main() {
       lineCount: 6,
       splitContent: false,
     );
-    expect(common.dialogHeight, 305);
+    expect(common.dialogHeight, 318);
     expect(common.qualityHeight, 126);
     expect(common.lineHeight, 126);
 
@@ -101,7 +152,7 @@ void main() {
       lineCount: 1,
       splitContent: false,
     );
-    expect(shortLists.dialogHeight, 211, reason: 'one quality and one line must not leave a full-height blank dialog');
+    expect(shortLists.dialogHeight, 224, reason: 'one quality and one line must not leave a full-height blank dialog');
 
     final manyChoices = resolveStreamSelectorPanelLayout(
       maximumDialogSize: const Size(449.5, 396),
@@ -120,9 +171,134 @@ void main() {
       splitContent: true,
     );
     expect(wide.splitContent, isTrue);
-    expect(wide.dialogHeight, 221);
+    expect(wide.dialogHeight, 234);
     expect(wide.qualityHeight, 173);
     expect(wide.lineHeight, 173);
+  });
+
+  test('stream selector title reserves a 48dp close target at default text scale', () {
+    final metrics = resolveStreamSelectorTextMetrics(textScaler: TextScaler.noScaling);
+
+    expect(metrics.dialogTitleRowHeight, greaterThanOrEqualTo(48));
+  });
+
+  test('stream selector reserves scaled title and choice rows at accessibility text sizes', () {
+    final metrics = resolveStreamSelectorTextMetrics(textScaler: const TextScaler.linear(3));
+    final layout = resolveStreamSelectorPanelLayout(
+      maximumDialogSize: const Size(449.5, 396),
+      qualityCount: 4,
+      lineCount: 6,
+      splitContent: false,
+      textMetrics: metrics,
+    );
+
+    expect(metrics.dialogTitleRowHeight, greaterThan(35));
+    expect(metrics.paneHeaderHeight, greaterThan(23));
+    expect(metrics.itemHeight, greaterThan(42));
+    expect(layout.dialogHeight, 396);
+    expect(layout.qualityHeight, greaterThanOrEqualTo(metrics.minimumPaneHeight));
+    expect(layout.lineHeight, greaterThanOrEqualTo(metrics.minimumPaneHeight));
+
+    final shortViewport = resolveStreamSelectorPanelLayout(
+      maximumDialogSize: const Size(300, 240),
+      qualityCount: 12,
+      lineCount: 18,
+      splitContent: false,
+      textMetrics: metrics,
+    );
+    final availableBodyHeight = 240 - metrics.dialogChromeHeight - 12;
+    expect(
+      shortViewport.qualityHeight + shortViewport.gap + shortViewport.lineHeight,
+      lessThanOrEqualTo(availableBodyHeight),
+    );
+  });
+
+  testWidgets('stream choice pane keeps 3x labels inside scaled rows', (tester) async {
+    late StreamSelectorTextMetrics metrics;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(3)),
+          child: child!,
+        ),
+        home: Builder(
+          builder: (context) {
+            final textTheme = Theme.of(context).textTheme;
+            metrics = resolveStreamSelectorTextMetrics(
+              textScaler: const TextScaler.linear(3),
+              paneTitleFontSize: textTheme.labelLarge?.fontSize ?? 14,
+              paneTitleLineHeight: textTheme.labelLarge?.height ?? 1.25,
+              itemFontSize: textTheme.bodyMedium?.fontSize ?? 14,
+              itemLineHeight: textTheme.bodyMedium?.height ?? 1.25,
+            );
+            return Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 260,
+                  height: metrics.minimumPaneHeight + 16,
+                  child: StreamChoicePane(
+                    icon: Icons.high_quality_rounded,
+                    title: 'Quality',
+                    itemCount: 2,
+                    selectedIndex: 0,
+                    labelBuilder: (index) => index == 0 ? 'Original' : 'High definition',
+                    textMetrics: metrics,
+                    onSelected: null,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(find.byKey(const ValueKey('stream-choice-0'))).height, metrics.itemHeight);
+    expect(find.text('Quality'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('room switch card keeps both detail rows at 3x text scale', (tester) async {
+    late RoomHistoryTextMetrics metrics;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(3)),
+          child: child!,
+        ),
+        home: Builder(
+          builder: (context) {
+            final textTheme = Theme.of(context).textTheme;
+            metrics = resolveRoomHistoryTextMetrics(
+              textScaler: const TextScaler.linear(3),
+              titleFontSize: textTheme.labelMedium?.fontSize ?? 12,
+              titleLineHeight: textTheme.labelMedium?.height ?? 1.33,
+              detailFontSize: textTheme.labelSmall?.fontSize ?? 11,
+              detailLineHeight: textTheme.labelSmall?.height ?? 1.45,
+            );
+            return Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 220,
+                  child: RoomSwitchCardDetails(
+                    height: metrics.cardFooterHeight,
+                    title: 'A long room title',
+                    nick: 'A long broadcaster name',
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(find.byType(RoomSwitchCardDetails)).height, metrics.cardFooterHeight);
+    expect(find.text('A long room title'), findsOneWidget);
+    expect(find.text('A long broadcaster name'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   test('local style keeps its preview/settings split on a smaller landscape phone', () {
@@ -130,6 +306,13 @@ void main() {
     final style = resolveContentFirstPanelLayout(viewport, ContentFirstPanelKind.localDanmakuStyle);
     expect(style.splitContent, isTrue);
     expect(style.size.width / viewport.width, inInclusiveRange(.47, .51));
+  });
+
+  test('fullscreen local composer follows the global interaction switch', () {
+    expect(shouldShowFullscreenLocalDanmakuComposer(false), isFalse);
+    expect(shouldShowFullscreenLocalDanmakuComposer(true), isTrue);
+    expect(portraitFullscreenComposerHeight, greaterThanOrEqualTo(48));
+    expect(portraitFullscreenBottomBarHeight, greaterThanOrEqualTo(4 * 2 + portraitFullscreenComposerHeight + 2 + 48));
   });
 
   test('large landscape windows keep dense panels split internally', () {

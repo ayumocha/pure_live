@@ -28,6 +28,57 @@ void main() {
     expect(refreshed.lastWatchedAt, 123456);
   });
 
+  test('clearing a history snapshot preserves later watches even when their identity matches', () {
+    final oldA = LiveRoom(roomId: 'a', platform: 'test', title: 'Old A');
+    final oldB = LiveRoom(roomId: 'b', platform: 'test', title: 'Old B');
+    final rewatchedA = LiveRoom(roomId: 'a', platform: 'test', title: 'Rewatched A');
+    final newC = LiveRoom(roomId: 'c', platform: 'test', title: 'New C');
+
+    final result = removeHistorySnapshotEntries([newC, rewatchedA, oldA, oldB], [oldA, oldB]);
+
+    expect(result, [newC, rewatchedA]);
+  });
+
+  test('IPTV provider catch-up policy survives room JSON without accepting non-finite numbers', () {
+    final stored = LiveRoom(
+      roomId: 'iptv-1',
+      platform: 'iptv',
+      catchUpMode: 'append',
+      catchUpSource: '&start={utc}',
+      catchUpDays: 3.5,
+      catchUpCorrectionHours: -2.5,
+    );
+    final decoded = LiveRoom.fromJson(stored.toJson());
+
+    expect(decoded.catchUpMode, 'append');
+    expect(decoded.catchUpSource, '&start={utc}');
+    expect(decoded.catchUpDays, 3.5);
+    expect(decoded.catchUpCorrectionHours, -2.5);
+    expect(LiveRoom.fromJson({'catchUpDays': 'NaN'}).catchUpDays, isNull);
+    expect(LiveRoom.fromJson({'catchUpCorrectionHours': double.infinity}).catchUpCorrectionHours, isNull);
+  });
+
+  test('IPTV HTTP headers survive room JSON with normalized names and no control characters', () {
+    final decoded = LiveRoom.fromJson(
+      LiveRoom(
+        roomId: 'iptv-headers',
+        platform: 'iptv',
+        httpHeaders: const {
+          'User-Agent': 'Channel Agent',
+          'Referrer': 'https://fixture/room',
+          'X-Token': 'line-one\r\nline-two',
+          'bad name': 'discarded',
+        },
+      ).toJson(),
+    );
+
+    expect(decoded.httpHeaders, {
+      'user-agent': 'Channel Agent',
+      'referer': 'https://fixture/room',
+      'x-token': 'line-one line-two',
+    });
+  });
+
   test('history list keeps newest fifty entries', () {
     var history = <LiveRoom>[];
     for (var index = 0; index < 55; index++) {

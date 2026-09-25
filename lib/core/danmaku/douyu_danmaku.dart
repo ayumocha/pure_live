@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:meta/meta.dart';
+
 import '../common/binary_writer.dart';
+
 import 'package:pure_live/core/common/core_log.dart';
 import 'package:pure_live/common/models/live_message.dart';
 import 'package:pure_live/core/common/web_socket_util.dart';
 import 'package:pure_live/core/interface/live_danmaku.dart';
 
-
-
-
 class DouyuDanmaku implements LiveDanmaku {
+  DouyuDanmaku({bool Function()? filterSuspectedAutomatedMessages})
+    : _filterSuspectedAutomatedMessages = filterSuspectedAutomatedMessages ?? (() => false);
+
+  final bool Function() _filterSuspectedAutomatedMessages;
+
   @override
   int heartbeatTime = 45 * 1000;
   bool _connected = false;
@@ -31,6 +36,8 @@ class DouyuDanmaku implements LiveDanmaku {
 
   @override
   Function(LiveMessage msg)? onMessage;
+  @override
+  Function(String msg)? onReconnect;
   @override
   Function(String msg)? onClose;
   @override
@@ -71,7 +78,7 @@ class DouyuDanmaku implements LiveDanmaku {
       onReconnect: () {
         if (generation != _generation) return;
         markDisconnected();
-        onClose?.call("与服务器断开连接，正在尝试重连");
+        onReconnect?.call("与服务器断开连接，正在尝试重连");
       },
       onClose: (e) {
         if (generation != _generation) return;
@@ -98,6 +105,7 @@ class DouyuDanmaku implements LiveDanmaku {
     _generation++;
     markDisconnected();
     onMessage = null;
+    onReconnect = null;
     onClose = null;
     onReady = null;
     await webScoketUtils?.close();
@@ -113,12 +121,12 @@ class DouyuDanmaku implements LiveDanmaku {
         final type = jsonData["type"]?.toString();
         LiveMessage? liveMsg;
         if (type == "chatmsg") {
-          // Current packets mark visible chat with `dms`; older packets can
-          // instead carry the fan flag. Rejecting every packet without `if=1`
-          // dropped ordinary audience chat after the super-chat merge.
-          if (jsonData["dms"] == null && jsonData["if"]?.toString() != '1') continue;
           final packetRoomId = jsonData['rid']?.toString() ?? '';
           if (packetRoomId.isNotEmpty && _roomId.isNotEmpty && packetRoomId != _roomId) continue;
+          final text = jsonData["txt"]?.toString() ?? '';
+          if (text.isEmpty) continue;
+          final isSuspectedAutomated = jsonData['dms'] == null && jsonData['if']?.toString() != '1';
+          if (isSuspectedAutomated && _filterSuspectedAutomatedMessages()) continue;
           final col = int.tryParse(jsonData["col"]?.toString() ?? '') ?? 0;
           final rawTimestamp = int.tryParse(jsonData['cst']?.toString() ?? '');
           final sentAt = rawTimestamp == null
@@ -129,7 +137,7 @@ class DouyuDanmaku implements LiveDanmaku {
             type: LiveMessageType.chat,
             userName: jsonData["nn"]?.toString() ?? '',
             userId: jsonData['uid']?.toString() ?? '',
-            message: jsonData["txt"]?.toString() ?? '',
+            message: text,
             color: getColor(col),
             messageId: messageId.isEmpty ? '' : 'douyu:$messageId',
             sentAt: sentAt,

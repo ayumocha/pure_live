@@ -1,3 +1,6 @@
+import 'package:pure_live/core/interface/live_quality_discovery.dart';
+import 'package:pure_live/player/core/live_input_playback_binding.dart';
+
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -6,11 +9,14 @@ import 'package:pure_live/common/index.dart';
 import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/common/utils/latest_async_value_queue.dart';
 import 'package:pure_live/core/interface/live_danmaku.dart';
+import 'package:pure_live/core/interface/live_site.dart';
 import 'package:pure_live/model/live_play_quality.dart';
 import 'package:pure_live/modules/live_play/controllers/player_controller.dart';
 import 'package:pure_live/modules/multiview/cells/multiview_cell_player.dart';
+import 'package:pure_live/modules/multiview/cells/multiview_frame_watchdog.dart';
 import 'package:pure_live/modules/multiview/danmaku/multiview_danmaku_session.dart';
 import 'package:pure_live/modules/multiview/models/multiview_models.dart';
+import 'package:pure_live/routes/route_observer_controller.dart';
 
 /// 房间对象 → 可播放源解析器。
 ///
@@ -25,6 +31,14 @@ typedef MultiviewStreamResolver = Future<MultiviewStreamSource> Function(LiveRoo
 /// 两者同时出声不可接受，进入时必须先让全局侧静默。注入以便测试。
 typedef MultiviewGlobalPauseHook = Future<void> Function();
 
+/// Loads and saves the per-room volume used by multiview.
+///
+/// Production reuses the same persistent room-volume store as the normal
+/// player. Tests inject deterministic callbacks so the controller remains
+/// independent from the GetX settings lifecycle.
+typedef MultiviewRoomVolumeLoader = double Function(LiveRoom room);
+typedef MultiviewRoomVolumeSaver = Future<void> Function(LiveRoom room, double volume);
+
 /// 多画面同看控制器（无头核心层）。
 ///
 /// 架构决策：
@@ -34,19 +48,27 @@ typedef MultiviewGlobalPauseHook = Future<void> Function();
 /// - 所有释放（removeCell/setLayout 缩容/disposeAll）走同一条
 ///   「pause → 销毁渲染控制器 → 销毁播放内核」路径。
 ///
-/// Remaining enhancement: layout-change render-target renegotiation and
-/// optional session persistence.
+/// Remaining enhancement: optional session persistence.
 class MultiviewController extends GetxController {
   MultiviewController({
     MultiviewCellPlayerFactory? playerFactory,
-    MultiviewStreamResolver? streamResolver,
+    this._streamResolver,
+    Site Function(String)? siteFor,
     MultiviewGlobalPauseHook? pauseGlobalPlayback,
     MultiviewDanmakuEngineFactory? danmakuEngineFactory,
+    MultiviewRoomVolumeLoader? roomVolumeLoader,
+    MultiviewRoomVolumeSaver? roomVolumeSaver,
     int? maxCellCount,
+    this.frameStallTimeout = const Duration(seconds: 10),
+    bool Function()? isFramePresentationVisible,
+    this.frameWatchdogElapsed,
   }) : _playerFactory = playerFactory ?? _defaultPlayerFactory,
-       _streamResolver = streamResolver ?? _defaultStreamResolver,
+       _siteFor = siteFor ?? Sites.of,
        _pauseGlobalPlayback = pauseGlobalPlayback ?? _defaultPauseGlobalPlayback,
        _danmakuEngineFactory = danmakuEngineFactory ?? _defaultDanmakuEngineFactory,
+       _roomVolumeLoader = roomVolumeLoader ?? _defaultRoomVolumeLoader,
+       _roomVolumeSaver = roomVolumeSaver ?? _defaultRoomVolumeSaver,
+       _isFramePresentationVisible = isFramePresentationVisible ?? _defaultFramePresentationVisible,
        maxCellCount = maxCellCount ?? (PlatformUtils.isDesktop ? maxCells : MultiviewLayout.focus.capacity) {
     if (this.maxCellCount < MultiviewLayout.focus.capacity || this.maxCellCount > maxCells) {
       throw ArgumentError.value(this.maxCellCount, 'maxCellCount', 'must be between 4 and $maxCells');
@@ -63,6 +85,16 @@ class MultiviewController extends GetxController {
   /// Effective decoder cap. Mobile remains at four simultaneous cells while
   /// desktop can expand the focus rail to [maxCells].
   final int maxCellCount;
+  final Duration frameStallTimeout;
+  final Duration Function()? frameWatchdogElapsed;
+  final bool Function() _isFramePresentationVisible;
+
+  static bool _defaultFramePresentationVisible() {
+    if (!PlatformUtils.isWindows || !Get.isRegistered<RouteObserverController>()) return false;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return (lifecycle == null || lifecycle == AppLifecycleState.resumed) &&
+        RouteObserverController.to.currentRoute.value == RoutePath.kMultiview;
+  }
 
   /// 生产环境每格播放器工厂。
   static MultiviewCellPlayerHandle _defaultPlayerFactory({required int renderWidth, required int renderHeight}) {
@@ -73,48 +105,139 @@ class MultiviewController extends GetxController {
   ///
   /// 同时取回清晰度列表并构造换档加载器闭包（捕获 detail/site/headers），
   /// 后续 setCellQuality 无需重走 getRoomDetail/getPlayQualites。
-  static Future<MultiviewStreamSource> _defaultStreamResolver(LiveRoom room, {required bool preferLowest}) async {
-    final platform = room.platform!;
-    final site = Sites.of(platform);
+  Future<MultiviewStreamSource> _defaultStreamResolver(
+    LiveRoom room, {
+    required bool preferLowest,
+    required LiveQualityDiscoveryScope discoveryScope,
+  }) => resolveStreamForSite(
+    room,
+    site: _siteFor(room.platform!),
+    preferLowest: preferLowest,
+    discoveryScope: discoveryScope,
+  );
 
-    final detail = await site.liveSite.getRoomDetail(roomId: room.roomId!, platform: platform);
-    final qualities = await site.liveSite.getPlayQualites(detail: detail);
+  @visibleForTesting
+  static Future<MultiviewStreamSource> resolveStreamForSite(
+    LiveRoom room, {
+    required Site site,
+    required bool preferLowest,
+    LiveInputPlaybackBinder bindOwnedInput = bindLiveInputForPlayback,
+    LiveQualityDiscoveryScope? discoveryScope,
+  }) async {
+    discoveryScope?.checkActive();
+    final platform = room.platform!;
+
+    // Multiview must not use the UI-oriented fallback lookup for platforms
+    // that expose a strict playback-complete resolver. The fallback can turn
+    // a transport/shape failure into an offline-looking room; the strict path
+    // preserves the difference between "platform says offline" and "request
+    // failed" while retaining all signed playback fields.
+    final liveSite = site.liveSite;
+    final detail = liveSite is LiveSiteRecordRoomResolver
+        ? await (liveSite as LiveSiteRecordRoomResolver).getRoomDetailForRecording(
+            roomId: room.roomId!,
+            platform: platform,
+          )
+        : await liveSite.getRoomDetail(roomId: room.roomId!, platform: platform);
+    discoveryScope?.checkActive();
+    if (detail.isExplicitlyOfflineNow) {
+      throw MultiviewRoomOffline(detail);
+    }
+    if (!detail.isPlayableNow) {
+      throw StateError('multiview: room status is ${detail.effectiveLiveStatus.name} for $platform/${room.roomId}');
+    }
+    final qualities = discoveryScope == null
+        ? await liveSite.discoverPlayQualities(detail: detail)
+        : await discoveryScope.discover(liveSite, detail);
     if (qualities.isEmpty) {
       throw StateError('multiview: no play qualities for $platform/${room.roomId}');
     }
 
     // 默认最高档（列表首项）；小格自动降质联动开启时小格取最低档（末项）。
     final qualityIndex = preferLowest ? qualities.length - 1 : 0;
-    final urls = await site.liveSite.getPlayUrls(detail: detail, quality: qualities[qualityIndex]);
-    if (urls.isEmpty) {
-      throw StateError('multiview: no play urls for $platform/${room.roomId}');
-    }
-
-    final headers = await PlayerController.resolvePlaybackHeaders(site: site, room: detail);
-
-    // 换档加载器：同房间各清晰度通用同一组 headers；URL 取空视为解析失败。
-    // 返回源携带完整线路列表（lineIndex 归 0），由控制器按当前线路校正。
     Future<MultiviewStreamSource> loadQuality(LivePlayQuality quality) async {
-      final nextUrls = await site.liveSite.getPlayUrls(detail: detail, quality: quality);
-      if (nextUrls.isEmpty) {
+      final resolution = await site.liveSite.resolvePlayUrls(detail: detail, quality: quality);
+      final nextUrls = resolution.urls;
+      if (!resolution.hasSources) {
         throw StateError('multiview: no play urls for $platform/${room.roomId} @ ${quality.quality}');
       }
-      return MultiviewStreamSource(url: nextUrls.first, headers: headers, lines: nextUrls);
+      final applied = resolveAppliedPlayQuality(qualities: qualities, requested: quality, resolution: resolution);
+      final choices = List<LivePlayQuality>.unmodifiable([
+        for (final choice in qualities)
+          choice.selectionId == applied.selectionId ? applied : choice.withPlaybackUnconfirmed(false),
+      ]);
+      final appliedIndex = choices.indexWhere((choice) => choice.selectionId == applied.selectionId);
+      final recipe = resolution.inputRecipe;
+      if (recipe != null) {
+        return MultiviewStreamSource.owned(
+          source: bindOwnedInput(recipe),
+          qualities: choices,
+          qualityIndex: appliedIndex < 0 ? qualityIndex : appliedIndex,
+        );
+      }
+      final headers = await PlayerController.resolvePlaybackHeaders(site: site, room: detail);
+      return MultiviewStreamSource(
+        url: nextUrls.first,
+        headers: Map.unmodifiable(headers),
+        lines: List.unmodifiable(nextUrls),
+        qualities: choices,
+        qualityIndex: appliedIndex < 0 ? qualityIndex : appliedIndex,
+        sourceQueryPolicies: resolution.sourceQueryPolicies,
+      );
     }
 
+    discoveryScope?.checkActive();
+    final initial = await loadQuality(qualities[qualityIndex]);
+    discoveryScope?.checkActive();
+    final owned = initial.ownedSource;
+    if (owned != null) {
+      return MultiviewStreamSource.owned(
+        source: owned,
+        qualities: initial.qualities,
+        qualityIndex: initial.qualityIndex,
+        qualityLoader: loadQuality,
+      );
+    }
     return MultiviewStreamSource(
-      url: urls.first,
-      headers: headers,
-      qualities: qualities,
-      qualityIndex: qualityIndex,
+      url: initial.url,
+      headers: initial.headers,
+      qualities: initial.qualities,
+      qualityIndex: initial.qualityIndex,
       qualityLoader: loadQuality,
-      lines: urls,
+      lines: initial.lines,
+      sourceQueryPolicies: initial.sourceQueryPolicies,
     );
+  }
+
+  static Future<void> _openCellSource(
+    MultiviewCellPlayerHandle handle,
+    MultiviewStreamSource source, {
+    required bool start,
+    String? url,
+  }) {
+    final owned = source.ownedSource;
+    if (owned != null) {
+      if (handle is! MultiviewOwnedInputHandle) {
+        throw StateError('Multiview backend has no owned-input entry point');
+      }
+      final consumer = handle as MultiviewOwnedInputHandle;
+      return start ? consumer.startOwned(owned) : consumer.openOwned(owned);
+    }
+    final selected = url ?? source.url;
+    return start
+        ? handle.start(url: selected, headers: source.headers, sourceQueryPolicy: source.sourceQueryPolicies[selected])
+        : handle.open(url: selected, headers: source.headers, sourceQueryPolicy: source.sourceQueryPolicies[selected]);
   }
 
   /// 生产环境弹幕引擎工厂：复用站点适配器的 getDanmaku()。
   static LiveDanmaku _defaultDanmakuEngineFactory(LiveRoom room) {
     return Sites.of(room.platform!).liveSite.getDanmaku();
+  }
+
+  static double _defaultRoomVolumeLoader(LiveRoom room) => room.getSavedVolume();
+
+  static Future<void> _defaultRoomVolumeSaver(LiveRoom room, double volume) {
+    return room.saveCurrentVolume(volume);
   }
 
   /// 生产环境全局播放静默钩子。
@@ -159,6 +282,10 @@ class MultiviewController extends GetxController {
 
   /// 每格加载纪元，用于丢弃迟到的解析/起播结果（竞态防护）。
   final List<int> _cellEpochs = List<int>.generate(MultiviewLayout.quad.capacity, (_) => 0, growable: true);
+  // Slot indices are reused after shrinking/expanding. A request identity must
+  // never reset with the array slot, even for a non-cancellable legacy resolver.
+  int _nextCellEpoch = 0;
+  int _advanceCellEpoch(int index) => _cellEpochs[index] = ++_nextCellEpoch;
 
   /// 每格播放状态（供 UI 播放/暂停按钮态），与 cells 平行维护；
   /// 由句柄的播放状态流订阅驱动，临时暂停/恢复即时翻转。
@@ -173,8 +300,45 @@ class MultiviewController extends GetxController {
     growable: true,
   );
 
+  final List<MultiviewFrameWatchdog?> _frameWatchdogs = List<MultiviewFrameWatchdog?>.filled(
+    MultiviewLayout.quad.capacity,
+    null,
+    growable: true,
+  );
+  final List<int> _frameStallRecoveries = List<int>.filled(MultiviewLayout.quad.capacity, 0, growable: true);
+  Set<int> _visibleFocusSmallCells = const {};
+
+  /// The page reports the focus rail's physically visible cells. An
+  /// unreported/offscreen small cell is never refreshed solely for missing
+  /// presented frames; the large cell remains monitored independently.
+  void setVisibleFocusSmallCells(Iterable<int> indices) {
+    if (_closed) return;
+    _visibleFocusSmallCells = layout.value == MultiviewLayout.focus
+        ? {
+            for (final index in indices)
+              if (index >= 0 && index < cells.length) index,
+          }
+        : const {};
+    _notifyFrameEligibilityChanged();
+  }
+
+  void _notifyFrameEligibilityChanged() {
+    for (final watchdog in _frameWatchdogs) {
+      watchdog?.eligibilityChanged();
+    }
+  }
+
+  bool _isCellFrameVisible(int cellIndex) =>
+      layout.value != MultiviewLayout.focus ||
+      focusedCellIndex.value == cellIndex ||
+      _visibleFocusSmallCells.contains(cellIndex);
+
   /// 音频焦点格下标，默认 0。
-  int _audioFocusIndex = 0;
+  ///
+  /// 必须是响应式状态：非 focus 布局点击格子后，顶部音量入口、声音来源
+  /// 标识和弹幕目标需要在同一帧切换。旧实现使用普通 int，只能依赖页面
+  /// 手工 setState，导致页级弹幕按钮在 1×1/1×2/2×2 下没有有效目标。
+  final RxInt _audioFocusIndex = 0.obs;
 
   /// Serializes native mute calls and coalesces rapid focus taps to the latest
   /// cell, preventing out-of-order futures from leaving multiple cells audible.
@@ -198,9 +362,27 @@ class MultiviewController extends GetxController {
   final BarrageController barrageController = BarrageController();
 
   final MultiviewCellPlayerFactory _playerFactory;
-  final MultiviewStreamResolver _streamResolver;
+  final MultiviewStreamResolver? _streamResolver;
+  final Site Function(String) _siteFor;
+  final Map<int, LiveQualityDiscoveryScope> _discoveryScopes = {};
+  final Set<Future<void>> _retiringDiscoveries = {};
+  bool _closed = false;
+
+  void _retireDiscovery(LiveQualityDiscoveryScope scope) {
+    late final Future<void> pending;
+    pending = scope.close().whenComplete(() => _retiringDiscoveries.remove(pending));
+    _retiringDiscoveries.add(pending);
+  }
+
+  void _cancelDiscovery(int cellIndex) {
+    final scope = _discoveryScopes.remove(cellIndex);
+    if (scope != null) _retireDiscovery(scope);
+  }
+
   final MultiviewGlobalPauseHook _pauseGlobalPlayback;
   final MultiviewDanmakuEngineFactory _danmakuEngineFactory;
+  final MultiviewRoomVolumeLoader _roomVolumeLoader;
+  final MultiviewRoomVolumeSaver _roomVolumeSaver;
 
   /// 大画面弹幕会话：异常自容错（记日志不外抛），绝不影响播放主链路。
   late final MultiviewDanmakuSession _danmakuSession = MultiviewDanmakuSession(
@@ -212,7 +394,10 @@ class MultiviewController extends GetxController {
   final List<Worker> _rxWorkers = <Worker>[];
 
   /// 当前持有音频焦点的格子下标。
-  int get audioFocusIndex => _audioFocusIndex;
+  int get audioFocusIndex => _audioFocusIndex.value;
+
+  /// UI-only reactive source for selected-cell controls.
+  RxInt get audioFocusIndexState => _audioFocusIndex;
 
   /// focus 布局下是否还能追加小格。
   bool get canAddCell => layout.value == MultiviewLayout.focus && cells.length < maxCellCount;
@@ -232,7 +417,9 @@ class MultiviewController extends GetxController {
       }),
     );
     // 弹幕会话跟随页级开关与大画面切换；房间变化由各变更点显式触发同步。
-    _rxWorkers.add(everAll([danmakuEnabled, focusedCellIndex], (_) => unawaited(_syncDanmakuSession())));
+    _rxWorkers.add(
+      everAll([danmakuEnabled, layout, focusedCellIndex, _audioFocusIndex], (_) => unawaited(_syncDanmakuSession())),
+    );
     // 降质开关切换后即时 reconcile 在播小格，避免开关只影响后续分配。
     _rxWorkers.add(ever(smallCellsLowQuality, (_) => unawaited(_reconcileSmallCellQualities())));
   }
@@ -266,11 +453,19 @@ class MultiviewController extends GetxController {
     );
   }
 
-  /// 按当前开关/布局/大画面房间同步弹幕会话（幂等）。
+  int get _selectedCellIndex {
+    if (cells.isEmpty) return 0;
+    final selected = layout.value == MultiviewLayout.focus ? focusedCellIndex.value : _audioFocusIndex.value;
+    return selected.clamp(0, cells.length - 1);
+  }
+
+  /// 按当前开关/布局/所选房间同步弹幕会话（幂等）。
+  ///
+  /// focus 布局的目标是大画面；1×1/1×2/2×2 的目标是当前声音来源格。
+  /// 因而顶部弹幕按钮在所有布局中都有明确、唯一且可见的渲染目标。
   Future<void> _syncDanmakuSession() async {
     try {
-      final active = danmakuEnabled.value && layout.value == MultiviewLayout.focus;
-      final room = active ? cells[focusedCellIndex.value].room : null;
+      final room = danmakuEnabled.value && cells.isNotEmpty ? cells[_selectedCellIndex].room : null;
       if (room == null || !MultiviewDanmakuSession.supportsRoom(room)) {
         await _danmakuSession.disconnect();
         return;
@@ -290,18 +485,19 @@ class MultiviewController extends GetxController {
   /// 切换布局。
   ///
   /// 缩容时按同一条释放路径销毁多余格；保留前 N 格的播放状态不重建。
-  /// 扩容时追加空白格。已有格不重设渲染分辨率（TODO: 布局切换后重设，
-  /// 当前接受暂时模糊）。
+  /// 扩容时追加空白格。Windows 已有格由视图层按实际 cell viewport
+  /// 防抖重设渲染目标，无需重建播放器或重新解析直播源。
   Future<void> setLayout(MultiviewLayout newLayout) async {
     if (newLayout == layout.value) return;
     final capacity = newLayout.capacity;
 
-    for (var i = capacity; i < _players.length; i++) {
-      await _releaseSlot(i);
-    }
+    // Cancel every removed slot before waiting for any one slow cleanup.
+    await Future.wait([for (var i = capacity; i < _players.length; i++) _releaseSlot(i)]);
 
     while (cells.length > capacity) {
       _playingSubs.removeLast()?.cancel();
+      _frameWatchdogs.removeLast()?.dispose();
+      _frameStallRecoveries.removeLast();
       playingFlags.removeLast();
       cells.removeLast();
       _players.removeLast();
@@ -313,15 +509,18 @@ class MultiviewController extends GetxController {
       _cellEpochs.add(0);
       playingFlags.add(false);
       _playingSubs.add(null);
+      _frameWatchdogs.add(null);
+      _frameStallRecoveries.add(0);
     }
 
+    _visibleFocusSmallCells = const {};
     layout.value = newLayout;
 
     // 进入 focus 布局时视觉跟随既有声源（零音频扰动），
     // 避免出现「大画面无声、声音来自某个小格」的失同步。
     // 进入 focus 时容量为 4，_audioFocusIndex 必在其内，故先同步后钳制安全。
     if (newLayout == MultiviewLayout.focus) {
-      focusedCellIndex.value = _audioFocusIndex;
+      focusedCellIndex.value = _audioFocusIndex.value;
     }
 
     // 缩容后旧的大画面格可能越界，钳制到新容量内
@@ -330,9 +529,11 @@ class MultiviewController extends GetxController {
       focusedCellIndex.value = capacity - 1;
     }
 
-    if (_audioFocusIndex >= capacity) {
+    if (_audioFocusIndex.value >= capacity) {
       _refocusToFirstPlaying(fallback: 0);
     }
+
+    _notifyFrameEligibilityChanged();
 
     // 布局变化可能改变大画面格（进入/离开 focus），同步弹幕会话。
     unawaited(_syncDanmakuSession());
@@ -353,6 +554,8 @@ class MultiviewController extends GetxController {
     _cellEpochs.add(0);
     playingFlags.add(false);
     _playingSubs.add(null);
+    _frameWatchdogs.add(null);
+    _frameStallRecoveries.add(0);
   }
 
   /// focus 布局下把 [cellIndex] 格晋升为大画面。
@@ -367,7 +570,11 @@ class MultiviewController extends GetxController {
   Future<void> promoteCell(int cellIndex) async {
     RangeError.checkValidIndex(cellIndex, cells, 'cellIndex');
     final previousFocused = focusedCellIndex.value;
+    // The rail re-reports visibility after the GlobalKey move. Until then,
+    // monitor only the new large cell rather than trusting the old rail map.
+    _visibleFocusSmallCells = const {};
     focusedCellIndex.value = cellIndex;
+    _notifyFrameEligibilityChanged();
     await setAudioFocus(cellIndex);
 
     if (!smallCellsLowQuality.value || layout.value != MultiviewLayout.focus) return;
@@ -391,28 +598,34 @@ class MultiviewController extends GetxController {
   ///
   /// 若该格已被占用，先走统一释放路径再重新分配。
   /// 解析失败/起播失败置 status=error 并记录错误种类与原始详情，不吞异常。
-  Future<void> assignRoom(int cellIndex, LiveRoom room) async {
+  Future<void> assignRoom(int cellIndex, LiveRoom room, {bool fromFrameRecovery = false}) async {
+    if (_closed || isClosed) return;
     RangeError.checkValidIndex(cellIndex, cells, 'cellIndex');
-    if (room.platform == null || !Sites.isSupported(room.platform!)) {
+    if (!fromFrameRecovery) _frameStallRecoveries[cellIndex] = 0;
+    final targetRoom = room.normalizedIdentityCopy();
+    if (targetRoom.normalizedPlatformId.isEmpty || !Sites.isSupported(targetRoom.normalizedPlatformId)) {
       throw ArgumentError.value(room.platform, 'room.platform', 'Unsupported live platform');
     }
-    if (room.roomId == null || room.roomId!.isEmpty) {
+    if (targetRoom.normalizedRoomId.isEmpty) {
       throw ArgumentError.value(room.roomId, 'room.roomId', 'Room id is required');
     }
 
     // 先推进纪元使该格任何在途解析/起播失效，再释放旧句柄。
     // 旧句柄的销毁不再推进纪元：本此分配已独占该格。
-    final epoch = ++_cellEpochs[cellIndex];
+    final epoch = _advanceCellEpoch(cellIndex);
+    _stopFrameWatchdog(cellIndex);
+    _cancelDiscovery(cellIndex);
     final previousHandle = _players[cellIndex];
     _players[cellIndex] = null;
     if (previousHandle != null) {
       await _teardown(previousHandle);
     }
+    if (_isStale(cellIndex, epoch)) return;
 
     _updateCell(
       cellIndex,
       cells[cellIndex].copyWith(
-        room: room,
+        room: targetRoom,
         status: MultiviewCellStatus.resolving,
         clearError: true,
         clearVideoController: true,
@@ -422,50 +635,92 @@ class MultiviewController extends GetxController {
       ),
     );
 
+    // A room already verified as offline is a valid picker result. Do not hit
+    // playback APIs or construct a native decoder only to surface a generic
+    // error card.
+    if (targetRoom.isExplicitlyOfflineNow) {
+      _setOfflineCell(cellIndex, epoch, targetRoom);
+      return;
+    }
+
     // 小格自动降质联动（仅 focus 布局）：向非大画面格分配时默认取最低档。
     final preferLowest =
         smallCellsLowQuality.value && layout.value == MultiviewLayout.focus && cellIndex != focusedCellIndex.value;
 
     final MultiviewStreamSource source;
+    final scope = LiveQualityDiscoveryScope();
+    _discoveryScopes[cellIndex] = scope;
     try {
-      source = await _streamResolver(room, preferLowest: preferLowest);
+      source = _streamResolver != null
+          ? await _streamResolver(targetRoom, preferLowest: preferLowest)
+          : await _defaultStreamResolver(targetRoom, preferLowest: preferLowest, discoveryScope: scope);
+    } on MultiviewRoomOffline catch (offline) {
+      _setOfflineCell(cellIndex, epoch, offline.room.fillFromDetail(targetRoom));
+      return;
     } catch (error, stackTrace) {
+      if (_isStale(cellIndex, epoch)) return;
       developer.log(
-        'MultiviewController: resolve stream failed for ${room.platform}/${room.roomId}',
+        'MultiviewController: resolve stream failed for ${targetRoom.platform}/${targetRoom.roomId}',
         name: 'MultiviewController',
         error: error,
         stackTrace: stackTrace,
       );
       _failCell(cellIndex, epoch, MultiviewCellErrorKind.resolveFailure, error.toString());
       return;
+    } finally {
+      if (identical(_discoveryScopes[cellIndex], scope)) _discoveryScopes.remove(cellIndex);
+      await scope.close();
     }
     if (_isStale(cellIndex, epoch)) return;
 
     final target = _resolveRenderTarget(layout.value);
     final handle = _playerFactory(renderWidth: target.width.toInt(), renderHeight: target.height.toInt());
+    // Publish ownership before async start so remove/close can retire a relay
+    // whose factory or native initialization is still pending.
+    _players[cellIndex] = handle;
 
     try {
-      await handle.start(url: source.url, headers: source.headers);
+      await _openCellSource(handle, source, start: true);
     } catch (error, stackTrace) {
       developer.log(
-        'MultiviewController: start playback failed for ${room.platform}/${room.roomId}',
+        'MultiviewController: start playback failed for ${targetRoom.platform}/${targetRoom.roomId}',
         name: 'MultiviewController',
         error: error,
         stackTrace: stackTrace,
       );
-      await _teardown(handle);
+      if (cellIndex < _players.length && identical(_players[cellIndex], handle)) {
+        _players[cellIndex] = null;
+        await _teardown(handle);
+      }
       _failCell(cellIndex, epoch, MultiviewCellErrorKind.startFailure, error.toString());
       return;
     }
+
+    // Restore the same per-room volume used by the normal player before this
+    // handle can receive audio focus. All multiview handles start muted, so
+    // this cannot create a first-frame volume burst.
+    try {
+      await handle.setVolume(_roomVolumeLoader(targetRoom).clamp(0.0, 1.0));
+    } catch (error, stackTrace) {
+      developer.log(
+        'MultiviewController: restore room volume failed',
+        name: 'MultiviewController',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
     if (_isStale(cellIndex, epoch)) {
-      await _teardown(handle);
+      if (cellIndex < _players.length && identical(_players[cellIndex], handle)) {
+        _players[cellIndex] = null;
+        await _teardown(handle);
+      }
       return;
     }
 
     _players[cellIndex] = handle;
     _playingSubs[cellIndex]?.cancel();
     _playingSubs[cellIndex] = handle.playingStream.listen((playing) {
-      if (!_isStale(cellIndex, epoch) && cellIndex < playingFlags.length) {
+      if (cellIndex < _players.length && identical(_players[cellIndex], handle) && cellIndex < playingFlags.length) {
         playingFlags[cellIndex] = playing;
       }
     });
@@ -475,18 +730,21 @@ class MultiviewController extends GetxController {
       cells[cellIndex].copyWith(
         status: MultiviewCellStatus.playing,
         videoController: handle.videoController,
+        ownedSource: source.ownedSource,
         qualities: source.qualities,
         qualityIndex: source.qualityIndex,
         qualityLoader: source.qualityLoader,
         headers: source.headers,
         lines: source.lines,
         lineIndex: source.lineIndex,
+        sourceQueryPolicies: source.sourceQueryPolicies,
       ),
     );
+    _watchCellFrames(cellIndex, epoch, handle);
     // focus 布局下向非大格分配房间时，新流保持静音起播、不抢声源，
     // 用户点击晋升（promoteCell）才出声；其余布局维持「新格即声源」。
     final shouldTakeAudioFocus = layout.value != MultiviewLayout.focus || cellIndex == focusedCellIndex.value;
-    if (shouldTakeAudioFocus) {
+    if (shouldTakeAudioFocus && (!fromFrameRecovery || _audioFocusIndex.value == cellIndex)) {
       await setAudioFocus(cellIndex);
     }
     // 大画面房间可能已变化，同步弹幕会话（幂等）。
@@ -517,7 +775,8 @@ class MultiviewController extends GetxController {
       throw StateError('multiview: cell $cellIndex is not playing');
     }
 
-    final epoch = ++_cellEpochs[cellIndex];
+    final epoch = _advanceCellEpoch(cellIndex);
+    _stopFrameWatchdog(cellIndex);
     final MultiviewStreamSource next;
     try {
       next = await loader(state.qualities[qualityIndex]);
@@ -536,11 +795,19 @@ class MultiviewController extends GetxController {
     // 换清晰度尽量保持当前线路：新档位线路数不足时回退首线路；
     // 加载器未提供线路列表时维持原状（兼容假实现/旧解析器）。
     final hasLines = next.lines.isNotEmpty;
-    final keepLine = hasLines ? (state.lineIndex < next.lines.length ? state.lineIndex : 0) : state.lineIndex;
+    final owned = next.ownedSource != null;
+    final resetLines = owned || state.ownedSource != null;
+    final keepLine = owned
+        ? 0
+        : hasLines
+        ? (state.lineIndex < next.lines.length ? state.lineIndex : 0)
+        : resetLines
+        ? 0
+        : state.lineIndex;
     final openUrl = hasLines ? next.lines[keepLine] : next.url;
 
     try {
-      await handle.open(url: openUrl, headers: next.headers);
+      await _openCellSource(handle, next, start: false, url: openUrl);
     } catch (error, stackTrace) {
       developer.log(
         'MultiviewController: quality switch open failed for cell $cellIndex',
@@ -556,11 +823,21 @@ class MultiviewController extends GetxController {
     _updateCell(
       cellIndex,
       cells[cellIndex].copyWith(
-        qualityIndex: qualityIndex,
-        lines: hasLines ? next.lines : null,
-        lineIndex: hasLines ? keepLine : null,
+        ownedSource: next.ownedSource,
+        clearOwnedSource: !owned,
+        qualities: next.qualities.isEmpty ? null : next.qualities,
+        qualityIndex: next.qualities.isEmpty ? qualityIndex : next.qualityIndex,
+        headers: next.headers,
+        sourceQueryPolicies: next.sourceQueryPolicies,
+        lines: hasLines
+            ? next.lines
+            : resetLines
+            ? const []
+            : null,
+        lineIndex: hasLines || resetLines ? keepLine : null,
       ),
     );
+    _watchCellFrames(cellIndex, epoch, handle);
   }
 
   /// 切换指定格的线路：同 Player 换流，不重建播放器实例。
@@ -585,9 +862,14 @@ class MultiviewController extends GetxController {
       throw StateError('multiview: cell $cellIndex is not playing');
     }
 
-    final epoch = ++_cellEpochs[cellIndex];
+    final epoch = _advanceCellEpoch(cellIndex);
+    _stopFrameWatchdog(cellIndex);
     try {
-      await handle.open(url: state.lines[lineIndex], headers: state.headers);
+      await handle.open(
+        url: state.lines[lineIndex],
+        headers: state.headers,
+        sourceQueryPolicy: state.sourceQueryPolicies[state.lines[lineIndex]],
+      );
     } catch (error, stackTrace) {
       developer.log(
         'MultiviewController: line switch open failed for cell $cellIndex',
@@ -601,6 +883,7 @@ class MultiviewController extends GetxController {
     if (_isStale(cellIndex, epoch)) return;
 
     _updateCell(cellIndex, cells[cellIndex].copyWith(lineIndex: lineIndex));
+    _watchCellFrames(cellIndex, epoch, handle);
   }
 
   /// 临时暂停/恢复指定格（不触发释放流程，格状态保持 playing）。
@@ -616,16 +899,31 @@ class MultiviewController extends GetxController {
     if (cellIndex >= playingFlags.length) {
       throw StateError('multiview: playing flag missing for cell $cellIndex');
     }
-    if (handle.isPlaying) {
-      await handle.pause();
-      playingFlags[cellIndex] = false;
-    } else {
-      await handle.resume();
-      playingFlags[cellIndex] = true;
+    final epoch = _cellEpochs[cellIndex];
+    bool current() => !_isStale(cellIndex, epoch) && identical(_players[cellIndex], handle);
+    try {
+      if (handle.isPlaying) {
+        await handle.pause();
+      } else {
+        // A closed owned session may require fresh network acquisition here.
+        await handle.resume();
+      }
+      if (current()) playingFlags[cellIndex] = handle.isPlaying;
+    } catch (error, stackTrace) {
+      if (!current()) return;
+      developer.log(
+        'Multiview playback intent failed',
+        name: 'MultiviewController',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      playingFlags[cellIndex] = handle.isPlaying;
+      _failCell(cellIndex, epoch, MultiviewCellErrorKind.startFailure, error.toString());
     }
   }
 
-  /// 设置指定格的会话音量（0.0-1.0，不持久化；静音状态独立于音量值）。
+  /// 设置指定格的音量（0.0-1.0）并写入普通播放器共用的房间音量存储。
+  /// 静音状态独立于音量值。
   Future<void> setCellVolume(int cellIndex, double volume) async {
     RangeError.checkValidIndex(cellIndex, cells, 'cellIndex');
     if (cells[cellIndex].status != MultiviewCellStatus.playing) {
@@ -635,7 +933,22 @@ class MultiviewController extends GetxController {
     if (handle == null) {
       throw StateError('multiview: cell $cellIndex is not playing');
     }
-    await handle.setVolume(volume);
+    final resolved = volume.clamp(0.0, 1.0).toDouble();
+    await handle.setVolume(resolved);
+    final room = cells[cellIndex].room;
+    if (room == null) return;
+    try {
+      await _roomVolumeSaver(room, resolved);
+    } catch (error, stackTrace) {
+      // A damaged preference store must not turn a working volume adjustment
+      // into a playback failure. The active player has already applied it.
+      developer.log(
+        'MultiviewController: persist room volume failed',
+        name: 'MultiviewController',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// 读取指定格的会话音量当前值（供 UI 音量控件初始化）；未起播返回 1.0。
@@ -650,7 +963,7 @@ class MultiviewController extends GetxController {
   void removeCell(int cellIndex) {
     RangeError.checkValidIndex(cellIndex, cells, 'cellIndex');
     final handle = _captureSlot(cellIndex);
-    if (_audioFocusIndex == cellIndex) {
+    if (_audioFocusIndex.value == cellIndex) {
       _refocusToFirstPlaying(fallback: cellIndex);
     }
     // 关闭大画面格后显示焦点不能空置：转移到第一个播放中的格，无播放格归 0
@@ -668,7 +981,7 @@ class MultiviewController extends GetxController {
   /// 切换音频焦点：仅目标格出声，其余全部静音。
   Future<void> setAudioFocus(int cellIndex) {
     RangeError.checkValidIndex(cellIndex, cells, 'cellIndex');
-    _audioFocusIndex = cellIndex;
+    _audioFocusIndex.value = cellIndex;
     return _audioFocusTransitions.submit(cellIndex).catchError((Object error, StackTrace stackTrace) {
       developer.log(
         'MultiviewController: audio focus transition failed',
@@ -700,7 +1013,7 @@ class MultiviewController extends GetxController {
 
     // A newer tap arrived while native mute calls were in flight. The queue
     // will apply that pending target next, so never unmute this stale target.
-    if (_audioFocusIndex != targetIndex || targetIndex >= _players.length) return;
+    if (_audioFocusIndex.value != targetIndex || targetIndex >= _players.length) return;
     final target = _players[targetIndex];
     if (target != null) await target.setMuted(false);
   }
@@ -711,6 +1024,7 @@ class MultiviewController extends GetxController {
   /// notifier，必须先摘除全部渲染引用再开始原生销毁；句柄随后在后台
   /// 串行 teardown，onClose 场景不阻塞路由 pop。
   Future<void> disposeAll() async {
+    _visibleFocusSmallCells = const {};
     final handles = <MultiviewCellPlayerHandle>[];
     for (var i = 0; i < _players.length; i++) {
       final handle = _captureSlot(i);
@@ -718,7 +1032,7 @@ class MultiviewController extends GetxController {
         handles.add(handle);
       }
     }
-    _audioFocusIndex = 0;
+    _audioFocusIndex.value = 0;
     focusedCellIndex.value = 0;
 
     // 弹幕会话先行断开：网络栈清理与播放器销毁互不依赖。
@@ -738,10 +1052,15 @@ class MultiviewController extends GetxController {
         );
       }
     }
+    // Slots removed earlier may still own a creating seat or draining input.
+    // Joining them is part of page teardown, even though their UI is empty.
+    await Future.wait([for (final pending in _retiringPlayers.values.toList()) pending.catchError((Object _) {})]);
+    await Future.wait(_retiringDiscoveries.toList());
   }
 
   @override
   void onClose() {
+    _closed = true;
     for (final worker in _rxWorkers) {
       worker.dispose();
     }
@@ -750,7 +1069,100 @@ class MultiviewController extends GetxController {
     super.onClose();
   }
 
-  bool _isStale(int cellIndex, int epoch) => cellIndex >= _cellEpochs.length || _cellEpochs[cellIndex] != epoch;
+  bool _isStale(int cellIndex, int epoch) =>
+      _closed || isClosed || cellIndex >= _cellEpochs.length || _cellEpochs[cellIndex] != epoch;
+
+  void _stopFrameWatchdog(int cellIndex) {
+    _frameWatchdogs[cellIndex]?.dispose();
+    _frameWatchdogs[cellIndex] = null;
+  }
+
+  void _watchCellFrames(int cellIndex, int epoch, MultiviewCellPlayerHandle handle) {
+    _stopFrameWatchdog(cellIndex);
+    if (frameStallTimeout <= Duration.zero || handle is! MultiviewFrameProgressHandle) return;
+    final revision = (handle as MultiviewFrameProgressHandle).frameRevision;
+    if (revision == null) return;
+    late final MultiviewFrameWatchdog watchdog;
+    watchdog = MultiviewFrameWatchdog(
+      revision: revision,
+      timeout: frameStallTimeout,
+      elapsed: frameWatchdogElapsed,
+      isEligible: () =>
+          !_isStale(cellIndex, epoch) &&
+          identical(_players[cellIndex], handle) &&
+          cells[cellIndex].status == MultiviewCellStatus.playing &&
+          _isCellFrameVisible(cellIndex) &&
+          playingFlags[cellIndex] &&
+          handle.isPlaying &&
+          _isFramePresentationVisible(),
+      onStall: () {
+        if (cellIndex < _frameWatchdogs.length && identical(_frameWatchdogs[cellIndex], watchdog)) {
+          _frameWatchdogs[cellIndex] = null;
+        }
+        unawaited(
+          _recoverPresentedFrameStall(cellIndex, epoch, handle).catchError((Object error, StackTrace stackTrace) {
+            developer.log(
+              'Multiview cell $cellIndex frame-stall recovery failed',
+              name: 'MultiviewController',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+        );
+      },
+    );
+    _frameWatchdogs[cellIndex] = watchdog;
+    watchdog.start();
+  }
+
+  Future<void> _recoverPresentedFrameStall(int cellIndex, int epoch, MultiviewCellPlayerHandle handle) async {
+    if (_isStale(cellIndex, epoch) ||
+        !identical(_players[cellIndex], handle) ||
+        !_isCellFrameVisible(cellIndex) ||
+        !handle.isPlaying ||
+        !playingFlags[cellIndex] ||
+        !_isFramePresentationVisible()) {
+      return;
+    }
+    final state = cells[cellIndex];
+    final room = state.room;
+    if (room == null || state.status != MultiviewCellStatus.playing) return;
+    if (_frameStallRecoveries[cellIndex] >= 2) {
+      developer.log('Multiview cell $cellIndex exhausted automatic frame-stall recovery', name: 'MultiviewController');
+      return;
+    }
+    _frameStallRecoveries[cellIndex]++;
+    final selectedQualityId = state.qualities.isNotEmpty && state.qualityIndex < state.qualities.length
+        ? state.qualities[state.qualityIndex].selectionId
+        : null;
+    final selectedLine = state.lineIndex;
+    developer.log('Multiview cell $cellIndex presented-frame stall; refreshing room', name: 'MultiviewController');
+    final refresh = assignRoom(cellIndex, room, fromFrameRecovery: true);
+    final refreshEpoch = _cellEpochs[cellIndex];
+    await refresh;
+    if (_isStale(cellIndex, refreshEpoch) || cells[cellIndex].status != MultiviewCellStatus.playing) return;
+    final refreshedHandle = _players[cellIndex];
+    if (refreshedHandle == null) return;
+    if (selectedQualityId != null) {
+      final qualityIndex = cells[cellIndex].qualities.indexWhere((quality) => quality.selectionId == selectedQualityId);
+      if (qualityIndex >= 0 && qualityIndex != cells[cellIndex].qualityIndex) {
+        final qualityRestore = setCellQuality(cellIndex, qualityIndex);
+        // setCellQuality advances the slot epoch before its first await. A
+        // later manual line/quality choice must supersede this recovery.
+        final qualityEpoch = _cellEpochs[cellIndex];
+        await qualityRestore;
+        if (_isStale(cellIndex, qualityEpoch)) return;
+      }
+    }
+    if (!identical(_players[cellIndex], refreshedHandle) || cells[cellIndex].status != MultiviewCellStatus.playing) {
+      return;
+    }
+    if (selectedLine > 0 &&
+        selectedLine < cells[cellIndex].lines.length &&
+        selectedLine != cells[cellIndex].lineIndex) {
+      await setCellLine(cellIndex, selectedLine);
+    }
+  }
 
   /// 记录失败种类与原始错误文本；展示文案由 UI 按语言映射，核心层不拼自然语言。
   void _failCell(int cellIndex, int epoch, MultiviewCellErrorKind kind, String detail) {
@@ -761,25 +1173,42 @@ class MultiviewController extends GetxController {
     );
     // 大画面解析/起播失败时其房间状态已不可用，同步弹幕会话
     // （幂等入口：健康同键会话保持，失效则按当前大画面房间按需重连）。
-    if (layout.value == MultiviewLayout.focus && cellIndex == focusedCellIndex.value) {
+    if (cellIndex == _selectedCellIndex) {
       unawaited(_syncDanmakuSession());
     }
+  }
+
+  void _setOfflineCell(int cellIndex, int epoch, LiveRoom room) {
+    if (_isStale(cellIndex, epoch)) return;
+    playingFlags[cellIndex] = false;
+    _updateCell(
+      cellIndex,
+      cells[cellIndex].copyWith(
+        room: room,
+        status: MultiviewCellStatus.offline,
+        clearError: true,
+        clearVideoController: true,
+        clearQuality: true,
+      ),
+    );
+    unawaited(_syncDanmakuSession());
   }
 
   /// 统一释放路径：捕获句柄置空 → pause → 销毁播放内核
   /// （渲染控制器原生清理随 player.dispose 的 release 钩子完成）。
   Future<void> _releaseSlot(int cellIndex) async {
     final handle = _captureSlot(cellIndex);
-    if (handle != null) {
-      await _teardown(handle);
-    }
+    if (handle != null) await _teardown(handle);
+    await Future.wait(_retiringDiscoveries.toList());
   }
 
   /// 同步捕获并清空一格：句柄置空、纪元推进、状态回到 empty。
   MultiviewCellPlayerHandle? _captureSlot(int cellIndex) {
+    _stopFrameWatchdog(cellIndex);
     final handle = _players[cellIndex];
     _players[cellIndex] = null;
-    _cellEpochs[cellIndex]++;
+    _advanceCellEpoch(cellIndex);
+    _cancelDiscovery(cellIndex);
     _playingSubs[cellIndex]?.cancel();
     _playingSubs[cellIndex] = null;
     if (cellIndex < playingFlags.length) {
@@ -789,13 +1218,29 @@ class MultiviewController extends GetxController {
     return handle;
   }
 
-  Future<void> _teardown(MultiviewCellPlayerHandle handle) async {
-    try {
-      await handle.pause();
-    } finally {
-      await handle.disposePlayer();
+  final Map<MultiviewCellPlayerHandle, Future<void>> _retiringPlayers = Map.identity();
+
+  Future<void> _teardown(MultiviewCellPlayerHandle handle) => _retiringPlayers.putIfAbsent(handle, () {
+    Future<void> retire() async {
+      try {
+        await handle.pause();
+      } finally {
+        await handle.disposePlayer();
+      }
     }
-  }
+
+    final work = retire().whenComplete(() {
+      _retiringPlayers.remove(handle);
+    });
+    // removeCell is synchronous. Observe failures from its background cleanup
+    // without concealing them from a caller that explicitly awaits teardown.
+    unawaited(
+      work.catchError((Object error, StackTrace stack) {
+        developer.log('Multiview cell cleanup failed', name: 'MultiviewController', error: error, stackTrace: stack);
+      }),
+    );
+    return work;
+  });
 
   /// 第一个播放中的格下标；没有则返回 null。
   int? _findPlayingCell() {
@@ -813,7 +1258,7 @@ class MultiviewController extends GetxController {
     if (target != null) {
       setAudioFocus(target);
     } else {
-      _audioFocusIndex = fallback;
+      _audioFocusIndex.value = fallback;
     }
   }
 
@@ -821,7 +1266,7 @@ class MultiviewController extends GetxController {
     cells[cellIndex] = state;
   }
 
-  /// 按当前布局把屏幕物理像素均分，得到每格固定渲染分辨率。
+  /// 按当前布局把屏幕物理像素均分，得到播放器创建时的初始渲染分辨率。
   Size _resolveRenderTarget(MultiviewLayout l) {
     final screen = _probeScreenMetrics();
     // ponytail: 无窗口树（纯 Dart 测试/极早期调用）退回 720p 基线，

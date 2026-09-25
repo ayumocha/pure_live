@@ -1,4 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import 'package:pure_live/core/common/hls_source_query_policy.dart';
+import 'package:pure_live/core/interface/live_site.dart';
+import 'package:pure_live/core/site/douyin/douyin_site.dart';
+import 'package:pure_live/core/sites.dart';
+import 'package:pure_live/player/core/playback_source_transport.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -14,7 +23,7 @@ import 'package:pure_live/modules/multiview/multiview_controller.dart';
 /// 所有操作按「名称:动作」写入共享日志，用于断言释放顺序与静音互斥。
 /// 音量模型与真实实现一致：会话音量（sessionVolume）与静音标志（muted）
 /// 相互独立，[volume] 暴露实际输出音量（muted ? 0 : sessionVolume）。
-class _RecordingPlayer implements MultiviewCellPlayerHandle {
+class _RecordingPlayer implements MultiviewCellPlayerHandle, MultiviewNativeInputRouting, MultiviewFrameProgressHandle {
   _RecordingPlayer(this._log, this.name);
 
   final List<String> _log;
@@ -36,6 +45,11 @@ class _RecordingPlayer implements MultiviewCellPlayerHandle {
   int startCalls = 0;
   int openCalls = 0;
   int resumeCalls = 0;
+  final inputs = <(String, Map<String, String>, HlsSourceQueryPolicy?, bool)>[];
+  bool privateInput = false;
+  Completer<void>? openGate;
+  @override
+  void setPrivateInput(bool value) => privateInput = value;
   Object? startError;
 
   /// 非空时 pause 挂起直至门闩完成，模拟慢速原生释放。
@@ -51,6 +65,10 @@ class _RecordingPlayer implements MultiviewCellPlayerHandle {
   Object? disposeError;
 
   final StreamController<bool> _playingController = StreamController<bool>.broadcast();
+  @override
+  final ValueNotifier<int> frameRevision = ValueNotifier<int>(0);
+
+  void emitFrame() => frameRevision.value++;
 
   @override
   VideoController? get videoController => null;
@@ -67,9 +85,14 @@ class _RecordingPlayer implements MultiviewCellPlayerHandle {
   }
 
   @override
-  Future<void> start({required String url, required Map<String, String> headers}) async {
+  Future<void> start({
+    required String url,
+    required Map<String, String> headers,
+    HlsSourceQueryPolicy? sourceQueryPolicy,
+  }) async {
     _log.add('$name:start');
     startCalls++;
+    inputs.add((url, headers, sourceQueryPolicy, privateInput));
     // 契约：一律静音起播。
     muted = true;
     volume = 0.0;
@@ -79,9 +102,15 @@ class _RecordingPlayer implements MultiviewCellPlayerHandle {
   }
 
   @override
-  Future<void> open({required String url, required Map<String, String> headers}) async {
+  Future<void> open({
+    required String url,
+    required Map<String, String> headers,
+    HlsSourceQueryPolicy? sourceQueryPolicy,
+  }) async {
     _log.add('$name:open:$url');
     openCalls++;
+    inputs.add((url, headers, sourceQueryPolicy, privateInput));
+    if (openGate != null) await openGate!.future;
     _setPlaying(true);
   }
 
@@ -153,13 +182,25 @@ class _FakeDanmaku extends LiveDanmaku {
 
 /// 测试装配体：假工厂 + 假解析器 + 可控的解析门闩。
 class _Harness {
-  _Harness({int? maxCellCount}) {
+  _Harness({
+    int? maxCellCount,
+    Duration frameStallTimeout = Duration.zero,
+    bool Function()? frameVisible,
+    Duration Function()? frameElapsed,
+  }) {
     controller = MultiviewController(
       playerFactory: _factory,
       streamResolver: _resolver,
       pauseGlobalPlayback: () async => globalPauseCalls++,
       danmakuEngineFactory: _danmakuFactory,
+      roomVolumeLoader: (room) => savedRoomVolumes[_volumeKey(room)] ?? 1.0,
+      roomVolumeSaver: (room, volume) async {
+        savedRoomVolumes[_volumeKey(room)] = volume;
+      },
       maxCellCount: maxCellCount,
+      frameStallTimeout: frameStallTimeout,
+      isFramePresentationVisible: frameVisible,
+      frameWatchdogElapsed: frameElapsed,
     );
   }
 
@@ -168,10 +209,12 @@ class _Harness {
   final List<(int, int)> requestedSizes = <(int, int)>[];
   final Map<String, Completer<void>> gates = <String, Completer<void>>{};
   final Set<String> resolveFailures = <String>{};
+  final Set<String> resolvedOfflineRooms = <String>{};
   final Map<String, bool> resolvePreferences = <String, bool>{};
   final Map<String, Completer<void>> qualityGates = <String, Completer<void>>{};
   final Set<String> qualityLoadFailures = <String>{};
   final Map<String, _FakeDanmaku> danmakuEngines = <String, _FakeDanmaku>{};
+  final Map<String, double> savedRoomVolumes = <String, double>{};
   int globalPauseCalls = 0;
   int playerSeq = 0;
   int danmakuSeq = 0;
@@ -180,6 +223,8 @@ class _Harness {
   Object? nextStartError;
 
   late final MultiviewController controller;
+
+  String _volumeKey(LiveRoom room) => '${room.platform}/${room.roomId}';
 
   MultiviewCellPlayerHandle _factory({required int renderWidth, required int renderHeight}) {
     requestedSizes.add((renderWidth, renderHeight));
@@ -195,6 +240,9 @@ class _Harness {
 
   Future<MultiviewStreamSource> _resolver(LiveRoom room, {required bool preferLowest}) async {
     final id = room.roomId!;
+    if (resolvedOfflineRooms.contains(id)) {
+      throw MultiviewRoomOffline(room.copyWith(status: false, liveStatus: LiveStatus.offline, isRecord: false));
+    }
     if (resolveFailures.contains(id)) {
       throw StateError('resolver boom for $id');
     }
@@ -244,9 +292,355 @@ class _Harness {
   }
 }
 
-LiveRoom _room(String id) => LiveRoom(roomId: id, platform: 'bilibili', danmakuData: <String, dynamic>{'id': id});
+LiveRoom _room(String id) => LiveRoom(
+  roomId: id,
+  platform: 'bilibili',
+  status: true,
+  liveStatus: LiveStatus.live,
+  danmakuData: <String, dynamic>{'id': id},
+);
+
+class _DouyinMultiviewFixtureSite extends DouyinSite {
+  _DouyinMultiviewFixtureSite(this.detail);
+
+  final LiveRoom detail;
+  int strictCalls = 0;
+  int fallbackCalls = 0;
+
+  @override
+  Future<LiveRoom> getRoomDetailForRecording({required String platform, required String roomId}) async {
+    strictCalls++;
+    return detail;
+  }
+
+  @override
+  Future<LiveRoom> getRoomDetail({required String platform, required String roomId}) async {
+    fallbackCalls++;
+    return detail;
+  }
+}
 
 void main() {
+  test('Douyin multiview lowest quality remains a video source with required headers', () async {
+    final previousCookie = DouyinSite.cookie;
+    DouyinSite.cookie = 'ttwid=fixture';
+    final fixture = _DouyinMultiviewFixtureSite(
+      LiveRoom(
+        roomId: '123456789',
+        platform: Sites.douyinSite,
+        status: true,
+        liveStatus: LiveStatus.live,
+        data: {
+          'live_core_sdk_data': {
+            'pull_data': {
+              'options': {
+                'qualities': [
+                  {'name': '原画', 'sdk_key': 'origin'},
+                  {'name': '流畅', 'sdk_key': 'md'},
+                  {'name': 'ao', 'sdk_key': 'ao'},
+                ],
+              },
+              'stream_data': jsonEncode({
+                'data': {
+                  'origin': {
+                    'main': {'flv': 'https://cdn.test/source.flv'},
+                  },
+                  'md': {
+                    'main': {'flv': 'https://cdn.test/smooth.flv'},
+                  },
+                  'ao': {
+                    'main': {'flv': 'https://cdn.test/audio.flv?only_audio=1'},
+                  },
+                },
+              }),
+            },
+          },
+        },
+      ),
+    );
+
+    try {
+      final source = await MultiviewController.resolveStreamForSite(
+        LiveRoom(roomId: '123456789', platform: Sites.douyinSite),
+        site: Site(id: Sites.douyinSite, name: '抖音', logo: '', liveSite: fixture),
+        preferLowest: true,
+      );
+
+      expect(fixture.strictCalls, 1);
+      expect(fixture.fallbackCalls, 0);
+      expect(source.qualities.map((quality) => quality.selectionId), ['origin', 'md']);
+      expect(source.qualityIndex, 1);
+      expect(source.url, 'https://cdn.test/smooth.flv');
+      expect(Uri.parse(source.url).queryParameters['only_audio'], isNull);
+      expect(source.headers['origin'], 'https://live.douyin.com');
+      expect(source.headers['referer'], 'https://live.douyin.com/123456789');
+      expect(source.headers['cookie'], 'ttwid=fixture');
+      expect(source.headers['user-agent'], isNotEmpty);
+    } finally {
+      DouyinSite.cookie = previousCookie;
+    }
+  });
+
+  test('default multiview resolution retains source policies and acknowledged quality', () async {
+    final liveSite = _PolicyMultiviewSite();
+    final source = await MultiviewController.resolveStreamForSite(
+      _room('policy'),
+      site: Site(id: 'bilibili', name: 'Test', logo: '', liveSite: liveSite),
+      preferLowest: false,
+    );
+    expect(source.qualityIndex, 1);
+    expect(source.qualities[1].isPlaybackUnconfirmed, isFalse);
+    expect(source.sourceQueryPolicies.keys, source.lines);
+    expect(source.sourceQueryPolicies[source.url]!.matchesSource(Uri.parse(source.url)), isTrue);
+    final next = await source.qualityLoader!(source.qualities[0]);
+    expect(next.qualityIndex, 1);
+    expect(next.sourceQueryPolicies.keys, next.lines);
+    expect(next.url, isNot(source.url));
+    expect(liveSite.legacyCalls, 0);
+  });
+
+  test('default multiview resolution forwards IPTV per-channel headers', () async {
+    final source = await MultiviewController.resolveStreamForSite(
+      LiveRoom(roomId: 'headers', platform: Sites.iptvSite),
+      site: Site(id: Sites.iptvSite, name: 'IPTV', logo: '', liveSite: _HeaderMultiviewSite()),
+      preferLowest: false,
+    );
+
+    expect(source.url, 'https://fixture/live.m3u8');
+    expect(source.headers, {'authorization': 'Bearer multiview', 'referer': 'https://fixture/room'});
+  });
+
+  test('quality commits rotating headers and policy before later line changes', () async {
+    final harness = _Harness();
+    final controller = harness.controller;
+    try {
+      await controller.assignRoom(0, _room('metadata'));
+      final state = controller.cells[0];
+      const urls = ['https://cdn.example/a/master.m3u8?token=new', 'https://cdn.example/b/master.m3u8?token=new'];
+      final policies = {for (final url in urls) url: HlsSourceQueryPolicy.fromSource(Uri.parse(url))};
+      controller.cells[0] = state.copyWith(
+        qualityLoader: (_) async => MultiviewStreamSource(
+          url: urls.first,
+          headers: const {'Authorization': 'fixture-new'},
+          lines: urls,
+          sourceQueryPolicies: policies,
+          qualities: state.qualities,
+          qualityIndex: 1,
+        ),
+      );
+      await controller.setCellQuality(0, 1);
+      await controller.setCellLine(0, 1);
+      final input = harness.players.single.inputs.last;
+      expect(input.$1, urls[1]);
+      expect(input.$2, const {'Authorization': 'fixture-new'});
+      expect(input.$3, same(policies[urls[1]]));
+      harness.players.single._setPlaying(false);
+      await harness.pump();
+      expect(controller.playingFlags[0], isFalse);
+      expect(controller.cells[0].copyWith(lines: const ['https://new']).sourceQueryPolicies, isEmpty);
+      expect(controller.cells[0].copyWith(clearQuality: true).sourceQueryPolicies, isEmpty);
+    } finally {
+      await controller.disposeAll();
+    }
+  });
+
+  test('real cell owner isolates leases and passes only private URLs and empty headers to backend', () async {
+    const first = 'https://cdn.example/a/master.m3u8?token=a';
+    const second = 'https://cdn.example/b/master.m3u8?token=b';
+    final backends = [_RecordingPlayer([], 'a'), _RecordingPlayer([], 'b')];
+    final closes = <String>[];
+    final cells = [
+      for (final backend in backends)
+        MultiviewCellPlayer(
+          renderWidth: 640,
+          renderHeight: 360,
+          backend: backend,
+          createInput: (url, headers, policy) async {
+            expect(headers, const {'Authorization': 'fixture'});
+            expect(policy.matchesSource(Uri.parse(url)), isTrue);
+            return PlaybackInputLease(
+              Uri.parse('http://127.0.0.1:19001/${Uri.parse(url).pathSegments.first}/root.m3u8'),
+              () async {
+                closes.add(url);
+              },
+            );
+          },
+        ),
+    ];
+    try {
+      for (var i = 0; i < 2; i++) {
+        final url = i == 0 ? first : second;
+        await cells[i].start(
+          url: url,
+          headers: const {'Authorization': 'fixture'},
+          sourceQueryPolicy: HlsSourceQueryPolicy.fromSource(Uri.parse(url)),
+        );
+        expect(backends[i].inputs.single.$2, isEmpty);
+        expect(backends[i].inputs.single.$4, isTrue);
+      }
+      await cells[0].pause();
+      expect(closes, isEmpty);
+      await cells[0].open(url: 'https://cdn.example/direct.flv', headers: const {});
+      expect(backends[0].inputs.last.$4, isFalse);
+      expect(backends[0].isPlaying, isFalse);
+      expect(closes, [first]);
+      await cells[0].disposePlayer();
+      expect(closes, [first]);
+      expect(cells[1].isPlaying, isTrue);
+    } finally {
+      for (final cell in cells) {
+        await cell.disposePlayer();
+      }
+    }
+    expect(closes, [first, second]);
+  });
+
+  test('close during input factory retires its late lease without native start', () async {
+    const url = 'https://cdn.example/a/master.m3u8?token=a';
+    final backend = _RecordingPlayer([], 'late');
+    final started = Completer<void>();
+    final factory = Completer<PlaybackInputLease>();
+    var closes = 0;
+    final cell = MultiviewCellPlayer(
+      renderWidth: 640,
+      renderHeight: 360,
+      backend: backend,
+      createInput: (_, _, _) {
+        started.complete();
+        return factory.future;
+      },
+    );
+    final opening = cell.start(
+      url: url,
+      headers: const {},
+      sourceQueryPolicy: HlsSourceQueryPolicy.fromSource(Uri.parse(url)),
+    );
+    final rejected = expectLater(opening, throwsStateError);
+    await started.future;
+    await cell.disposePlayer();
+    factory.complete(
+      PlaybackInputLease(Uri.parse('http://127.0.0.1:19001/late'), () async {
+        closes++;
+      }),
+    );
+    await rejected;
+    expect(backend.startCalls, 0);
+    expect(closes, 1);
+  });
+
+  test('pause during native open remains paused after completion', () async {
+    final backend = _RecordingPlayer([], 'paused');
+    final cell = MultiviewCellPlayer(renderWidth: 640, renderHeight: 360, backend: backend);
+    await cell.start(url: 'https://cdn.example/old.flv', headers: const {});
+    backend.openGate = Completer<void>();
+    final opening = cell.open(url: 'https://cdn.example/new.flv', headers: const {});
+    await Future<void>.delayed(Duration.zero);
+    await cell.pause();
+    backend.openGate!.complete();
+    await opening;
+    expect(cell.isPlaying, isFalse);
+    await cell.disposePlayer();
+  });
+
+  test('removing a resolving cell retires its real input owner before the factory returns', () async {
+    const url = 'https://cdn.example/pending/master.m3u8?token=fixture';
+    final started = Completer<void>();
+    final input = Completer<PlaybackInputLease>();
+    var closes = 0;
+    final backend = _RecordingPlayer([], 'removed');
+    final controller = MultiviewController(
+      playerFactory: ({required renderWidth, required renderHeight}) => MultiviewCellPlayer(
+        renderWidth: renderWidth,
+        renderHeight: renderHeight,
+        backend: backend,
+        createInput: (_, _, _) {
+          started.complete();
+          return input.future;
+        },
+      ),
+      streamResolver: (room, {required preferLowest}) async => MultiviewStreamSource(
+        url: url,
+        headers: const {},
+        lines: const [url],
+        sourceQueryPolicies: {url: HlsSourceQueryPolicy.fromSource(Uri.parse(url))},
+      ),
+      pauseGlobalPlayback: () async {},
+      roomVolumeLoader: (_) => 1,
+      roomVolumeSaver: (_, _) async {},
+      danmakuEngineFactory: (_) => _FakeDanmaku([], 'none'),
+    );
+    final assigning = controller.assignRoom(0, _room('pending'));
+    try {
+      await started.future.timeout(const Duration(seconds: 2));
+      controller.removeCell(0);
+      await Future<void>.delayed(Duration.zero);
+      input.complete(
+        PlaybackInputLease(Uri.parse('http://127.0.0.1:19001/pending'), () async {
+          closes++;
+        }),
+      );
+      await assigning;
+      expect(controller.cells[0].status, MultiviewCellStatus.empty);
+      expect(backend.startCalls, 0);
+      expect(closes, 1);
+    } finally {
+      if (!input.isCompleted) {
+        input.complete(
+          PlaybackInputLease(Uri.parse('http://127.0.0.1:19001/pending'), () async {
+            closes++;
+          }),
+        );
+      }
+      await assigning;
+      await controller.disposeAll();
+    }
+  });
+
+  test('cell source replacement keeps native opens serialized and retires the prior lease', () async {
+    const old = 'https://cdn.example/old/master.m3u8?token=old';
+    const next = 'https://cdn.example/next/master.m3u8?token=next';
+    final backend = _RecordingPlayer([], 'serial');
+    final closes = <String>[];
+    final cell = MultiviewCellPlayer(
+      renderWidth: 640,
+      renderHeight: 360,
+      backend: backend,
+      createInput: (url, _, _) async =>
+          PlaybackInputLease(Uri.parse('http://127.0.0.1:19001/${Uri.parse(url).pathSegments.first}'), () async {
+            closes.add(url);
+          }),
+    );
+    try {
+      await cell.start(url: old, headers: const {}, sourceQueryPolicy: HlsSourceQueryPolicy.fromSource(Uri.parse(old)));
+      backend.openGate = Completer<void>();
+      final first = cell.open(
+        url: next,
+        headers: const {},
+        sourceQueryPolicy: HlsSourceQueryPolicy.fromSource(Uri.parse(next)),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final second = cell.open(url: 'https://cdn.example/final.flv', headers: const {});
+      expect(backend.openCalls, 1);
+      backend.openGate!.complete();
+      await first;
+      await second;
+      expect(backend.openCalls, 2);
+      expect(backend.inputs.last.$1, 'https://cdn.example/final.flv');
+      expect(closes, [old, next]);
+    } finally {
+      if (backend.openGate?.isCompleted == false) backend.openGate!.complete();
+      await cell.disposePlayer();
+    }
+  });
+
+  test('offline and failed multiview cells remain picker targets', () {
+    expect(isMultiviewCellAssignable(MultiviewCellStatus.empty), isTrue);
+    expect(isMultiviewCellAssignable(MultiviewCellStatus.offline), isTrue);
+    expect(isMultiviewCellAssignable(MultiviewCellStatus.error), isTrue);
+    expect(isMultiviewCellAssignable(MultiviewCellStatus.resolving), isFalse);
+    expect(isMultiviewCellAssignable(MultiviewCellStatus.playing), isFalse);
+  });
+
   group('MultiviewController', () {
     test('assignRoom 走 empty→resolving→playing 并自动成为音频焦点', () async {
       final harness = _Harness();
@@ -274,6 +668,46 @@ void main() {
       expect(controller.audioFocusIndex, 1);
       expect(harness.players[0].volume, 0.0);
       expect(harness.players[1].volume, 1.0);
+    });
+
+    test('已知未开播房间进入业务空态且不解析、不创建播放器', () async {
+      final harness = _Harness();
+      final controller = harness.controller;
+      final room = LiveRoom(
+        roomId: 'offline-known',
+        platform: 'bilibili',
+        nick: '未开播主播',
+        status: false,
+        liveStatus: LiveStatus.offline,
+      );
+
+      await controller.assignRoom(0, room);
+
+      expect(controller.cells[0].status, MultiviewCellStatus.offline);
+      expect(controller.cells[0].errorKind, isNull);
+      expect(controller.cells[0].errorDetail, isNull);
+      expect(controller.cells[0].room?.nick, '未开播主播');
+      expect(harness.resolvePreferences, isEmpty);
+      expect(harness.players, isEmpty);
+    });
+
+    test('严格解析后确认未开播与传输解析失败分流', () async {
+      final harness = _Harness();
+      final controller = harness.controller;
+      harness.resolvedOfflineRooms.add('offline-after-refresh');
+
+      await controller.assignRoom(0, _room('offline-after-refresh'));
+
+      expect(controller.cells[0].status, MultiviewCellStatus.offline);
+      expect(controller.cells[0].errorKind, isNull);
+      expect(harness.players, isEmpty);
+
+      harness.resolveFailures.add('transport-error');
+      await controller.assignRoom(1, _room('transport-error'));
+
+      expect(controller.cells[1].status, MultiviewCellStatus.error);
+      expect(controller.cells[1].errorKind, MultiviewCellErrorKind.resolveFailure);
+      expect(controller.cells[1].errorDetail, contains('resolver boom'));
     });
 
     test('assignRoom 按布局均分结果固定每格渲染分辨率', () async {
@@ -776,6 +1210,27 @@ void main() {
       expect(harness.danmakuEngines['r3']!.log, contains('dm2:stop'));
     });
 
+    test('非 focus 布局弹幕跟随当前声音来源格', () async {
+      final harness = _Harness();
+      final controller = harness.controller;
+      controller.onInit();
+      await controller.assignRoom(0, _room('r1'));
+      await controller.assignRoom(1, _room('r2'));
+
+      // quad 下后分配的格取得声音来源；页级弹幕开关应连接该格，
+      // 不能像旧实现一样因为不是 focus 布局而保持无效。
+      expect(controller.layout.value, MultiviewLayout.quad);
+      expect(controller.audioFocusIndex, 1);
+      controller.danmakuEnabled.value = true;
+      await harness.pump();
+      expect(harness.danmakuEngines['r2']!.log, contains('dm0:start'));
+
+      await controller.setAudioFocus(0);
+      await harness.pump();
+      expect(harness.danmakuEngines['r2']!.log, contains('dm0:stop'));
+      expect(harness.danmakuEngines['r1']!.log, contains('dm1:start'));
+    });
+
     test('例外平台大画面不建立弹幕会话', () async {
       final harness = _Harness();
       final controller = harness.controller;
@@ -905,6 +1360,24 @@ void main() {
       expect(player.volume, 0.5);
     });
 
+    test('房间音量跨格子重建恢复并写入共用存储', () async {
+      final harness = _Harness();
+      final controller = harness.controller;
+      await controller.assignRoom(0, _room('r1'));
+
+      await controller.setCellVolume(0, 0.28);
+      expect(harness.savedRoomVolumes['bilibili/r1'], 0.28);
+
+      controller.removeCell(0);
+      await harness.pump();
+      await controller.assignRoom(0, _room('r1'));
+
+      final replacement = harness.players.last;
+      expect(replacement.sessionVolume, 0.28);
+      expect(replacement.volume, 0.28, reason: '重新选择同房间后应按持久化房间音量出声');
+      expect(controller.cellVolume(0), 0.28);
+    });
+
     test('setCellLine 同实例换线路并更新下标', () async {
       final harness = _Harness();
       final controller = harness.controller;
@@ -944,5 +1417,276 @@ void main() {
       expect(controller.cells[0].lines.length, 2);
       expect(harness.log.last, contains('流畅?line=1'));
     });
+
+    testWidgets('presented-frame stall refreshes only the affected cell and restores quality and line', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.assignRoom(0, _room('r1'));
+      await controller.assignRoom(1, _room('r2'));
+      await controller.setCellQuality(0, 1);
+      await controller.setCellLine(0, 1);
+      harness.players[0].emitFrame();
+      harness.players[1].emitFrame();
+
+      elapsed = const Duration(seconds: 9);
+      await tester.pump(const Duration(seconds: 9));
+      harness.players[1].emitFrame();
+      elapsed = const Duration(seconds: 10);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump();
+
+      expect(harness.players.length, 3);
+      expect(harness.log, contains('p0:pDispose'));
+      expect(harness.log, isNot(contains('p1:pDispose')));
+      expect(controller.cells[0].status, MultiviewCellStatus.playing);
+      expect(controller.cells[0].qualityIndex, 1);
+      expect(controller.cells[0].lineIndex, 1);
+      expect(controller.cells[1].status, MultiviewCellStatus.playing);
+      expect(controller.audioFocusIndex, 1);
+      expect(harness.players[2].muted, isTrue);
+      await controller.disposeAll();
+    });
+
+    testWidgets('manual line selection wins over a pending frame-stall quality restore', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.assignRoom(0, _room('r1'));
+      await controller.setCellQuality(0, 1);
+      await controller.setCellLine(0, 1);
+      harness.players.single.emitFrame();
+      final qualityGate = Completer<void>();
+      harness.qualityGates['r1'] = qualityGate;
+
+      elapsed = const Duration(seconds: 10);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      await tester.pump();
+      expect(harness.players.length, 2);
+      expect(controller.cells[0].status, MultiviewCellStatus.playing);
+      expect(controller.cells[0].qualityIndex, 0);
+
+      await controller.setCellLine(0, 1);
+      await controller.setCellLine(0, 0);
+      qualityGate.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(controller.cells[0].lineIndex, 0);
+      expect(harness.players[1].inputs.last.$1, 'https://stream/r1/原画');
+      await controller.disposeAll();
+    });
+
+    testWidgets('paused cell never refreshes from a presented-frame timeout', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.assignRoom(0, _room('r1'));
+      harness.players.single.emitFrame();
+      await controller.toggleCellPlayPause(0);
+      elapsed = const Duration(seconds: 30);
+      await tester.pump(const Duration(seconds: 30));
+      expect(harness.players.length, 1);
+      expect(harness.players.single.isPlaying, isFalse);
+      await controller.disposeAll();
+    });
+
+    testWidgets('focus rail stays untouched and automatic stall recovery has a finite budget', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.setLayout(MultiviewLayout.focus);
+      await controller.assignRoom(0, _room('big'));
+      await controller.assignRoom(1, _room('small'));
+      harness.players[0].emitFrame();
+      harness.players[1].emitFrame();
+
+      elapsed = const Duration(seconds: 10);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      await tester.pump();
+      expect(harness.players.length, 3);
+      expect(harness.players[1].isPlaying, isTrue);
+      harness.players[2].emitFrame();
+
+      elapsed = const Duration(seconds: 20);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      await tester.pump();
+      expect(harness.players.length, 4);
+      harness.players[3].emitFrame();
+
+      elapsed = const Duration(seconds: 30);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(harness.players.length, 4);
+      expect(harness.players[1].isPlaying, isTrue);
+      await controller.disposeAll();
+    });
+
+    testWidgets('visible focus small cell recovers without refreshing an offscreen cell', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.setLayout(MultiviewLayout.focus);
+      await controller.assignRoom(0, _room('big'));
+      await controller.assignRoom(1, _room('visible'));
+      await controller.assignRoom(2, _room('offscreen'));
+      controller.setVisibleFocusSmallCells([1]);
+      for (final player in harness.players) {
+        player.emitFrame();
+      }
+
+      elapsed = const Duration(seconds: 9);
+      await tester.pump(const Duration(seconds: 9));
+      harness.players[0].emitFrame();
+      elapsed = const Duration(seconds: 10);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump();
+
+      expect(harness.players.length, 4);
+      expect(harness.log, contains('p1:pDispose'));
+      expect(harness.log, isNot(contains('p0:pDispose')));
+      expect(harness.log, isNot(contains('p2:pDispose')));
+      expect(controller.cells[1].room?.roomId, 'visible');
+      await controller.disposeAll();
+    });
+
+    testWidgets('hidden focus small cell gets a fresh grace period when scrolled into view', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.setLayout(MultiviewLayout.focus);
+      await controller.assignRoom(1, _room('small'));
+      controller.setVisibleFocusSmallCells([1]);
+      harness.players.single.emitFrame();
+
+      elapsed = const Duration(seconds: 5);
+      await tester.pump(const Duration(seconds: 5));
+      controller.setVisibleFocusSmallCells(const []);
+      elapsed = const Duration(seconds: 20);
+      await tester.pump(const Duration(seconds: 15));
+      expect(harness.players.length, 1);
+
+      controller.setVisibleFocusSmallCells([1]);
+      elapsed = const Duration(seconds: 21);
+      await tester.pump(const Duration(seconds: 1));
+      elapsed = const Duration(seconds: 29);
+      await tester.pump(const Duration(seconds: 8));
+      expect(harness.players.length, 1);
+      elapsed = const Duration(seconds: 30);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump();
+      expect(harness.players.length, 2);
+      await controller.disposeAll();
+    });
+
+    testWidgets('focus promotion discards the old rail map before monitoring the new large cell', (tester) async {
+      var elapsed = Duration.zero;
+      final harness = _Harness(
+        frameStallTimeout: const Duration(seconds: 10),
+        frameVisible: () => true,
+        frameElapsed: () => elapsed,
+      );
+      final controller = harness.controller;
+      await controller.setLayout(MultiviewLayout.focus);
+      await controller.assignRoom(0, _room('old-big'));
+      await controller.assignRoom(1, _room('old-small'));
+      await controller.assignRoom(2, _room('new-big'));
+      controller.setVisibleFocusSmallCells([1]);
+      for (final player in harness.players) {
+        player.emitFrame();
+      }
+      elapsed = const Duration(seconds: 5);
+      await tester.pump(const Duration(seconds: 5));
+      await controller.promoteCell(2);
+
+      elapsed = const Duration(seconds: 10);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+      expect(harness.players.length, 3, reason: 'newly focused cell receives a full visible grace interval');
+      elapsed = const Duration(seconds: 15);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+      expect(harness.players.length, 4);
+      expect(harness.log, contains('p2:pDispose'));
+      expect(harness.log, isNot(contains('p0:pDispose')));
+      expect(harness.log, isNot(contains('p1:pDispose')));
+      await controller.disposeAll();
+    });
   });
+}
+
+class _PolicyMultiviewSite extends LiveSite implements LivePlayUrlResolver {
+  int calls = 0;
+  int legacyCalls = 0;
+  @override
+  Future<LiveRoom> getRoomDetail({required String roomId, required String platform}) async => _room(roomId);
+  @override
+  Future<List<LivePlayQuality>> getPlayQualites({required LiveRoom detail}) async => [
+    LivePlayQuality(quality: 'Original', id: 0),
+    LivePlayQuality(quality: 'HD', id: 1),
+  ];
+  @override
+  Future<List<String>> getPlayUrls({required LiveRoom detail, required LivePlayQuality quality}) async {
+    legacyCalls++;
+    throw StateError('legacy resolution loses metadata');
+  }
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlsRaw({required LiveRoom detail, required LivePlayQuality quality}) async {
+    final url = 'https://cdn.example/channel/master.m3u8?token=g${++calls}';
+    return LivePlayUrlResolution.withSourcePolicies(
+      urls: [url],
+      appliedQualityData: 1,
+      sourceQueryPolicies: {url: HlsSourceQueryPolicy.fromSource(Uri.parse(url))},
+    );
+  }
+}
+
+class _HeaderMultiviewSite extends LiveSite {
+  @override
+  Future<LiveRoom> getRoomDetail({required String roomId, required String platform}) async => LiveRoom(
+    roomId: roomId,
+    platform: platform,
+    liveStatus: LiveStatus.live,
+    httpHeaders: const {'Authorization': 'Bearer multiview', 'Referrer': 'https://fixture/room'},
+  );
+
+  @override
+  Future<List<LivePlayQuality>> getPlayQualites({required LiveRoom detail}) async => [
+    LivePlayQuality(quality: 'Original'),
+  ];
+
+  @override
+  Future<List<String>> getPlayUrls({required LiveRoom detail, required LivePlayQuality quality}) async => [
+    'https://fixture/live.m3u8',
+  ];
 }
