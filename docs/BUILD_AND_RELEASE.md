@@ -1,15 +1,15 @@
 # 本地构建、测试与发布
 
-Windows `3.0.9+4097` 正式版正在准备：手动响度补偿已合并到 `master`，本轮执行完整质量门禁并生成 EXE/ZIP。发布完成前，最新已发布版本仍为下述 v3.0.8。本轮 macOS 保留 `3.0.8+4096`，Android/Linux/iOS 保留 `3.0.7+4095`；响度补偿与本轮发布证据由 [LOUDNESS_COMPENSATION.md](LOUDNESS_COMPENSATION.md) 维护。
+The current release is [Pure Live v3.0.9](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9), built from `661aba3c0b655379ff85daf2f4f7c19337e36d6e` (`3.0.9+4097`). It provides Windows x64 EXE/ZIP with optional manual loudness compensation. macOS remains on v3.0.8; Android/Linux/iOS remain on v3.0.7. [LOUDNESS_COMPENSATION.md](LOUDNESS_COMPENSATION.md) owns this release's complete quality, build and artifact evidence. Use Flutter 3.47.5. Past device evidence never authorizes device work for the current task.
 
-The current release is [Pure Live v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), built from source commit `06768f75aafde48389ad7f073969424afe07e645` (`3.0.8+4096`). It provides Windows x64 EXE/ZIP and macOS universal DMG/ZIP. Android was deferred at the user's request; Linux/iOS were not built, and the Android/Linux/iOS update feeds remain at `3.0.7+4095`. The [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) owns the release evidence and validation details. The linked 3.2.0 acceptance reports are historical fork evidence. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
+本次 v3.0.9 已发布为 Latest，完整门禁通过 5306 项 Flutter 测试与 42 项公开接口检查。Windows 安装包和便携包的云端 SHA-256 与本地一致；未进行客户端安装或声卡试听。Android 继续暂缓，其他平台更新源保留原版本。
 
-本次 v3.0.8 发布范围为 Windows x64 与 macOS：Windows EXE/ZIP 和 macOS universal DMG/ZIP 已发布。Android 按用户要求暂缓，Linux/iOS 本轮未构建；三个平台的更新 feed 继续指向 `3.0.7+4095`。具体发布资产、哈希与门禁结果以[同步报告](UPSTREAM_SYNC_RESULT_2026_09_25.md)为准。
+历史 v3.0.8 上游同步及 Windows/macOS 发布证据见[同步报告](UPSTREAM_SYNC_RESULT_2026_09_25.md)。
 
 
 本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.5`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。
 
-The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line. For v3.0.8, use the release evidence and platform scope recorded in the [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md); do not treat historical candidate reports as current validation.
+The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line; do not treat historical candidate reports as current validation.
 
 ## 前置环境
 

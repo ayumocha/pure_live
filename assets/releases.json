@@ -3,6 +3,79 @@
     {
       "assets": [
         {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588190368",
+          "contentType": "application/zip",
+          "createdAt": "2026-09-25T11:10:48Z",
+          "digest": "sha256:b4dc5621a84ae29ea4f16de0d57f06a01fde1b78b2c6580c2cf3025c06396a15",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jDxKg",
+          "label": "",
+          "name": "PureLive-3.0.9-4097-windows-x64-portable.zip",
+          "size": 76648665,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T11:11:32Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.9/PureLive-3.0.9-4097-windows-x64-portable.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588190373",
+          "contentType": "application/x-msdownload",
+          "createdAt": "2026-09-25T11:10:48Z",
+          "digest": "sha256:e8f4245a4d406bc2b72dc99b08b77be7e073043a24d1c5302611efe4ac5042aa",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jDxKl",
+          "label": "",
+          "name": "PureLive-3.0.9-4097-windows-x64-setup.exe",
+          "size": 58058365,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T11:11:48Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.9/PureLive-3.0.9-4097-windows-x64-setup.exe"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588190369",
+          "contentType": "application/json",
+          "createdAt": "2026-09-25T11:10:48Z",
+          "digest": "sha256:10ccb86d6938900b88f51f45f7a110884b38ee5f8d2da91575d155d1d2cf8ca1",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jDxKh",
+          "label": "",
+          "name": "WINDOWS_BUILD_METADATA.json",
+          "size": 1116,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T11:10:48Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.9/WINDOWS_BUILD_METADATA.json"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588190367",
+          "contentType": "text/plain; charset=utf-8",
+          "createdAt": "2026-09-25T11:10:48Z",
+          "digest": "sha256:96107cf10f3285ac3c7b23fd9fc4ea8fdc49754c12cb24abbe3132c2723b495f",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jDxKf",
+          "label": "",
+          "name": "WINDOWS_SHA256SUMS.txt",
+          "size": 316,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T11:10:48Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.9/WINDOWS_SHA256SUMS.txt"
+        }
+      ],
+      "author": {
+        "id": "U_kgDOD6z9Iw",
+        "login": "ayumocha"
+      },
+      "body": "# Pure Live v3.0.9\r\n\r\n本轮正式版发布范围为 **Windows x64**，应用版本 `3.0.9+4097`。Windows 提供 EXE 安装包和便携 ZIP；安装包未作 Authenticode 签名。Android、Linux、iOS 继续使用 `3.0.7+4095`，macOS 继续使用 `3.0.8+4096`。\r\n\r\n## 手动响度补偿\r\n\r\n- 播放设置 → 音频设置新增手动响度补偿，可选关闭、+3、+6、+9 dB，默认关闭，建议先从 +3 dB 开始。\r\n- 适用于 MPV 主画面与多画面。普通音量调节和静音仍保持有效。\r\n- 这是固定增益补偿，不会自动均衡，也不包含峰值限幅；响度较大的音源可能失真。\r\n\r\n功能设计、验证范围与正式交付记录见[手动响度补偿报告](https://github.com/ayumocha/pure_live/blob/master/docs/LOUDNESS_COMPENSATION.md)。离线音频验证不等同于实际声卡或扬声器试听；本轮未进行设备试听。\r\n\r\n源码提交：`661aba3c0b655379ff85daf2f4f7c19337e36d6e`。文件校验值见附件 `WINDOWS_SHA256SUMS.txt`。\r\n\n正式门禁：5306 项 Flutter 测试、42 项公开接口检查通过；静态分析无 error/warning（6 条 info）。Windows 原生音频离线验证覆盖三档增益、静音、关闭恢复及不累加。\r\n",
+      "createdAt": "2026-09-25T11:10:42Z",
+      "isDraft": false,
+      "isPrerelease": false,
+      "name": "Pure Live v3.0.9",
+      "publishedAt": "2026-09-25T11:12:21Z",
+      "tagName": "v3.0.9",
+      "targetCommitish": "661aba3c0b655379ff85daf2f4f7c19337e36d6e",
+      "url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.9"
+    },
+    {
+      "assets": [
+        {
           "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587866523",
           "contentType": "application/json",
           "createdAt": "2026-09-25T08:07:09Z",

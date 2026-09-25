@@ -55,9 +55,8 @@
 | [Documentation index](docs/README.md) | Historical and active reference links |
 <!-- stable-doc-index:end -->
 
-- **最新稳定版**：[v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8)
-- **本轮发布准备**：Windows `3.0.9+4097` 已合并手动响度补偿，正在执行正式门禁与打包；验证记录见[响度补偿说明](docs/LOUDNESS_COMPENSATION.md)。
-- **当前发布**：`3.0.8+4096` 已正式发布，提供 Windows x64 EXE/ZIP 与 macOS universal DMG/ZIP。Android 按用户要求暂缓，Linux/iOS 本轮未构建；Android、Linux、iOS 的应用更新 feed 均仍为 `3.0.7+4095`。版本说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，发布范围与验证记录见[同步报告](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。
+- **最新稳定版**：[v3.0.9](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9)
+- **当前发布**：Windows `3.0.9+4097` 已发布 EXE/ZIP，新增手动响度补偿。macOS 仍使用 v3.0.8 universal DMG/ZIP；Android 按用户要求暂缓，Android/Linux/iOS 更新 feed 保留 `3.0.7+4095`。版本说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，正式门禁与产物校验见[响度补偿报告](docs/LOUDNESS_COMPENSATION.md)。
 
 **历史 v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
 

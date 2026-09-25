@@ -3,7 +3,7 @@
 ## 范围与使用
 
 用户明确要求为偏小的直播声音增加补偿。功能分支 `codex/loudness-compensation` 基于
-`54689e2eef02f8267ee9c11a79ef7f46f6155007`，现已按用户要求快进合并到 `master`，准备 Windows `3.0.9+4097` 正式发布。
+`54689e2eef02f8267ee9c11a79ef7f46f6155007`，现已按用户要求快进合并到 `master`，Windows `3.0.9+4097` 已正式发布。
 
 播放设置 → 音频设置 → 手动响度补偿：关闭 / 轻柔 +3 dB / 标准 +6 dB / 强力 +9 dB。
 全局设置覆盖 MPV 主播放器及多画面，每个播放器保持自己的普通音量与静音状态。
@@ -74,4 +74,26 @@
 
 用户已授权合并主分支并发布正式版。`master` 从 `54689e2e` 快进到 `8ad55448`，无冲突。
 版本递增至 `3.0.9+4097`；保留 v3.0.8 标签和旧资产，使用新版本作为 Latest，便于应用检测更新及回滚。
-macOS 继续指向 v3.0.8，Android/Linux/iOS 继续指向 v3.0.7。完整检查、正式包和发布结果待该阶段完成后记录。
+macOS 继续指向 v3.0.8，Android/Linux/iOS 继续指向 v3.0.7。
+
+- 冻结源码与 tag：`661aba3c0b655379ff85daf2f4f7c19337e36d6e`，质量门禁和正式构建均在干净工作树上执行。
+- `tool/local_ci.ps1 -Scope Full`：5306/5306 Flutter 测试、42/42 公开接口检查通过；Analyze 无 error/warning、6 条 info。
+  完整性审计 5212 个跟踪文件、0 error；两个已有提示是公开 TLS 测试密钥白名单和空 catch 盘点。
+  记录：`local-artifacts/build-records/20260925T110740132Z-quality-full.json`，269.342 秒，结束后活跃重型进程为 0。
+- `tool/build_local_release.ps1 -Target WindowsX64 -Configuration Release -SkipQuality`：成功，复用上述完整门禁；
+  记录 `local-artifacts/build-records/20260925T110949162Z-build-windowsx64-release.json`，113.242 秒，结束后活跃重型进程为 0。
+- 主程序文件/产品版本均为 `3.0.9+4097`；安装器产品版本 `3.0.9`，Authenticode 状态为未签名，已在 Release 说明中标注。
+- ZIP CRC、运行库与翻译资源、分平台版本、排除用户运行时数据和开发文件的检查通过。
+  MPV DLL 哈希与候选音频验证完全一致，复用该原生音频证据，无需更换内核。
+
+| 正式资产 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `PureLive-3.0.9-4097-windows-x64-portable.zip` | 76648665 | `b4dc5621a84ae29ea4f16de0d57f06a01fde1b78b2c6580c2cf3025c06396a15` |
+| `PureLive-3.0.9-4097-windows-x64-setup.exe` | 58058365 | `e8f4245a4d406bc2b72dc99b08b77be7e073043a24d1c5302611efe4ac5042aa` |
+
+[v3.0.9 Release](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9) 于 `2026-09-25T11:12:21Z` 发布为正式 Latest。
+发布前比对 GitHub 保存的全部 4 个附件 SHA-256/大小与本地一致（EXE、ZIP、构建元数据、校验清单）。
+源码已推送 `master`，应用内发布记录同步更新；旧 tag 和资产保留以供回滚。本轮未运行安装器或客户端，未作实际声卡试听。
+
+收尾补充：公开 EXE/ZIP 下载地址均返回 HTTP 200，长度与本地产物相同。发布索引保留原有 `releases` 包装和全部 150 条历史记录，仅新增本 fork 的 v3.0.9；通用刷新脚本会重新序列化并缩减旧历史，因此未采用其全量输出。
+额外运行 `tool/validate_agent_workflow.py` 有一个既有误报：将历史上游审计表中的提交标题视为新的模型策略副本（`docs/UPSTREAM_AUDIT_9b376ec9ef25.md`）。审计文档与检查器的 Git blob 均与原基线 `54689e2e` 相同；本轮只记录，不改历史标题或放宽检查。正式 Full 门禁及 `validate_build_policy.ps1` 已通过，该额外文档检查不计作通过。
