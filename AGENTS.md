@@ -2,7 +2,7 @@
 
 ## Current fork state (read first when taking over)
 
-- Independent upstream-sync candidate: branch `codex/sync-upstream-20260925`, frozen upstream `9b376ec9ef25b532296871073a39075f6f9db397`. Version 3.0.8+4096 is unpublished. Review evidence lives in the upstream-sync audit work package; historical handoff test and device claims do not validate this checkout.
+- Independent upstream-sync candidate: branch `codex/sync-upstream-20260925`, frozen upstream `9b376ec9ef25b532296871073a39075f6f9db397`. Version 3.0.8+4096 is unpublished. Read [the current sync result](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md) and [the complete audit](docs/UPSTREAM_AUDIT_9b376ec9ef25.md); historical handoff test and device claims do not validate this checkout.
 
 - Historical fork handoff: [docs/HANDOFF_3_0_7.md](https://github.com/ayumocha/pure_live/blob/e33795ccf8cd51ac5548ff960fa389282d8d6171/docs/HANDOFF_3_0_7.md) describes the released 3.0.7 state and Windows workarounds. Use current candidate code and audit evidence for new decisions.
 - Released line: `3.0.7+4095` (GitHub Release `v3.0.7` in `ayumocha/pure_live`). `RELEASE_NOTES.md` entries above v3.0.7 are unreleased forward-looking notes — increment from the `pubspec.yaml` baseline instead.

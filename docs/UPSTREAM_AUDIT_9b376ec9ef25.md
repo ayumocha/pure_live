@@ -3339,4 +3339,9 @@ M	windows/packaging/msix/make_config.yaml
 - SDK 3.47.5 归档按官方 SHA256 验证并安装，原 SDK 保留。
 - 11/11 审查门禁临时仓库测试通过，Windows PowerShell 5.1 重点 3/3 通过。
 - 本地 fplayer-core AAR SHA256 与随附 provenance 一致；三个 arm64 ELF 的 LOAD 对齐均至少 0x4000。CA bundle 字节哈希与 runtime 固定值一致（哈希一致不等于独立重建）。
-- 合并后全仓审计、Flutter 检查与构建：待执行，最终记录将另附。
+- 正式合并 `a7c36b93` 完成；最终适配源码提交 `d80c872c`。后续回归修复、最终处置覆盖和平台证据见 [同步结果](UPSTREAM_SYNC_RESULT_2026_09_25.md)。该报告对本表中的初始计划有优先解释权：`docs/STAGE_UPDATE_3_0_7.md` 保留 fork 历史版本；过时的 `stable_video_layer_test.dart` 删除，保留真实播放器 presentation/PiP 回归。
+- 当前 423 个受影响测试文件均有通过证据，首轮失败已定向修复并复测；分批运行是 Windows 命令长度限制下的 Focused 覆盖，未称为 formal Full gate。逐文件映射与日志哈希见 `local-artifacts/upstream-reviews/affected-test-coverage.json`。
+- 最终 Analyze 执行 1 次，0 errors、0 warnings、1 条 `unnecessary_import` info；记录 `local-artifacts/build-records/20260925T052230705Z-quality-focused.json`。未把 info 写成零问题。
+- 源码适配提交后的全仓审计 0 errors、2 warnings；证据 `local-artifacts/upstream-reviews/final-repository-audit.json`。构建策略预检通过。
+- Windows FFmpeg ZIP/DLL 固定哈希匹配，新的提取 helper 7/7 离线回归及真实 ZIP 提取通过；地址恢复为上游 pubspec 的 `wzgrx/pure_live`，Android/Windows 资产请求可达。
+- Windows x64 Debug 构建、打包和包内哈希/版本核验成功；构建记录 `local-artifacts/build-records/20260925T053046315Z-build-windowsx64-debug.json`。首轮 SDK 生成文件缺失及定点恢复另见同步结果；不发布、不安装、不操作真实用户配置。
