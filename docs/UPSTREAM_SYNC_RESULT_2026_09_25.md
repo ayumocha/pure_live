@@ -34,7 +34,7 @@
 
 最终静态分析执行一次：**0 errors、0 warnings、1 条 unnecessary_import info**（`web_search_controller.dart`）。记录 `local-artifacts/build-records/20260925T052230705Z-quality-focused.json`。最后一次备份复测 11 项通过（`20260925T052355535Z-quality-focused.json`）。实际源码修复已提交为 `d80c872c`，这些检查在该提交前的相同源码上完成，记录如实标注当时工作树为 dirty。
 
-Windows x64 Debug 构建及打包成功（未签名、未生成安装器）：
+首次 Windows x64 Debug 构建及打包成功（未签名、未生成安装器；此包已由下方“镜像拦截修复”候选替代）：
 
 - ZIP：`local-artifacts/3.0.8-4096-upstream-sync/PureLive-3.0.8-4096-windows-x64-debug.zip`，145,724,738 字节。
 - ZIP SHA-256：`a8b1e80ca9cff1dbf9150a75eedfd2af41817ef12128f62e6678abcac6b97ae6`。
@@ -56,6 +56,14 @@ Windows x64 Debug 构建及打包成功（未签名、未生成安装器）：
 本次最小修复从公共 raw 镜像表及维护探测脚本移除被拦截域名，并使发布记录遵守官方源开关。版本检查和安装包下载的既有源选择继续保留；虎牙配置与字体下载使用公共镜像表，因此同样排除该域名。该开关仍只控制更新，其他镜像模式保持可用；不修改用户配置或杀毒软件设置。沿用未发布的 `3.0.8+4096`，仅更新独立分支 Windows 候选。
 
 7 个受影响测试文件共 **34 项通过**，包含源列表排除、官方源失败时不请求镜像的本地 HTTP 回归、更新页面与下载流程。单次 Analyze 为 0 errors、0 warnings、1 条既有 unnecessary_import info；质量记录 `local-artifacts/build-records/20260925T064147381Z-quality-focused.json`，日志 `mirror-fix-focused.log`。策略门禁、PowerShell 语法和 `git diff --check` 通过；独立只读 Review 无阻塞。测试覆盖生产源选择函数及其 HTTP 竞速调用，未通过真实用户设置运行整个应用。旧 ZIP 的 `kernel_blob.bin` 仍可检出该域名（2 次），应改用完成核验后的新包。
+
+修复源码提交 **`b0dfb22f58bc75b81a5666cf1675c9a1a292991d`**，从干净工作树构建 Windows x64 Debug 候选成功（未签名、未生成安装器）：
+
+- 新 ZIP：`local-artifacts/3.0.8-4096-upstream-sync-mirror-fix/PureLive-3.0.8-4096-windows-x64-debug.zip`，145,719,339 字节。
+- SHA-256：`a631ea4ee663b998ce4cd1757826c9740c3b8e4e793c80f7496cd5afd2bdac61`。
+- 构建记录：`local-artifacts/build-records/20260925T064319610Z-build-windowsx64-debug.json`，结束后 active heavy processes=0。复用上述定向质量证据，没有重跑无关平台或完整回归。
+- 包内 ZIP CRC、Windows 版本清单、Flutter/MPV/FFmpeg 运行库通过；FFmpeg DLL 哈希与固定版本一致。新 `kernel_blob.bin` 中被拦截域名出现次数为 **0**，包含修正后的源选择函数；包内不含用户运行数据。证据：`local-artifacts/upstream-reviews/windows-mirror-fix-package-verification.json`。
+- 未启动应用或进行卡巴斯基运行时复测，不能宣称已覆盖所有网络请求或其他域名信誉。第三方原生构建仍有既有 CMake/MSBuild 警告；没有应用源码分析错误或警告。首次核验脚本误用 `mpv-2.dll` 文件名，按实际安装清单中的 `libmpv-2.dll` 更正后核验通过，产物未改动。
 
 ## 使用与回退边界
 
