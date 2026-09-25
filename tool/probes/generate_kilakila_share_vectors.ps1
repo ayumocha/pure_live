@@ -42,4 +42,3 @@ $out=$OutputPath
 New-Item -ItemType Directory -Force (Split-Path $out -Parent) | Out-Null
 $cases.ToArray() | ConvertTo-Json -Depth 5 | Set-Content $out -Encoding utf8
 Write-Output "Generated $($cases.Count) independent fixtures."
-

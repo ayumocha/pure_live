@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:pure_live/common/models/live_area.dart';
 import 'package:pure_live/common/models/live_room.dart';
+import 'package:pure_live/common/models/site_id.dart';
 import 'package:pure_live/common/utils/live_short_link_session.dart';
 import 'package:pure_live/core/danmaku/empty_danmaku.dart';
 import 'package:pure_live/core/interface/live_danmaku.dart';
@@ -34,7 +35,7 @@ class XiaohongshuSite extends LiveSite
   LiveDanmaku getDanmaku() => EmptyDanmaku();
 
   String _roomId(String roomId, String platform) {
-    if (platform != id) throw const XiaohongshuException(XiaohongshuFailure.identity);
+    if (canonicalSiteId(platform) != id) throw const XiaohongshuException(XiaohongshuFailure.identity);
     return XiaohongshuShare.validateRoomId(roomId);
   }
 
@@ -103,10 +104,19 @@ class XiaohongshuSite extends LiveSite
     if (page != 1) return [];
     const timeout = Duration(seconds: 12);
     final session = LiveShortLinkSession(timeout: timeout, clientFactory: shortLinkClientFactory);
+    final profileCancel = CancelToken();
     final String? roomId;
     try {
-      roomId = await XiaohongshuLink.resolve(keyword, session: session).timeout(timeout, onTimeout: () => null);
+      roomId = await XiaohongshuLink.resolve(
+        keyword,
+        session: session,
+        profileLookup: (userId) => _api.profileRoomId(userId, cancel: profileCancel),
+      ).timeout(timeout, onTimeout: () => null);
+    } on XiaohongshuException catch (error) {
+      if (error.kind == XiaohongshuFailure.missing) return [];
+      rethrow;
     } finally {
+      profileCancel.cancel();
       session.close();
     }
     if (roomId == null) return [];

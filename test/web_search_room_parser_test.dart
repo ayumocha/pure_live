@@ -4,6 +4,18 @@ import 'package:pure_live/modules/search/web_search_room_parser.dart';
 import 'package:pure_live/common/utils/live_url_tool.dart';
 
 void main() {
+  test('Xiaohongshu profile is only a candidate until async SSR verification', () {
+    const profile = 'https://www.xiaohongshu.com/user/profile/6a90256f000000001302240d';
+    expect(WebSearchRoomParser.isXiaohongshuProfileCandidate(profile), isTrue);
+    expect(WebSearchRoomParser.parse(profile), isNull);
+    expect(LiveUrlTool.containsSupportedLink(profile), isTrue);
+    expect(
+      WebSearchRoomParser.isXiaohongshuProfileCandidate(
+        'https://www.xiaohongshu.com.evil.test/user/profile/6a90256f000000001302240d',
+      ),
+      isFalse,
+    );
+  });
   test('extracts native room identities for every web-search platform', () {
     final cases = <String, (String, String)>{
       'https://www.huya.com/abc_123': (Sites.huyaSite, 'abc_123'),
@@ -27,8 +39,10 @@ void main() {
       'https://steamcommunity.com/broadcast/watch/76561198373527746': (Sites.steamBroadcastSite, '76561198373527746'),
       'https://lives.jd.com/#/48266468?origin=0': (Sites.jdLiveSite, '48266468'),
       'https://h5.m.taobao.com/taolive/video.html?id=12345678901': (Sites.taobaoLiveSite, 'live:12345678901'),
-      'https://www.xiaohongshu.com/livestream/1234567890123456789?source=share':
-          (Sites.xiaohongshuSite, '1234567890123456789'),
+      'https://www.xiaohongshu.com/livestream/1234567890123456789?source=share': (
+        Sites.xiaohongshuSite,
+        '1234567890123456789',
+      ),
       'https://www.flextv.co.kr/channels/123456/live': (Sites.ttingSite, '123456'),
     };
 

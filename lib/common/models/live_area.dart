@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:pure_live/common/models/site_id.dart';
+
 class LiveArea {
   String? platform = '';
   String? areaType = '';
@@ -12,7 +14,7 @@ class LiveArea {
   LiveArea({this.platform, this.areaType, this.typeName, this.areaId, this.areaName, this.areaPic, this.shortName});
 
   LiveArea.fromJson(Map<String, dynamic> json)
-    : platform = json['platform'] ?? '',
+    : platform = canonicalSiteId(json['platform'] ?? ''),
       areaType = json['areaType'] ?? '',
       typeName = json['typeName'] ?? '',
       areaId = json['areaId'] ?? '',
@@ -32,7 +34,7 @@ class LiveArea {
   /// parent taxonomy. IPTV likewise resolves globally unique channel IDs.
   /// Missevan catalog IDs and tag IDs are separate API namespaces.
   static String? identityKeyFor({String? platform, String? areaId, String? areaType}) {
-    final site = platform?.trim().toLowerCase() ?? '';
+    final site = canonicalSiteId(platform);
     final id = areaId?.trim() ?? '';
     if (site.isEmpty || id.isEmpty) return null;
     final namespace = site == 'missevan' ? areaType?.trim().toLowerCase() ?? '' : '';
@@ -40,7 +42,7 @@ class LiveArea {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'platform': platform,
+    'platform': canonicalSiteId(platform),
     'areaType': areaType,
     'typeName': typeName,
     'areaId': areaId,

@@ -4,6 +4,7 @@ import 'package:pure_live/common/index.dart';
 import 'package:pure_live/common/services/utils/backup_migration_util.dart';
 import 'package:pure_live/common/utils/hive_pref_util.dart';
 import 'package:synchronized/synchronized.dart';
+import 'package:pure_live/common/services/utils/fork_site_migration.dart';
 
 const int defaultHistoryLimit = 50;
 const int unlimitedHistoryLimit = 0;
@@ -206,6 +207,7 @@ class HistoryController extends GetxController {
   }
 
   static Map<String, dynamic> parseConfig(Map<String, dynamic> json) {
+    json = ForkSiteMigration.normalize(json);
     final limit = normalizeHistoryLimit(json[historyLimitKey]);
     return {
       historyLimitKey: limit,
@@ -217,7 +219,7 @@ class HistoryController extends GetxController {
   }
 
   static Map<String, dynamic> extractConfig(Map<String, dynamic>? rootConfig) {
-    final history = rootConfig?['history'] as Map<String, dynamic>? ?? {};
+    final history = ForkSiteMigration.normalize(rootConfig?['history'] as Map<String, dynamic>? ?? {});
 
     final list = BackupMigrationUtil.parseObjectList(history['historyRooms'], LiveRoom.fromJson);
 

@@ -1,8 +1,11 @@
 # Pure Live 文档
 
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. The 3.2.0 acceptance pages below are historical fork evidence, not current verification, release status, or device-work authorization.
+
+
 本目录保存产品、开发、验证与发布证据。此页只列稳定入口，不再为每个日期化审计追加一行；具体根因报告从中央台账、编号矩阵、专题文档中的反向链接或仓库搜索进入。旧的逐篇索引保存在[历史归档](README_HISTORY_2026_09_19.md)。
 
-## 当前 3.2.0 工作入口
+## Historical 3.2.0 work entries
 
 - [完整验收入口](ACCEPTANCE_3_2_0.md)：最短证据链、Android/Windows 批次、质量/构建/发布门禁。
 - [当前状态快照](ACCEPTANCE_STATUS_3_2_0.md)：当前候选、编号统计、主要阻塞与下一批顺序。

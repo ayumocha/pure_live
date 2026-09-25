@@ -1,5 +1,8 @@
 # 平台接口与兼容性
 
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. Dated platform counts and probes below describe historical fork evidence, not this candidate's registration, production reachability, or device validation. Device work still requires an explicit current request.
+
+
 本文记录 Pure Live 当前使用的直播接口、数据含义和本地验证方法。平台网页可能随时调整，合并接口改动前应执行一次探测脚本。
 
 ## 当前平台能力

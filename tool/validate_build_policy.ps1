@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
@@ -476,9 +476,12 @@ foreach ($marker in @(
     'needs: [quality, android]',
     'needs: [quality, android, windows]',
     'needs: [quality, android, windows, linux]',
-    "needs.android.result == 'success'",
-    "needs.windows.result == 'success'",
-    "needs.linux.result == 'success'"
+    "(needs.android.result == 'success' || needs.android.result == 'skipped')",
+    "(needs.windows.result == 'success' || needs.windows.result == 'skipped')",
+    "(needs.linux.result == 'success' || needs.linux.result == 'skipped')",
+    "(!inputs.build_android || needs.android.result == 'success')",
+    "(!inputs.build_windows || needs.windows.result == 'success')",
+    "(!inputs.build_linux || needs.linux.result == 'success')"
 )) {
     if (-not $allPlatformWorkflow.Contains($marker)) {
         throw "All-platform workflow is missing serial-stage marker: $marker"
@@ -610,8 +613,8 @@ if (-not $fullscreenPolicy.Contains('supportsOrientationLockForLogicalDisplay') 
     -not $fullscreenPolicy.Contains('logicalDisplaySize.shortestSide < 600')) {
     throw 'Android large-screen orientation policy must remain adaptive.'
 }
-if ($featureWorkflow -match 'stage-build-' -or $featureWorkflow -match 'stage-apple-') {
-    throw 'Feature workflow must use precise single-platform stage tags.'
+if ($featureWorkflow -match 'stage-(?:build|apple|linux|macos|ios)-' -or $featureWorkflow -match "github.event_name == 'push'") {
+    throw 'Feature workflow must remain an explicit manual build without stage-tag branches.'
 }
 foreach ($marker in @(
     'needs: [quality, android]',
@@ -624,8 +627,7 @@ foreach ($marker in @(
     'Prefetch verified Firebase C++ SDK',
     'steps.version.outputs.artifact_version',
     "!inputs.build_windows || needs.windows.result == 'success'",
-    "!(inputs.build_macos || inputs.build_ios) || needs.apple.result == 'success'",
-    'stage-macos-'
+    "!(inputs.build_macos || inputs.build_ios) || needs.apple.result == 'success'"
 )) {
     if (-not $featureWorkflow.Contains($marker)) { throw "Feature workflow policy marker is missing: $marker" }
 }
@@ -694,7 +696,7 @@ if ($versionFeed.platforms.android.version -ne $displayVersion -or
     [int]$versionFeed.platforms.android.build_number -ne $buildNumber) {
     throw 'assets/version.json Android version must match the current application version.'
 }
-if ($versionFeed.download_url -ne "https://github.com/liuchuancong/pure_live/releases/tag/$releaseTag") {
+if ($versionFeed.download_url -ne "https://github.com/ayumocha/pure_live/releases/tag/$releaseTag") {
     throw 'assets/version.json must advertise the maintained repository release.'
 }
 foreach ($workflowName in @('feature-build.yml', 'stage-hosted-artifacts.yml', 'publish-staged-release.yml')) {
@@ -708,9 +710,9 @@ foreach ($workflowName in @('feature-build.yml', 'stage-hosted-artifacts.yml', '
 
 $environmentText = Get-Content -LiteralPath (Join-Path $repoRoot '.env.prod') -Raw
 $generatedEnvironment = Get-Content -LiteralPath (Join-Path $repoRoot 'lib\gen\env.g.dart') -Raw
-if ($environmentText -notmatch '(?m)^PURELIVE_UPDATE_OWNER=liuchuancong\s*$' -or
-    $generatedEnvironment -notmatch "pureliveUpdateOwner = 'liuchuancong'") {
-    throw 'Production and generated update repositories must both target liuchuancong/pure_live.'
+if ($environmentText -notmatch '(?m)^PURELIVE_UPDATE_OWNER=ayumocha\s*$' -or
+    $generatedEnvironment -notmatch "pureliveUpdateOwner = 'ayumocha'") {
+    throw 'Production and generated update repositories must both target ayumocha/pure_live.'
 }
 
 Write-Host 'Build policy static validation passed.'

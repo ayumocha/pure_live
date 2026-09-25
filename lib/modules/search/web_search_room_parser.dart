@@ -46,6 +46,10 @@ class WebSearchRoomTarget {
 /// Converts a supported platform room URL into the adapter identity used by
 /// native playback. Search/category/account URLs are deliberately ignored.
 class WebSearchRoomParser {
+  /// A broadcaster profile needs asynchronous SSR lookup before it can yield
+  /// a durable room ID. Never put its user ID into WebSearchRoomTarget.roomId.
+  static bool isXiaohongshuProfileCandidate(String rawUrl) => XiaohongshuLink.profileUserId(rawUrl) != null;
+
   const WebSearchRoomParser._();
 
   static const Set<String> _reservedSegments = {

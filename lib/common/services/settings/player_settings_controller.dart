@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:pure_live/common/services/utils/fork_site_migration.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/common/consts/app_consts.dart';
 import 'package:pure_live/player/core/portrait_stream_support.dart';
@@ -222,6 +223,7 @@ class PlayerSettingsController extends GetxController {
   }
 
   static Map<String, String> parsePortraitRoomOverrides(dynamic raw) {
+    raw = ForkSiteMigration.normalizeRoomMap(raw);
     final decoded = raw is String ? jsonDecode(raw) : raw;
     if (decoded is! Map) throw const FormatException('Expected portrait room map');
     final values = <String, String>{};

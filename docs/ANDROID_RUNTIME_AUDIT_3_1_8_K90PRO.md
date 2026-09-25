@@ -1,7 +1,7 @@
 # v3.1.8 K90 Pro Android 运行审计
 
-日期：2026-09-01  
-应用：Pure Live `3.1.8`，arm64 分包 `versionCode=6121`  
+日期：2026-09-01
+应用：Pure Live `3.1.8`，arm64 分包 `versionCode=6121`
 设备：K90 Pro / `25102RKBEC`（`myron`），Android 17 / API 37，arm64-v8a
 
 本文只记录已经在新设备取得的事实。尚未执行的直播、录制和长时组合继续留在总验收矩阵中，不由安装成功、接口探针或短时首页样本代替。

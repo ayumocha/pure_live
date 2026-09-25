@@ -99,4 +99,38 @@ class XiaohongshuApi {
     if (failure != null) throw XiaohongshuException(failure);
     return XiaohongshuShare.parsePage(response.body, roomId: roomId);
   }
+
+  Future<String?> profileRoomId(String userId, {CancelToken? cancel}) =>
+      withRequestCancellation(cancel, (transport) async {
+        if (!RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(userId)) {
+          throw const XiaohongshuException(XiaohongshuFailure.identity);
+        }
+        try {
+          return await Future.any<String?>([
+            _profileRoomId(userId, transport),
+            transport.whenCancel.then<String?>((_) => throw const XiaohongshuException(XiaohongshuFailure.cancelled)),
+          ]).timeout(deadline);
+        } on TimeoutException {
+          throw const XiaohongshuException(XiaohongshuFailure.transport);
+        } catch (error) {
+          if (cancel?.isCancelled == true) throw const XiaohongshuException(XiaohongshuFailure.cancelled);
+          if (error is XiaohongshuException) rethrow;
+          throw const XiaohongshuException(XiaohongshuFailure.transport);
+        }
+      });
+
+  Future<String?> _profileRoomId(String userId, CancelToken transport) async {
+    final response = await _request(Uri.parse('$origin/user/profile/$userId'), transport);
+    if (transport.isCancelled) throw const XiaohongshuException(XiaohongshuFailure.cancelled);
+    final failure = switch (response.status) {
+      200 => null,
+      401 || 403 || 406 => XiaohongshuFailure.access,
+      404 => XiaohongshuFailure.missing,
+      429 => XiaohongshuFailure.rateLimited,
+      >= 500 => XiaohongshuFailure.service,
+      _ => XiaohongshuFailure.transport,
+    };
+    if (failure != null) throw XiaohongshuException(failure);
+    return XiaohongshuShare.profileRoomId(response.body, userId: userId);
+  }
 }

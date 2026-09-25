@@ -47,6 +47,21 @@ void main() {
     expect(await f.parse(dynamicRoom), [id, 'xiaohongshu']);
     expect(f.created, 0);
   });
+  test('legacy dynpath route keeps a bounded variable-length token', () async {
+    final f = fixtures.ShortLinkFixture((_) async => throw StateError('No network'));
+    for (final token in ['dynpathAb12', 'dynpath${List.filled(32, 'A').join()}']) {
+      final url = 'https://www.xiaohongshu.com/livestream/$token/$id';
+      expect(XiaohongshuLink.parse(url), id);
+      expect(await f.parse(url), [id, 'xiaohongshu']);
+    }
+    for (final token in ['dynpathBAD', 'dynpath${List.filled(33, 'A').join()}', 'arbitrary']) {
+      expect(XiaohongshuLink.parse('https://www.xiaohongshu.com/livestream/$token/$id'), isNull);
+    }
+    expect(XiaohongshuLink.parse('https://www.xiaohongshu.com/livestream/dynpathAb12/0'), isNull);
+    expect(XiaohongshuLink.parse('https://www.xiaohongshu.com.evil.test/livestream/dynpathAb12/$id'), isNull);
+    expect(XiaohongshuLink.parse('https://www.xiaohongshu.com/livestream/dynpath%41b12/$id'), isNull);
+    expect(f.created, 0);
+  });
   test('XHS share input resolves a public short link without fetching its landing page', () async {
     final f = fixtures.ShortLinkFixture((_) async => fixtures.redirect(302, dynamicRoom));
     expect(await f.parse('分享 https://xhslink.com/m/4vYwu2cQpeP，'), [id, 'xiaohongshu']);

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:pure_live/get/get.dart';
+import 'package:pure_live/common/services/utils/fork_site_migration.dart';
 import 'package:pure_live/common/services/utils/hive_rx.dart';
 
 class VolumeSettingsController extends GetxController {
@@ -115,6 +116,7 @@ class VolumeSettingsController extends GetxController {
 
   /// Parse before changing Rx values: malformed imports must not erase volumes.
   static Map<String, double> parseRoomVolumes(dynamic data) {
+    data = ForkSiteMigration.normalizeRoomMap(data);
     if (data == null) return {};
     final decoded = data is String ? jsonDecode(data) : data;
     if (decoded is! Map) throw const FormatException('Invalid roomVolumes');

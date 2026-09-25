@@ -3,8 +3,8 @@ import 'package:pure_live/common/utils/live_short_link_session.dart';
 import 'xiaohongshu_api.dart';
 import 'xiaohongshu_share.dart';
 
-/// Broadcast room identity only. Profile IDs, notes and recommended rooms are
-/// not aliases. Resolve short links only within the observed share hosts/routes.
+/// Only verified broadcast room IDs leave the asynchronous resolver. Profile
+/// IDs require their own SSR lookup before they can name a broadcast.
 class XiaohongshuLink {
   /// The official app deep link names a room; flvUrl is only a preload hint.
   /// Import the identity and let the normal room API resolve current media.
@@ -62,13 +62,20 @@ class XiaohongshuLink {
     }
     final canonical = RegExp(r'^/livestream/([1-9][0-9]{0,19})/?$').firstMatch(uri.path);
     if (canonical != null) return canonical[1];
-    // Current shared redirects contain an eight-character routing component.
-    final dynamic = RegExp(r'^/livestream/dynpath[A-Za-z0-9]{8}/([1-9][0-9]{0,19})/?$').firstMatch(uri.path);
+    // The fork observed dynpath followed by eight alphanumeric characters.
+    // Its router length can vary; keep the named route and a bounded token.
+    final dynamic = RegExp(r'^/livestream/dynpath[A-Za-z0-9]{4,32}/([1-9][0-9]{0,19})/?$').firstMatch(uri.path);
     if (dynamic != null) return dynamic[1];
     // The official hina router declares :id/:antiBlockAlias?. The trailing
     // routing component is never a broadcaster or a second room identity.
     final legacy = RegExp(r'^/hina/livestream/([1-9][0-9]{0,19})(?:/[A-Za-z0-9_-]{1,64})?/?$').firstMatch(uri.path);
     return legacy?[1];
+  }
+
+  static String? profileUserId(String raw) {
+    final uri = _webUri(raw);
+    if (uri == null || !{'www.xiaohongshu.com', 'xiaohongshu.com'}.contains(uri.host)) return null;
+    return RegExp(r'^/user/profile/([0-9a-fA-F]{24})/?$').firstMatch(uri.path)?[1];
   }
 
   static Uri? shortUri(String raw) {
@@ -79,10 +86,28 @@ class XiaohongshuLink {
     return uri;
   }
 
-  static Future<String?> resolve(String raw, {required LiveShortLinkSession session}) async {
+  static Future<String?> resolve(
+    String raw, {
+    required LiveShortLinkSession session,
+    Future<String?> Function(String userId)? profileLookup,
+  }) async {
     if (session.isClosed) return null;
     final direct = parse(raw);
     if (direct != null) return direct;
+    Future<String?> profileRoom(String userId) async {
+      final String? result;
+      try {
+        result = await (profileLookup ?? XiaohongshuApi(deadline: session.timeout).profileRoomId)(userId);
+      } on XiaohongshuException catch (error) {
+        if (error.kind == XiaohongshuFailure.missing) return null;
+        rethrow;
+      }
+      if (session.isClosed || result == null) return null;
+      return XiaohongshuShare.validateRoomId(result);
+    }
+
+    final profile = profileUserId(raw);
+    if (profile != null) return profileRoom(profile);
     var current = shortUri(raw);
     while (current != null && !session.isClosed) {
       final response = await session.get(current, headers: XiaohongshuApi.headers);
@@ -104,7 +129,9 @@ class XiaohongshuLink {
       }
       final room = parse(target.toString());
       if (room != null) return room;
-      // No arbitrary landing-page, profile, note, other-platform or local fetch.
+      final targetProfile = profileUserId(target.toString());
+      if (targetProfile != null) return profileRoom(targetProfile);
+      // No arbitrary landing-page, note, other-platform or local fetch.
       current = shortUri(target.toString());
     }
     return null;

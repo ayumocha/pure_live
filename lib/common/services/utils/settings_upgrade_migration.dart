@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:hive_ce/hive.dart';
 import 'package:path/path.dart' as p;
 import 'package:pure_live/common/models/live_area.dart';
+import 'package:pure_live/common/services/utils/fork_site_migration.dart';
 
 class SettingsUpgradeReport {
   const SettingsUpgradeReport({
@@ -27,7 +28,7 @@ class SettingsUpgradeReport {
 /// migration understands both layouts and unions data found in previous
 /// installation directories.
 class SettingsUpgradeMigration {
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
   static const String _schemaKey = 'settingsUpgradeSchema';
   static const String _sourceLedgerKey = 'settingsUpgradeImportedSources';
 
@@ -104,7 +105,8 @@ class SettingsUpgradeMigration {
     Iterable<Map<String, dynamic>> sources, {
     bool preferRichestSourceScalars = false,
   }) {
-    final sourceList = sources.toList();
+    current = ForkSiteMigration.normalize(current);
+    final sourceList = sources.map(ForkSiteMigration.normalize).toList();
     final result = Map<String, dynamic>.from(current);
 
     if (preferRichestSourceScalars && sourceList.isNotEmpty) {
@@ -176,6 +178,13 @@ class SettingsUpgradeMigration {
         if (key == 'favoriteRooms') {
           final tags = <String>{..._stringValues(existing['tagIds']), ..._stringValues(item['tagIds'])};
           existing['tagIds'] = tags.toList();
+        }
+        if (key == 'historyRooms') {
+          final previous = existing['lastWatchedAt'];
+          final incoming = item['lastWatchedAt'];
+          if (incoming is num && incoming.isFinite && (previous is! num || !previous.isFinite || incoming > previous)) {
+            existing['lastWatchedAt'] = incoming;
+          }
         }
       }
     }

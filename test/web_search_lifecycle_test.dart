@@ -183,6 +183,64 @@ void main() {
     expect(openedRooms.single.roomId, 'second_room');
   });
 
+  test('Xiaohongshu profile opens only the asynchronously verified room ID', () async {
+    const profile = 'https://www.xiaohongshu.com/user/profile/6a90256f000000001302240d';
+    const resolved = '570429070963278308';
+    final lookup = Completer<String?>();
+    final confirmation = Completer<bool?>();
+    final prompted = <String>[];
+    final opened = <LiveRoom>[];
+    final controller = Get.put(
+      WebSearchController(
+        initialArguments: _validArguments,
+        useExternalBrowser: false,
+        resolveXiaohongshuProfile: (url) {
+          expect(url, profile);
+          return lookup.future;
+        },
+        confirmRoom: (target) async {
+          prompted.add(target.key);
+          return confirmation.future;
+        },
+        openRoom: (room) async => opened.add(room),
+      ),
+    );
+
+    final first = controller.observeUrl(profile);
+    expect(controller.observeUrl(profile), same(first));
+    expect(prompted, isEmpty);
+    lookup.complete(resolved);
+    await _flushAsync();
+    expect(controller.observeUrl(profile), same(first));
+    expect(prompted, ['xiaohongshu:$resolved']);
+    confirmation.complete(true);
+    await first;
+    expect(opened.single.roomId, resolved);
+    expect(opened.single.platform, 'xiaohongshu');
+  });
+
+  test('Xiaohongshu profile lookup is ignored after navigation changes', () async {
+    const profile = 'https://www.xiaohongshu.com/user/profile/6a90256f000000001302240d';
+    final lookup = Completer<String?>();
+    final opened = <LiveRoom>[];
+    final controller = Get.put(
+      WebSearchController(
+        initialArguments: _validArguments,
+        useExternalBrowser: false,
+        resolveXiaohongshuProfile: (_) => lookup.future,
+        confirmRoom: (_) async => true,
+        openRoom: (room) async => opened.add(room),
+      ),
+    );
+
+    final pending = controller.observeUrl(profile);
+    await controller.observeUrl('https://www.xiaohongshu.com/explore/fixture');
+    lookup.complete('570429070963278308');
+    await pending;
+    expect(opened, isEmpty);
+    expect(controller.roomId.value, isEmpty);
+  });
+
   test('leaving a detected room before confirmation drops the stale room', () async {
     final confirmation = Completer<bool?>();
     final openedRooms = <LiveRoom>[];

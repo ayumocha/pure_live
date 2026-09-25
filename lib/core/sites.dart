@@ -1,3 +1,5 @@
+import 'package:pure_live/common/models/site_id.dart';
+
 import 'site/yy/yy_site.dart';
 import 'site/kick/kick_site.dart';
 import 'site/bigo/bigo_site.dart';
@@ -207,12 +209,12 @@ class Sites {
     tiktokSite: '$_assetRoot/tiktok.png',
   };
 
-  static bool isSupported(String id) => supportedSiteIds.contains(id.trim().toLowerCase());
+  static bool isSupported(String id) => supportedSiteIds.contains(canonicalSiteId(id));
 
   /// Read-only artwork lookup for frequently rebuilt room and multiview UI.
   /// A badge must not allocate a platform adapter just to obtain its asset.
   static String logoForId(String id) {
-    final normalizedId = id.trim().toLowerCase();
+    final normalizedId = canonicalSiteId(id);
     if (!supportedSiteIds.contains(normalizedId)) throw StateError('Unsupported live site: $normalizedId');
     return _logos[normalizedId] ?? '$_assetRoot/logo.png';
   }
@@ -224,7 +226,7 @@ class Sites {
   /// is added, and guarantees every site picks up its logo through
   /// [logoForId] instead of hard-coding asset paths in three places.
   static Site _createSite(String id) {
-    final normalizedId = id.trim().toLowerCase();
+    final normalizedId = canonicalSiteId(id);
     return switch (normalizedId) {
       weiboSite => Site(id: weiboSite, name: i18n('site_weibo'), logo: logoForId(weiboSite), liveSite: WeiboSite()),
       niconicoSite => Site(id: niconicoSite, name: 'niconico', logo: logoForId(niconicoSite), liveSite: NiconicoSite()),
@@ -491,7 +493,7 @@ class Sites {
   static List<Site> get supportSites => _supportedSites;
 
   static Site of(String id) {
-    final normalizedId = id.trim().toLowerCase();
+    final normalizedId = canonicalSiteId(id);
     // Do not construct every platform adapter for a single lookup. Favourite
     // verification performs this operation for every saved room; the previous
     // list scan allocated nine adapters per card and also discarded platform
@@ -509,7 +511,7 @@ class Sites {
     final List<Site> result = [];
     final seen = <String>{};
     for (String rawId in savedIds) {
-      final id = rawId.trim().toLowerCase();
+      final id = canonicalSiteId(rawId);
       if (!seen.add(id)) continue;
       final match = supportedById[id];
       if (match != null) {
@@ -537,7 +539,7 @@ class Site {
   /// instances so pagination/session state stays stable; the label must still
   /// follow an in-app language change without rebuilding those adapters.
   String get name {
-    final normalizedId = id.trim().toLowerCase();
+    final normalizedId = canonicalSiteId(id);
     if (normalizedId != Sites.allSite && !Sites.isSupported(normalizedId)) return _fallbackName;
     return i18nOr('site_$normalizedId', _fallbackName);
   }

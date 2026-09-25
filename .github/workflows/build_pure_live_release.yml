@@ -42,7 +42,7 @@ on:
         description: Release tag (e.g. v1.0.0) – required if create_release is true
         required: true
         type: string
-        default: "v3.1.8"
+        default: "v3.0.8"
 permissions:
   contents: read
 concurrency:
@@ -97,7 +97,7 @@ jobs:
         always() &&
         github.event_name == 'workflow_dispatch' &&
         inputs.build_android &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped')
+        (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (!inputs.run_quality || needs.quality.result == 'success')
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -215,7 +215,8 @@ jobs:
       ${{ always() &&
         github.event_name == 'workflow_dispatch' &&
         inputs.build_windows &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped') &&
+        (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (!inputs.run_quality || needs.quality.result == 'success') &&
+        (needs.android.result == 'success' || needs.android.result == 'skipped') &&
         (!inputs.build_android || needs.android.result == 'success')
       }}
     needs: [quality, android]
@@ -398,8 +399,10 @@ jobs:
       ${{ always() &&
         github.event_name == 'workflow_dispatch' &&
         inputs.build_linux &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped') &&
+        (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (!inputs.run_quality || needs.quality.result == 'success') &&
+        (needs.android.result == 'success' || needs.android.result == 'skipped') &&
         (!inputs.build_android || needs.android.result == 'success') &&
+        (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
         (!inputs.build_windows || needs.windows.result == 'success') }}
     needs: [quality, android, windows]
     runs-on: ubuntu-24.04
@@ -510,9 +513,12 @@ jobs:
       ${{ always() &&
         github.event_name == 'workflow_dispatch' &&
         (inputs.build_macos || inputs.build_ios) &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped') &&
+        (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (!inputs.run_quality || needs.quality.result == 'success') &&
+        (needs.android.result == 'success' || needs.android.result == 'skipped') &&
         (!inputs.build_android || needs.android.result == 'success') &&
+        (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
         (!inputs.build_windows || needs.windows.result == 'success') &&
+        (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
         (!inputs.build_linux || needs.linux.result == 'success') }}
     needs: [quality, android, windows, linux]
     runs-on: macos-15
@@ -547,14 +553,14 @@ jobs:
           echo "version=${FULL_VERSION%%+*}" >> "$GITHUB_OUTPUT"
           echo "artifact_version=${FULL_VERSION/+/-}" >> "$GITHUB_OUTPUT"
       - name: Build macOS release
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         run: |
           flutter build macos \
             --release \
             --dart-define=PURELIVE_BUILD_SOURCE=github-manual
       - name: Locate macOS application
         id: macos_app
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         shell: bash
         run: |
           set -euo pipefail
@@ -565,7 +571,7 @@ jobs:
           fi
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
       - name: Verify macOS application
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         shell: bash
         run: |
           set -euo pipefail
@@ -578,7 +584,7 @@ jobs:
           lipo -info "$executable"
           python3 tool/verify_ffmpeg_native.py macos "$app_path"
       - name: Archive macOS application
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         shell: bash
         run: |
           set -euo pipefail
@@ -586,7 +592,7 @@ jobs:
           APP="${{ steps.macos_app.outputs.app_path }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "PureLive-${VERSION}-macos-universal.zip"
       - name: Build macOS DMG
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         shell: bash
         run: |
           set -euo pipefail
@@ -594,7 +600,7 @@ jobs:
           APP="${{ steps.macos_app.outputs.app_path }}"
           hdiutil create -volname "PureLive" -srcfolder "$APP" -ov -format UDZO "PureLive-${VERSION}-macos-universal.dmg"
       - name: Verify macOS packages
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-macos-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         shell: bash
         run: |
           set -euo pipefail
@@ -603,7 +609,7 @@ jobs:
           test -f "PureLive-${VERSION}-macos-universal.dmg"
           ls -lh "PureLive-${VERSION}-macos-universal.zip" "PureLive-${VERSION}-macos-universal.dmg"
       - name: Upload macOS artifacts
-        if: ${{ (github.event_name == 'push' && !startsWith(github.ref_name, 'stage-ios-')) || inputs.build_macos }}
+        if: ${{ inputs.build_macos }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pure-live-macos
@@ -613,7 +619,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Build iOS device application
-        if: ${{ (github.event_name == 'push' && startsWith(github.ref_name, 'stage-ios-')) || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         run: |
           flutter build ios \
             --release \
@@ -621,7 +627,7 @@ jobs:
             --dart-define=PURELIVE_BUILD_SOURCE=github-manual
       - name: Locate built Runner.app
         id: ios_app
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -632,14 +638,14 @@ jobs:
           fi
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
       - name: Verify iOS FFmpeg runtime
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         run: |
           binary="${{ steps.ios_app.outputs.app_path }}/Frameworks/ffmpegkit.framework/ffmpegkit"
           file "$binary"
           lipo -info "$binary"
           python3 tool/verify_ffmpeg_native.py ios "${{ steps.ios_app.outputs.app_path }}"
       - name: Archive unsigned iOS application
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -647,7 +653,7 @@ jobs:
           APP="${{ steps.ios_app.outputs.app_path }}"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "PureLive-${VERSION}-ios-arm64-unsigned-app.zip"
       - name: Create TrollStore entitlements
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -665,7 +671,7 @@ jobs:
           PLIST
           echo "entitlements=$ENT" >> "$GITHUB_ENV"
       - name: Ad-hoc sign iOS application
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -684,7 +690,7 @@ jobs:
           codesign -dvv "$APP" 2>&1 | head -30
           codesign --verify --deep --strict "$APP"
       - name: Package TrollStore IPA
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -697,7 +703,7 @@ jobs:
           cd "$WORK_DIR"
           zip -r -q "$GITHUB_WORKSPACE/PureLive-${VERSION}-ios-arm64-trollstore.ipa" Payload
       - name: Verify TrollStore IPA
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         shell: bash
         run: |
           set -euo pipefail
@@ -711,7 +717,7 @@ jobs:
           unzip -q "$IPA" -d "$TMPD"
           codesign --verify --deep --strict "$TMPD/Payload/Runner.app"
       - name: Upload iOS artifacts
-        if: ${{ github.event_name == 'push' || inputs.build_ios }}
+        if: ${{ inputs.build_ios }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pure-live-ios
@@ -728,10 +734,14 @@ jobs:
         github.event_name == 'workflow_dispatch' &&
         inputs.create_release &&
         (inputs.build_android || inputs.build_windows || inputs.build_linux || inputs.build_macos || inputs.build_ios) &&
-        (needs.quality.result == 'success' || needs.quality.result == 'skipped') &&
+        (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (!inputs.run_quality || needs.quality.result == 'success') &&
+        (needs.android.result == 'success' || needs.android.result == 'skipped') &&
         (!inputs.build_android || needs.android.result == 'success') &&
+        (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
         (!inputs.build_windows || needs.windows.result == 'success') &&
+        (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
         (!inputs.build_linux || needs.linux.result == 'success') &&
+        (needs.apple.result == 'success' || needs.apple.result == 'skipped') &&
         (!(inputs.build_macos || inputs.build_ios) || needs.apple.result == 'success') }}
     needs:
       - quality
@@ -854,7 +864,7 @@ jobs:
           |版本|下载地址|
           |---|---|
           |TV版|[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|
-          |Windows/macOS/Android/iOS版|[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|
+          |Windows/macOS/Android/iOS版|[pure_live](https://github.com/ayumocha/pure_live/releases/latest)|
           ### 🖥️ Windows 版
           - **Portable ZIP**：解压即用，无需安装
           - **EXE 安装包**：适合所有用户
@@ -869,7 +879,7 @@ jobs:
           - ARM64-v8a
           - ARMv7
           - x86_64
-          - 统一 SHA256 校验文件：[**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/$RELEASE_TAG/ANDROID_SHA256SUM.txt)
+          - 统一 SHA256 校验文件：[**ANDROID_SHA256SUM.txt**](https://github.com/ayumocha/pure_live/releases/download/$RELEASE_TAG/ANDROID_SHA256SUM.txt)
           ### 🐧 Linux 版
           - Linux x64
           - Portable tar.gz
@@ -878,7 +888,7 @@ jobs:
           - TrollStore / ad-hoc IPA
           - ARM64
           ### 🔧 Build Metadata
-          [**BUILD_METADATA.json**](https://github.com/liuchuancong/pure_live/releases/download/$RELEASE_TAG/BUILD_METADATA.json)
+          [**BUILD_METADATA.json**](https://github.com/ayumocha/pure_live/releases/download/$RELEASE_TAG/BUILD_METADATA.json)
           ### 📝 本次更新
           $RELEASE_DESCRIPTION
           EOF

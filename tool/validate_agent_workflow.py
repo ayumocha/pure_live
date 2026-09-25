@@ -36,17 +36,13 @@ Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
 
 def check_workflows(workflows):
     errors = []
-    tag_owners = {}
     for name, doc in workflows.items():
         events = doc.get('on', {})
-        if 'pull_request_target' in events:
-            errors.append(f'{name}: unexpected privileged PR trigger')
+        if set(events) != {'workflow_dispatch'}:
+            errors.append(f'{name}: only manual workflow_dispatch is allowed')
         if doc.get('permissions') == 'write-all':
             errors.append(f'{name}: broad permissions')
-        push = events.get('push') or {}
         dispatch_inputs = (events.get('workflow_dispatch') or {}).get('inputs', {})
-        for tag in push.get('tags', []):
-            tag_owners.setdefault(tag, []).append(name)
         jobs = doc.get('jobs', {})
         for job, body in jobs.items():
             needs = body.get('needs', [])
@@ -82,9 +78,6 @@ def check_workflows(workflows):
 
         for job in jobs:
             visit(job)
-    for tag in ('stage-linux-*', 'stage-macos-*', 'stage-ios-*'):
-        if tag_owners.get(tag) != ['feature-build.yml']:
-            errors.append(f'{tag}: must have one owner, feature-build.yml')
     for name in ('feature-build.yml', 'build_pure_live_release.yml'):
         doc = workflows[name]
         if doc.get('concurrency', {}).get('cancel-in-progress') is not False:
@@ -94,17 +87,30 @@ def check_workflows(workflows):
             if value.get('type') == 'boolean' and value.get('default') is not False:
                 errors.append(f'{name}: {key} unexpectedly defaults on')
         for job, dependencies in {
-            'windows': ['android'], 'linux': ['android', 'windows'],
-            'apple': ['android', 'windows', 'linux'],
-            'publish-release': ['android', 'windows', 'linux', 'apple'],
+            'android': ['quality'],
+            'windows': ['quality', 'android'],
+            'linux': ['quality', 'android', 'windows'],
+            'apple': ['quality', 'android', 'windows', 'linux'],
+            'publish-release': ['quality', 'android', 'windows', 'linux', 'apple'],
         }.items():
             body = doc['jobs'][job]
             condition = ' '.join(str(body.get('if', '')).split())
             for dependency in dependencies:
-                selector = '(inputs.build_macos || inputs.build_ios)' if dependency == 'apple' else f'inputs.build_{dependency}'
-                if dependency not in body.get('needs', []):
+                selector = (
+                    '(inputs.build_macos || inputs.build_ios)' if dependency == 'apple'
+                    else 'inputs.run_quality' if dependency == 'quality'
+                    else f'inputs.build_{dependency}'
+                )
+                needs = body.get('needs', [])
+                needs = [needs] if isinstance(needs, str) else needs
+                if dependency not in needs:
                     errors.append(f'{name}/{job}: missing direct dependency {dependency}')
-                if f'!{selector} || needs.{dependency}.result == \'success\'' not in condition:
+                if (
+                    f"(needs.{dependency}.result == 'success' || needs.{dependency}.result == 'skipped')"
+                    not in condition
+                ):
+                    errors.append(f'{name}/{job}: failed or cancelled {dependency} may pass')
+                if f"!{selector} || needs.{dependency}.result == 'success'" not in condition:
                     errors.append(f'{name}/{job}: selected {dependency} failure may pass')
             if job == 'publish-release' and '(inputs.build_android || inputs.build_windows || inputs.build_linux || inputs.build_macos || inputs.build_ios)' not in condition:
                 errors.append(f'{name}: empty platform selection may publish')
@@ -171,7 +177,7 @@ def main():
                 f'{path.relative_to(root)}: new Windows GUI model/cost copy; link to docs/AGENT_WORKFLOW.md'
             )
     readme = (root / 'README.md').read_text(encoding='utf-8-sig')
-    status_owner = '<!-- current-status-owner: docs/ACCEPTANCE_STATUS_3_2_0.md -->'
+    status_owner = '<!-- current-status-owner: docs/BUILD_AND_RELEASE.md -->'
     if readme.count(status_owner) != 1:
         errors.append('README.md: current acceptance status must have one authoritative-owner marker')
     for stale_label in ('源码未发布', '定向候选，未发布'):

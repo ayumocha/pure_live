@@ -35,7 +35,11 @@ class RemoteSyncService extends GetxController {
 
   final Set<String> _localIps = <String>{};
 
-  late final String _deviceId;
+  late final String _deviceId = _loadDeviceId();
+
+  // There is no paired-device authorization contract yet. Keep every network
+  // entry point closed until the service has one.
+  bool get _hasPairingAuthorization => false;
 
   HttpServer? _server;
 
@@ -116,8 +120,6 @@ class RemoteSyncService extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    _deviceId = _loadDeviceId();
-    unawaited(start());
   }
 
   String _loadDeviceId() {
@@ -132,7 +134,7 @@ class RemoteSyncService extends GetxController {
   }
 
   Future<void> start() async {
-    if (_disposed || _running) {
+    if (!_hasPairingAuthorization || _disposed || _running) {
       return;
     }
 
@@ -361,7 +363,7 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<void> startServer() async {
-    if (_disposed || isServerRunning.value) {
+    if (!_hasPairingAuthorization || _disposed || isServerRunning.value) {
       return;
     }
 
@@ -411,6 +413,10 @@ class RemoteSyncService extends GetxController {
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
+    if (!_hasPairingAuthorization) {
+      await _rejectUnpaired(request.response);
+      return;
+    }
     if (_disposed) {
       try {
         await request.response.close();
@@ -516,6 +522,10 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<void> _handleGetSettings(HttpRequest request) async {
+    if (!_hasPairingAuthorization) {
+      await _rejectUnpaired(request.response);
+      return;
+    }
     try {
       final backup = Get.find<BackupController>();
 
@@ -536,6 +546,10 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<void> _handlePostSettings(HttpRequest request) async {
+    if (!_hasPairingAuthorization) {
+      await _rejectUnpaired(request.response);
+      return;
+    }
     try {
       final content = await utf8.decoder.bind(request).join();
 
@@ -600,6 +614,7 @@ class RemoteSyncService extends GetxController {
   }
 
   Future<bool> _applyRemoteSettings(Map<String, dynamic> settings) async {
+    if (!_hasPairingAuthorization) return false;
     try {
       final backup = Get.find<BackupController>();
 
@@ -617,6 +632,11 @@ class RemoteSyncService extends GetxController {
     await _writeResponse(response, {'code': 405, 'msg': 'Method Not Allowed', 'data': false});
   }
 
+  Future<void> _rejectUnpaired(HttpResponse response) async {
+    response.statusCode = HttpStatus.forbidden;
+    await _writeResponse(response, {'code': 403, 'msg': 'Remote sync unavailable', 'data': false});
+  }
+
   Future<void> _writeResponse(HttpResponse response, Map<String, dynamic> data) async {
     response.write(jsonEncode(data));
     await response.close();
@@ -627,7 +647,7 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<bool> startDiscovery() async {
-    if (_disposed) {
+    if (!_hasPairingAuthorization || _disposed) {
       return false;
     }
 
@@ -948,7 +968,7 @@ class RemoteSyncService extends GetxController {
   }
 
   Future<bool> syncToAddress(String ip, int port) async {
-    if (_disposed || isSyncing.value) {
+    if (!_hasPairingAuthorization || _disposed || isSyncing.value) {
       return false;
     }
 
@@ -1003,7 +1023,7 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<bool> receiveFromAddress(String ip, int port) async {
-    if (_disposed || isApplying.value) {
+    if (!_hasPairingAuthorization || _disposed || isApplying.value) {
       return false;
     }
 
@@ -1041,7 +1061,7 @@ class RemoteSyncService extends GetxController {
   // ---------------------------------------------------------------------------
 
   Future<Map<String, dynamic>?> getRemoteSettings(String ip, int port) async {
-    if (_disposed) {
+    if (!_hasPairingAuthorization || _disposed) {
       return null;
     }
 
@@ -1114,6 +1134,7 @@ class RemoteSyncService extends GetxController {
   }
 
   Future<bool> receiveByQr(String value) async {
+    if (!_hasPairingAuthorization) return false;
     final parsed = RemoteSyncProtocol.parseQr(value);
 
     if (parsed == null) {

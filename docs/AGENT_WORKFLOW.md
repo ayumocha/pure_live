@@ -1,5 +1,8 @@
 # Agent task and workflow routing
 
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. The 3.2.0 ledgers below are historical fork evidence, not current candidate validation or device authorization.
+
+
 This is an on-demand execution map. AGENTS.md contains session defaults; BUILD_POLICY.md owns resource/signing rules; MAINTENANCE_POLICY.md owns bug provenance; UPSTREAM_REVIEW_POLICY.md owns merge review. Do not duplicate those rules in new skills.
 
 ## Select the evidence needed
@@ -87,7 +90,7 @@ GitHub Actions remain explicit fallback/signing infrastructure; local Android/Wi
 | Route | Use |
 | --- | --- |
 | `audit-upstream.yml` | Read-only incoming-change inventory; no merge |
-| `feature-build.yml` | Main hosted fallback; selected platforms run serially. Sole owner of `stage-linux-*`, `stage-macos-*`, `stage-ios-*` tag triggers |
+| `feature-build.yml` | Main hosted fallback; selected platforms run serially. Manual dispatch only; no tag-triggered build |
 | `build_pure_live_release.yml` | Manual legacy/all-ABI compatibility entrypoint; no stage-tag trigger |
 | `build-ios-unsigned.yml` | Explicit manual standalone iOS build; no duplicate tag build |
 | `local-signed-android.yml` | Explicit self-hosted Android fallback |

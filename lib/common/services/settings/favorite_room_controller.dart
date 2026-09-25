@@ -5,6 +5,8 @@ import 'package:pure_live/common/consts/app_consts.dart';
 import 'package:pure_live/common/services/utils/backup_migration_util.dart';
 import 'package:pure_live/common/utils/hive_pref_util.dart';
 import 'package:synchronized/synchronized.dart';
+import 'package:pure_live/common/models/site_id.dart';
+import 'package:pure_live/common/services/utils/fork_site_migration.dart';
 
 class FavoriteRoomController extends GetxController {
   static const int maxShieldKeywordLength = 40;
@@ -124,7 +126,7 @@ class FavoriteRoomController extends GetxController {
     final normalized = <String>[];
 
     for (final rawId in hotAreasList) {
-      final id = rawId.trim().toLowerCase();
+      final id = canonicalSiteId(rawId);
 
       if (supported.contains(id) && seen.add(id)) {
         normalized.add(id);
@@ -135,7 +137,7 @@ class FavoriteRoomController extends GetxController {
       hotAreasList.assignAll(normalized);
     }
 
-    final preferred = preferPlatform.v.trim().toLowerCase();
+    final preferred = canonicalSiteId(preferPlatform.v);
 
     preferPlatform.v = supported.contains(preferred) ? preferred : Sites.bilibiliSite;
   }
@@ -485,7 +487,7 @@ class FavoriteRoomController extends GetxController {
   }
 
   LiveRoom? getRoomById(String roomId, String platform) {
-    final identity = '${platform.trim().toLowerCase()}:${roomId.trim()}';
+    final identity = '${canonicalSiteId(platform)}:${roomId.trim()}';
 
     for (final room in favoriteRooms.v) {
       if (room.identityKey == identity) {
@@ -497,7 +499,7 @@ class FavoriteRoomController extends GetxController {
   }
 
   void changePreferPlatform(String name) {
-    final normalized = name.trim().toLowerCase();
+    final normalized = canonicalSiteId(name);
 
     if (hotAreasList.contains(normalized)) {
       preferPlatform.v = normalized;
@@ -516,6 +518,7 @@ class FavoriteRoomController extends GetxController {
   }
 
   static Map<String, dynamic> parseConfig(Map<String, dynamic> json) {
+    json = ForkSiteMigration.normalize(json);
     return {
       'shieldList': _normalizeDanmakuBlockValues(List<String>.from(json['shieldList'] ?? const <String>[])),
       'blockedDanmakuUsers': _normalizeDanmakuBlockValues(
@@ -529,6 +532,7 @@ class FavoriteRoomController extends GetxController {
   }
 
   static Map<String, dynamic> parseFavoriteLists(Map<String, dynamic> json) {
+    json = ForkSiteMigration.normalize(json);
     if (!json.containsKey('favoriteRooms') && !json.containsKey('favoriteAreas')) {
       throw const FormatException('No favorite lists in backup');
     }
@@ -575,7 +579,7 @@ class FavoriteRoomController extends GetxController {
   }
 
   static Map<String, dynamic> extractConfig(Map<String, dynamic>? rootConfig) {
-    final favorite = rootConfig?['favorite'] as Map<String, dynamic>? ?? {};
+    final favorite = ForkSiteMigration.normalize(rootConfig?['favorite'] as Map<String, dynamic>? ?? {});
 
     return {
       'shieldList': _normalizeDanmakuBlockValues(List<String>.from(favorite['shieldList'] ?? const <String>[])),

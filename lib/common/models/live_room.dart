@@ -1,5 +1,6 @@
 import 'package:pure_live/player/core/live_room_volume_manager.dart';
 import 'package:pure_live/core/common/http_header_policy.dart';
+import 'package:pure_live/common/models/site_id.dart';
 
 enum LiveStatus { live, offline, replay, unknown, banned }
 
@@ -432,7 +433,7 @@ class LiveRoom {
       onlineViewers = json['onlineViewers']?.toString() ?? '',
       totalViewers = json['totalViewers']?.toString() ?? '',
       followers = json['followers']?.toString() ?? '0',
-      platform = json['platform'] ?? 'UNKNOWN',
+      platform = canonicalSiteId(json['platform'] ?? 'UNKNOWN'),
       tagIds = List<String>.from(json['tagIds'] ?? []),
       liveStatus = _liveStatusFromJson(json),
       status = json['status'] ?? false,
@@ -543,7 +544,7 @@ class LiveRoom {
     );
   }
 
-  String get normalizedPlatformId => platform?.trim().toLowerCase() ?? '';
+  String get normalizedPlatformId => canonicalSiteId(platform);
 
   String get normalizedRoomId => roomId?.trim() ?? '';
 
@@ -589,7 +590,7 @@ class LiveRoom {
   bool hasSameIdentity(LiveRoom other) => identityKey == other.identityKey;
 
   bool hasIdentity({required String platform, required String roomId}) {
-    return normalizedPlatformId == platform.trim().toLowerCase() && normalizedRoomId == roomId.trim();
+    return normalizedPlatformId == canonicalSiteId(platform) && normalizedRoomId == roomId.trim();
   }
 
   LiveRoom normalizedIdentityCopy() {
@@ -631,7 +632,7 @@ class LiveRoom {
       'onlineViewers': onlineViewers,
       'totalViewers': totalViewers,
       'followers': followers,
-      'platform': platform,
+      'platform': canonicalSiteId(platform),
       'tagIds': tagIds,
       'liveStatus': effectiveLiveStatus.index,
       'isRecord': isRecord,

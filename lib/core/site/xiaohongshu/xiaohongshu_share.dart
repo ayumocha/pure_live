@@ -78,6 +78,34 @@ class XiaohongshuShare {
   /// The caller must bind this body to the requested URL without auto-redirects.
   static XiaohongshuShare parsePage(String page, {required String roomId}) {
     validateRoomId(roomId);
+    final root = _initialState(page);
+    return parseState(_object(root['liveStream']), roomId: roomId);
+  }
+
+  /// A profile is a broadcaster identity, never a room identity. Only the
+  /// requested broadcaster's own active room metadata may identify a room.
+  static String? profileRoomId(String page, {required String userId}) {
+    final root = _initialState(page);
+    final stream = _object(root['liveStream']);
+    if (stream['pageStatus'] != 'success' || stream['liveStatus'] != 'success') return null;
+    final responseUserId = stream['userId'];
+    if (responseUserId is! String || responseUserId.toLowerCase() != userId.toLowerCase()) {
+      throw const XiaohongshuException(XiaohongshuFailure.identity);
+    }
+    final data = _object(stream['roomData']);
+    final room = _object(data['roomInfo']);
+    final id = room['roomId'];
+    if (id is! String && id is! int) throw const XiaohongshuException(XiaohongshuFailure.identity);
+    final validated = validateRoomId(id.toString());
+    final streamId = stream['roomId'];
+    if (streamId != null && streamId.toString() != validated) {
+      throw const XiaohongshuException(XiaohongshuFailure.identity);
+    }
+    if (room['status'] != null && room['status'] != 2) return null;
+    return validated;
+  }
+
+  static Map<String, dynamic> _initialState(String page) {
     if (page.length > responseLimit || utf8.encode(page).length > responseLimit) {
       throw const XiaohongshuException(XiaohongshuFailure.schema);
     }
@@ -91,8 +119,7 @@ class XiaohongshuShare {
     var source = scripts.single.text.trim().substring(marker.length).trim();
     if (source.endsWith(';')) source = source.substring(0, source.length - 1).trimRight();
     try {
-      final root = _object(jsonDecode(_hydrationJson(source)));
-      return parseState(_object(root['liveStream']), roomId: roomId);
+      return _object(jsonDecode(_hydrationJson(source)));
     } on FormatException {
       throw const XiaohongshuException(XiaohongshuFailure.schema);
     }

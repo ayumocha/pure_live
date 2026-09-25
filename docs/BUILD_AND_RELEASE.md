@@ -1,8 +1,11 @@
 # 本地构建、测试与发布
 
+This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate, not a verified release. The linked 3.2.0 acceptance reports are historical fork evidence; they do not attest to this candidate. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
+
+
 本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.5`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。
 
-当前候选、提交、门禁和平台阻塞统一见 [`ACCEPTANCE_STATUS_3_2_0.md`](ACCEPTANCE_STATUS_3_2_0.md)；本页不复制会快速过期的版本快照。历史 v3.0.0 交付证据保留在 [`STAGE_UPDATE_3_0_0.md`](STAGE_UPDATE_3_0_0.md)。
+The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line. Candidate-specific gates, artifacts, and platform blockers must be recorded against the 3.0.8+4096 source commit before any release.
 
 ## 前置环境
 
@@ -163,7 +166,7 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\publish_local_release.ps1 `
 
 ## GitHub Actions
 
-`.github/workflows/feature-build.yml` 支持手动触发，可分别选择 Android arm64、Windows x64、Linux x64、macOS universal 和 iOS arm64 设备编译；所有平台、质量门禁和发布开关默认关闭，只有本轮明确选择的阶段进入队列。选择多个平台时按依赖链串行。`stage-linux-*`、`stage-macos-*` 与 `stage-ios-*` 标签仅用于精确单平台补建，产物保留 3 天。
+The manual `.github/workflows/feature-build.yml` workflow selects Android arm64, Windows x64, Linux x64, macOS, and iOS individually. Platform, quality, and release inputs default to off; selected jobs run serially. There are no push, stage-tag, or scheduled build triggers.
 
 代码未变化且当前提交已经在本机通过完整门禁时，可关闭手动工作流的
 `run_quality`，仅调用托管 Runner 完成 Secrets 正式签名；默认仍会执行完整门禁。
@@ -190,6 +193,6 @@ python .\tool\update_releases.py
 3. 按本轮发布范围串行运行 `tool/build_local_release.ps1 -Target <目标> -Configuration Release -SkipQuality`，逐个平台核对产物、构建记录和 SHA-256。
 4. 当前任务明确安排设备验收时，再运行 `tool/install_android_local.ps1` 覆盖安装并启动；正式 Release 使用仓库持久签名验证升级链。
 5. 提交并推送 `master`，创建与该提交一致的 tag 和草稿 Release；Android 本地暂存包通过 `sign-staged-android` 正式签名后再公开发布。
-6. 在 [维护分支 Releases](https://github.com/liuchuancong/pure_live/releases) 核对附件、固定证书指纹、校验文件和源码提交，随后刷新 `assets/releases.json` 并推送 `[skip ci]` 索引提交。
+6. 在 [维护分支 Releases](https://github.com/ayumocha/pure_live/releases) 核对附件、固定证书指纹、校验文件和源码提交，随后刷新 `assets/releases.json` 并推送 `[skip ci]` 索引提交。
 
 返回 [文档索引](README.md)。

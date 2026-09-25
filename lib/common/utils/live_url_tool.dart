@@ -118,6 +118,7 @@ class LiveUrlTool {
       if (WeiboLink.parse(raw) != null ||
           NiconicoLink.parse(raw) != null ||
           XiaohongshuLink.parse(raw) != null ||
+          XiaohongshuLink.profileUserId(raw) != null ||
           XiaohongshuLink.shortUri(raw) != null ||
           TtingLink.parse(raw) != null ||
           OpenrecLink.parse(raw) != null ||

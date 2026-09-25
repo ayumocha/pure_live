@@ -51,11 +51,9 @@ import 'package:pure_live/modules/account/bilibili/web_login_page.dart';
 import 'package:pure_live/modules/account/soop/soop_cookie_binding.dart';
 import 'package:pure_live/modules/account/huya/huya_cookie_binding.dart';
 import 'package:pure_live/recorder/pages/recorder/recorder_binding.dart';
-import 'package:pure_live/modules/remote_receiver/remote_sync_page.dart';
 import 'package:pure_live/modules/account/taobao/taobao_cookie_page.dart';
 import 'package:pure_live/modules/account/twitch/twitch_cookie_page.dart';
 import 'package:pure_live/modules/account/douyin/douyin_cookie_page.dart';
-import 'package:pure_live/modules/remote_receiver/remote_sync_binding.dart';
 import 'package:pure_live/modules/account/taobao/taobao_cookie_binding.dart';
 import 'package:pure_live/modules/account/twitch/twitch_cookie_binding.dart';
 import 'package:pure_live/modules/live_play/bindings/live_play_binding.dart';
@@ -256,11 +254,6 @@ class AppPages {
       name: RoutePath.kSettingsTags,
       page: _smoothPage(() => const TagManagementPage()),
       bindings: [TagManagementBinding()],
-    ),
-    GetPage(
-      name: RoutePath.kRemoteSync,
-      page: _smoothPage(() => const RemoteSyncPage()),
-      bindings: [RemoteSyncBinding()],
     ),
   ];
 }

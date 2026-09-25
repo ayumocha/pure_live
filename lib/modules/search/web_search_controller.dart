@@ -6,7 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/common/services/settings/log_controller.dart';
+import 'package:pure_live/common/utils/live_short_link_session.dart';
 import 'package:pure_live/core/common/log.dart';
+import 'package:pure_live/core/site/xiaohongshu/xiaohongshu_link.dart';
+import 'package:pure_live/core/sites.dart';
 import 'package:pure_live/modules/search/web_search_room_parser.dart';
 import 'package:pure_live/plugins/utils.dart';
 import 'package:pure_live/routes/app_navigation.dart';
@@ -88,6 +91,7 @@ typedef WebSearchRoomConfirmation = Future<bool?> Function(WebSearchRoomTarget t
 typedef WebSearchRoomOpener = Future<void> Function(LiveRoom room);
 typedef WebSearchCookieFlusher = Future<void> Function();
 typedef WebSearchNotice = void Function(String localizationKey);
+typedef WebSearchXiaohongshuProfileResolver = Future<String?> Function(String url);
 
 class WebSearchController extends GetxController {
   WebSearchController({
@@ -98,11 +102,13 @@ class WebSearchController extends GetxController {
     WebSearchRoomOpener? openRoom,
     WebSearchCookieFlusher? flushCookies,
     WebSearchNotice? notice,
+    WebSearchXiaohongshuProfileResolver? resolveXiaohongshuProfile,
   }) : _launchExternal = launchExternal ?? _defaultLaunchExternal,
        _confirmRoom = confirmRoom ?? _defaultConfirmRoom,
        _openRoom = openRoom ?? _defaultOpenRoom,
        _flushCookies = flushCookies ?? _defaultFlushCookies,
-       _notice = notice ?? _defaultNotice;
+       _notice = notice ?? _defaultNotice,
+       _resolveXiaohongshuProfile = resolveXiaohongshuProfile ?? _defaultResolveXiaohongshuProfile;
 
   final Object? initialArguments;
   final bool? useExternalBrowser;
@@ -111,6 +117,7 @@ class WebSearchController extends GetxController {
   final WebSearchRoomOpener _openRoom;
   final WebSearchCookieFlusher _flushCookies;
   final WebSearchNotice _notice;
+  final WebSearchXiaohongshuProfileResolver _resolveXiaohongshuProfile;
 
   WebSearchLaunchRequest? launchRequest;
   final roomId = ''.obs;
@@ -126,6 +133,10 @@ class WebSearchController extends GetxController {
   String? _observedTargetKey;
   String? _dismissedTarget;
   Future<void>? _promptOperation;
+  Future<void>? _profileOperation;
+  int _profileRevision = 0;
+  String? _profileSourceKey;
+  String? _profileResolvedRoomId;
   Future<void>? _externalOpenOperation;
   Future<WebSearchBackDisposition>? _backOperation;
   Future<void>? _closeOperation;
@@ -311,8 +322,31 @@ class WebSearchController extends GetxController {
 
   Future<void> observeUrl(String rawUrl) {
     if (_closed) return Future.value();
-    final uri = _parseHttpUri(rawUrl.trim().replaceAll(RegExp(r'[\r\n\t]'), ''));
+    final candidate = rawUrl.trim().replaceAll(RegExp(r'[\r\n\t]'), '');
+    final uri = _parseHttpUri(candidate);
     if (uri == null) return Future.value();
+    if (WebSearchRoomParser.isXiaohongshuProfileCandidate(rawUrl)) {
+      final key = 'xiaohongshu:profile:${XiaohongshuLink.profileUserId(rawUrl)}';
+      if (_profileSourceKey == key) {
+        if (_profileOperation != null) return _profileOperation!;
+        if (_profileResolvedRoomId != null) return _promptOperation ?? Future<void>.value();
+      }
+      _profileSourceKey = key;
+      _profileResolvedRoomId = null;
+      _observedTargetKey = key;
+      _pendingTarget = null;
+      final revision = ++_profileRevision;
+      final generation = _generation;
+      late final Future<void> task;
+      task = _resolveProfile(rawUrl, key, revision, generation).whenComplete(() {
+        if (identical(_profileOperation, task)) _profileOperation = null;
+      });
+      _profileOperation = task;
+      return task;
+    }
+    _profileSourceKey = null;
+    _profileResolvedRoomId = null;
+    _profileRevision++;
     final target = WebSearchRoomParser.parse(uri.toString());
     if (target == null) {
       _observedTargetKey = null;
@@ -320,6 +354,10 @@ class WebSearchController extends GetxController {
       _dismissedTarget = null;
       return Future.value();
     }
+    return _queueTarget(target);
+  }
+
+  Future<void> _queueTarget(WebSearchRoomTarget target) {
     _observedTargetKey = target.key;
     if (_dismissedTarget == target.key) return Future.value();
 
@@ -333,6 +371,19 @@ class WebSearchController extends GetxController {
     });
     _promptOperation = task;
     return task;
+  }
+
+  Future<void> _resolveProfile(String url, String key, int revision, int generation) async {
+    String? resolvedRoomId;
+    try {
+      resolvedRoomId = await _resolveXiaohongshuProfile(url);
+    } catch (error) {
+      debugPrint('[WebSearch] Xiaohongshu profile lookup failed: $error');
+    }
+    if (!_isCurrent(generation) || _profileRevision != revision || _observedTargetKey != key) return;
+    if (resolvedRoomId == null || !RegExp(r'^[1-9][0-9]{0,19}$').hasMatch(resolvedRoomId)) return;
+    _profileResolvedRoomId = resolvedRoomId;
+    await _queueTarget(WebSearchRoomTarget(platform: Sites.xiaohongshuSite, roomId: resolvedRoomId));
   }
 
   Future<void> _drainPromptQueue(int generation) async {
@@ -518,6 +569,16 @@ class WebSearchController extends GetxController {
       confirm: i18n('confirm'),
       cancel: i18n('cancel'),
     );
+  }
+
+  static Future<String?> _defaultResolveXiaohongshuProfile(String url) async {
+    const timeout = Duration(seconds: 12);
+    final session = LiveShortLinkSession(timeout: timeout);
+    try {
+      return await XiaohongshuLink.resolve(url, session: session).timeout(timeout, onTimeout: () => null);
+    } finally {
+      session.close();
+    }
   }
 
   static Future<void> _defaultOpenRoom(LiveRoom room) {
