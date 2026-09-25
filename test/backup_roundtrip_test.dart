@@ -46,7 +46,10 @@ void main() {
     test('v$version complete backup roundtrip preserves omitted credentials', () async {
       final settings = await initialize();
       final backup = settings.backup;
-      final source = detached(backup.exportAllSettings());
+      final source = detached(backup.exportAllSettings(includeSensitiveData: false));
+      expect(source['sensitiveDataIncluded'], isFalse);
+      expect(source.containsKey('cookie'), isFalse);
+      expect(source.containsKey('webdav'), isFalse);
       source['backupVersion'] = version;
       source['app']['enableBackgroundPlay'] = true;
       source['roomCard']['mobilePreset'] = 'custom';
@@ -69,7 +72,7 @@ void main() {
       ];
       await backup.restoreAllSettings(source);
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      final expected = detached(backup.exportAllSettings());
+      final expected = detached(backup.exportAllSettings(includeSensitiveData: false));
       settings.app.enableBackgroundPlay.value = false;
       settings.vol.roomVolumes = {};
       settings.tagManagement.tags.clear();
@@ -78,7 +81,7 @@ void main() {
       final file = File('${directory.path}/v$version.json')..writeAsStringSync(jsonEncode(source));
       expect(await backup.recover(file), isTrue);
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      expect(detached(backup.exportAllSettings()), expected);
+      expect(detached(backup.exportAllSettings(includeSensitiveData: false)), expected);
       expect(settings.cookieManager.twitchCookie.value, 'local-fixture-cookie');
       expect(settings.webdav.currentWebDavConfig.value, 'local-fixture-config');
       await Hive.box('app_settings').flush();

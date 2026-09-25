@@ -33,8 +33,8 @@ void main() {
   setUp(() {
     Get.testMode = true;
     settings = _Settings();
-    Get.put<SettingsService>(settings);
-    Get.put(ThemeSettingsController());
+    Get.put<SettingsService>(settings, permanent: true);
+    Get.put(ThemeSettingsController(), permanent: true);
   });
   tearDown(() {
     Get.deleteAll(force: true);

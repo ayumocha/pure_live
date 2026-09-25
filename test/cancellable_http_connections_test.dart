@@ -177,16 +177,30 @@ void main() {
     final origin = await _Blackhole.start();
     final owner = CancellableHttpConnections();
     final client = HttpClient()
-      ..connectionFactory = owner.connect
+      ..connectionFactory = (uri, proxyHost, proxyPort) {
+        expect(proxyHost, isNull, reason: 'loopback TLS timeout fixture must connect directly');
+        expect(proxyPort, isNull);
+        return owner.connect(uri, proxyHost, proxyPort);
+      }
+      ..findProxy = ((_) => 'DIRECT')
       ..connectionTimeout = const Duration(seconds: 1);
     try {
       final failure = expectLater(
         client.getUrl(Uri.parse('https://localhost:${origin.port}/media')),
         throwsA(isA<SocketException>()),
       );
-      await origin.hello.future.timeout(const Duration(seconds: 3));
-      await failure.timeout(const Duration(seconds: 3));
-      await origin.gone.future.timeout(const Duration(seconds: 3));
+      await origin.hello.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw StateError('Direct TLS origin did not receive ClientHello'),
+      );
+      await failure.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw StateError('HttpClient connect timeout did not reject the TLS request'),
+      );
+      await origin.gone.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw StateError('Timed-out TLS connection did not close its origin socket'),
+      );
       await _until(() => owner.activeConnectionCount == 0);
     } finally {
       client.close(force: true);
@@ -220,8 +234,20 @@ void main() {
       r.response.close();
     });
     final first = CancellableHttpConnections(), second = CancellableHttpConnections();
-    final a = HttpClient()..connectionFactory = first.connect;
-    final b = HttpClient()..connectionFactory = second.connect;
+    final a = HttpClient()
+      ..connectionFactory = (uri, proxyHost, proxyPort) {
+        expect(proxyHost, isNull, reason: 'loopback HTTP fixture must connect directly');
+        expect(proxyPort, isNull);
+        return first.connect(uri, proxyHost, proxyPort);
+      }
+      ..findProxy = (_) => 'DIRECT';
+    final b = HttpClient()
+      ..connectionFactory = (uri, proxyHost, proxyPort) {
+        expect(proxyHost, isNull, reason: 'loopback HTTP fixture must connect directly');
+        expect(proxyPort, isNull);
+        return second.connect(uri, proxyHost, proxyPort);
+      }
+      ..findProxy = (_) => 'DIRECT';
     final uri = Uri.parse('http://127.0.0.1:${server.port}/media');
     Future<String> get(HttpClient c) async =>
         String.fromCharCodes(await (await (await c.getUrl(uri)).close()).fold<List<int>>([], (a, b) => a..addAll(b)));

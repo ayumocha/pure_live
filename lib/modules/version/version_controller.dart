@@ -55,6 +55,10 @@ class VersionController extends GetxController {
       await getPackageInfo();
 
       final latestVersion = VersionUtil.latestVersion.trim();
+      final latestBuildNumber = VersionUtil.latestBuildNumber;
+      if (latestVersion.isEmpty || latestBuildNumber == null || latestBuildNumber <= 0) {
+        throw const FormatException('Incomplete release identity');
+      }
       final newVersion = VersionUtil.isNewerVersion(latestVersion, packageInfo.version);
 
       hasNewVersion.value = newVersion;

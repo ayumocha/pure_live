@@ -117,10 +117,10 @@ void main() {
           '-i',
           'http://127.0.0.1:${origin.port}/live.flv',
         ]))!;
-        final client = HttpClient();
+        final client = HttpClient()..findProxy = (_) => 'DIRECT';
         final received = <int>[];
         final prefixReceived = Completer<void>();
-        final ended = Completer<void>();
+        final ended = Completer<Object?>();
         StreamSubscription<List<int>>? downstream;
         try {
           final response = await (await client.getUrl(relay.inputUri)).close();
@@ -129,8 +129,12 @@ void main() {
               received.addAll(chunk);
               if (received.length >= prefix.length && !prefixReceived.isCompleted) prefixReceived.complete();
             },
-            onDone: ended.complete,
-            onError: ended.completeError,
+            onDone: () {
+              if (!ended.isCompleted) ended.complete(null);
+            },
+            onError: (Object error, StackTrace _) {
+              if (!ended.isCompleted) ended.complete(error);
+            },
           );
           await prefixReceived.future.timeout(const Duration(seconds: 2));
           var finished = false;
@@ -146,6 +150,11 @@ void main() {
           if (stalled) {
             await relay.close().timeout(const Duration(seconds: 2));
             await stopping.timeout(const Duration(seconds: 2));
+            expect(
+              await ended.future.timeout(const Duration(seconds: 2)),
+              anyOf(isNull, isA<HttpException>(), isA<SocketException>()),
+              reason: 'Closing a stalled source must terminate the downstream response promptly.',
+            );
             expect(received, prefix);
           } else {
             final tail = [
@@ -159,7 +168,7 @@ void main() {
             ]);
             await response.flush();
             await stopping.timeout(const Duration(seconds: 2));
-            await ended.future.timeout(const Duration(seconds: 2));
+            expect(await ended.future.timeout(const Duration(seconds: 2)), isNull);
             expect(received, [...prefix, ...tail]);
             expect(finished, true);
           }

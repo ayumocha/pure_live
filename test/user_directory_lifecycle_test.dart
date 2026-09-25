@@ -23,6 +23,7 @@ class _Doc implements DocumentSnapshot {
 }
 
 class _Controller extends UserServerRemoteController {
+  bool skipInitialRefresh = true;
   Future<List<String>>? ids;
   Future<Map<String, String>>? statsRoles;
   Future<List<DocumentSnapshot>>? rows;
@@ -39,6 +40,51 @@ class _Controller extends UserServerRemoteController {
   String get currentUserUid {
     authReads++;
     return 'self';
+  }
+
+  @override
+  Future<void> refreshData() async {
+    if (skipInitialRefresh) return;
+    await super.refreshData();
+  }
+
+  @override
+  Future<List<String>> readCloudUserIds() async => await (ids ?? Future.value([]));
+
+  @override
+  Future<Map<String, String>> readCloudRoles(List<String>? uids) async {
+    if (uids == null) {
+      globalRoles++;
+      return await (statsRoles ?? Future.value({}));
+    }
+    roleQueries.add(uids);
+    return await (roles ?? Future.value({}));
+  }
+
+  @override
+  Future<List<DocumentSnapshot>> readCloudUsers({
+    required int limitCount,
+    required String keyword,
+    required DocumentSnapshot? after,
+  }) async {
+    queries.add((keyword: keyword, after: after?.id, size: limitCount));
+    if (reader != null) return await reader!(limitCount, keyword, after);
+    return await (rows ?? Future.value([]));
+  }
+
+  @override
+  Future<Map<String, Map<String, dynamic>>> readCloudPermissionData(List<String> uids) async {
+    roleQueries.add(uids);
+    final roleMap = await (roles ?? Future.value({}));
+    return {
+      for (final entry in roleMap.entries) entry.key: {'role': entry.value},
+    };
+  }
+
+  @override
+  Future<void> writeCloudUser(String id, Map<String, dynamic> data) async {
+    writes++;
+    await write;
   }
 
   @override
@@ -85,6 +131,7 @@ void _test(
                 owner = _Controller();
                 configure?.call(owner!);
                 owner!.onStart();
+                owner!.skipInitialRefresh = false;
                 owner!.pageSize.value = 2;
               }
               return const SizedBox();

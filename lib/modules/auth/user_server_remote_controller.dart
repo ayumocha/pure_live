@@ -23,6 +23,59 @@ class UserServerRemoteController extends ServerRemotePageController<UserItem> {
 
   String get currentUserUid => Get.find<AuthController>().user!.uid;
 
+  // Keep cloud I/O separate from cursor ownership so failed or late requests
+  // can be exercised without a Firebase application in lifecycle tests.
+  Future<List<String>> readCloudUserIds() async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    return snapshot.docs.map((doc) => doc.id).toList();
+  }
+
+  Future<Map<String, String>> readCloudRoles(List<String>? uids) async {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance.collection('permissions');
+    if (uids != null) query = query.where(FieldPath.documentId, whereIn: uids);
+    final snapshot = await query.get();
+    return {
+      for (final doc in snapshot.docs)
+        if ((doc.data()['role'] as String?)?.trim().isNotEmpty == true) doc.id: (doc.data()['role'] as String).trim(),
+    };
+  }
+
+  Future<List<DocumentSnapshot>> readCloudUsers({
+    required int limitCount,
+    required String keyword,
+    required DocumentSnapshot? after,
+  }) async {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('users')
+        .orderBy('email')
+        .limit(limitCount);
+    if (keyword.isNotEmpty) {
+      final start = keyword.toLowerCase();
+      final end = start.substring(0, start.length - 1) + String.fromCharCode(start.codeUnitAt(start.length - 1) + 1);
+      query = query.where('email', isGreaterThanOrEqualTo: start).where('email', isLessThan: end);
+    }
+    if (after != null) query = query.startAfterDocument(after);
+    final snapshot = await query.get();
+    return snapshot.docs;
+  }
+
+  Future<Map<String, Map<String, dynamic>>> readCloudPermissionData(List<String> uids) async {
+    final permissions = <String, Map<String, dynamic>>{};
+    for (var i = 0; i < uids.length; i += 30) {
+      final batch = uids.skip(i).take(30);
+      final results = await Future.wait(
+        batch.map((uid) => FirebaseFirestore.instance.collection('permissions').doc(uid).get()),
+      );
+      for (final permission in results) {
+        if (permission.exists) permissions[permission.id] = permission.data() ?? {};
+      }
+    }
+    return permissions;
+  }
+
+  Future<void> writeCloudUser(String docId, Map<String, dynamic> updateData) =>
+      FirebaseFirestore.instance.collection('users').doc(docId).update(updateData);
+
   @override
   void onInit() {
     super.onInit();
@@ -60,6 +113,11 @@ class UserServerRemoteController extends ServerRemotePageController<UserItem> {
   /// Resetting based on `page == 1` inside `fetchNetworkData` would be incorrect.
   @override
   Future<void> refreshData() async {
+    if (isClosed) return;
+    while (activePageOperation != null && !isClosed) {
+      await activePageOperation;
+    }
+    if (isClosed) return;
     lastDocument = null;
     await super.refreshData();
   }
@@ -80,42 +138,22 @@ class UserServerRemoteController extends ServerRemotePageController<UserItem> {
     await refreshData();
   }
 
-  /// Global statistics. Reads the whole `users` and `permissions` collections
-  /// once and tallies role counts locally so a missing role field falls back
-  /// to `user` without an extra round trip.
+  /// Global statistics include users without a permissions document.
   Future<void> _fetchGlobalStats() async {
     if (isClosed) return;
 
     try {
-      final firestore = FirebaseFirestore.instance;
-
-      final results = await Future.wait([
-        firestore.collection('users').get(),
-        firestore.collection('permissions').get(),
-      ]);
-
+      final userIds = await readCloudUserIds();
       if (isClosed) return;
-
-      final usersSnapshot = results[0];
-      final permissionsSnapshot = results[1];
+      final permissionRoles = await readCloudRoles(null);
+      if (isClosed) return;
 
       var admin = 0;
       var manager = 0;
       var user = 0;
 
-      final permissionRoles = <String, String>{};
-
-      for (final doc in permissionsSnapshot.docs) {
-        final data = doc.data();
-        final role = (data['role'] as String?)?.trim();
-
-        if (role != null && role.isNotEmpty) {
-          permissionRoles[doc.id] = role;
-        }
-      }
-
-      for (final doc in usersSnapshot.docs) {
-        final role = permissionRoles[doc.id] ?? 'user';
+      for (final uid in userIds) {
+        final role = permissionRoles[uid] ?? 'user';
 
         switch (role) {
           case 'admin':
@@ -135,100 +173,64 @@ class UserServerRemoteController extends ServerRemotePageController<UserItem> {
       adminCount.value = admin;
       managerCount.value = manager;
       userCount.value = user;
-      totalCount.value = usersSnapshot.docs.length;
+      totalCount.value = userIds.length;
     } catch (e, stackTrace) {
+      if (isClosed) return;
       Log.e('[UserMgr] failed to fetch global stats: $e', stackTrace);
     }
   }
 
-  /// One query per call; the page-assembly loop is handled by the base class.
-  /// Cursor always belongs to the `users` collection; role and `canUpload` are
-  /// resolved per row from the optional `permissions` document.
+  /// Assemble one visible page. Only commit the cloud cursor after every
+  /// corresponding permissions read succeeds and the controller is still live.
   @override
   Future<List<UserItem>> fetchNetworkData(int page, int pageSize) async {
     if (isClosed) return [];
 
     final visibleRoles = FirebaseManager.getInstance().visibleRoles();
+    if (visibleRoles.isEmpty) return [];
 
-    if (visibleRoles.isEmpty) {
-      return [];
-    }
-
-    Query<Map<String, dynamic>> q = FirebaseFirestore.instance.collection('users').orderBy('email').limit(pageSize);
-
-    if (searchKeyword.isNotEmpty) {
-      final start = searchKeyword.toLowerCase();
-
-      final end = start.substring(0, start.length - 1) + String.fromCharCode(start.codeUnitAt(start.length - 1) + 1);
-
-      q = q.where('email', isGreaterThanOrEqualTo: start).where('email', isLessThan: end);
-    }
-
-    final cursor = lastDocument;
-
-    if (cursor != null) {
-      q = q.startAfterDocument(cursor);
-    }
-
-    final snap = await q.get();
-
-    if (isClosed) return [];
-
-    if (snap.docs.isEmpty) {
-      return [];
-    }
-
-    lastDocument = snap.docs.last;
-
+    final keyword = searchKeyword;
+    var cursor = lastDocument;
     final selfUid = currentUserUid;
+    final items = <UserItem>[];
+    // A batch can contain only the current user or hidden roles. Keep reading
+    // until a visible page is assembled or the cloud collection is exhausted;
+    // returning an empty filtered batch makes the base pager stop early.
+    while (items.length < pageSize) {
+      final needed = pageSize - items.length;
+      final rawDocs = await readCloudUsers(limitCount: needed, keyword: keyword, after: cursor);
+      if (isClosed) return [];
+      if (rawDocs.isEmpty) break;
 
-    final userDocs = snap.docs.where((doc) => doc.id != selfUid).toList(growable: false);
+      final nextCursor = rawDocs.last;
+      final userDocs = rawDocs.where((doc) => doc.id != selfUid).toList(growable: false);
+      if (userDocs.isNotEmpty) {
+        final permissions = await readCloudPermissionData(userDocs.map((doc) => doc.id).toList(growable: false));
+        if (isClosed) return [];
 
-    if (userDocs.isEmpty) {
-      return [];
-    }
-
-    // permissions/{uid} is optional.
-    // A missing permissions document means the user is a normal user.
-    final permissionDocs = <String, Map<String, dynamic>>{};
-
-    for (var i = 0; i < userDocs.length; i += 30) {
-      final batch = userDocs.skip(i).take(30).toList(growable: false);
-
-      final futures = batch.map((doc) => FirebaseFirestore.instance.collection('permissions').doc(doc.id).get());
-
-      final results = await Future.wait(futures);
-
-      for (var j = 0; j < results.length; j++) {
-        final permission = results[j];
-
-        if (permission.exists) {
-          permissionDocs[userDocs[i + j].id] = permission.data() ?? {};
+        for (final doc in userDocs) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          final permissionData = permissions[doc.id];
+          final rawRole = permissionData?['role'];
+          final role = rawRole is String && rawRole.trim().isNotEmpty ? rawRole.trim() : 'user';
+          if (!visibleRoles.contains(role)) continue;
+          final canUpload = permissionData?['canUpload'] != null
+              ? permissionData!['canUpload'] != false
+              : data['canUpload'] != false;
+          items.add(UserItem(uid: doc.id, email: (data['email'] as String?) ?? '', canUpload: canUpload, role: role));
         }
       }
+
+      cursor = nextCursor;
+      if (rawDocs.length < needed) break;
     }
 
-    final items = <UserItem>[];
-
-    for (final doc in userDocs) {
-      final data = doc.data();
-      final permissionData = permissionDocs[doc.id];
-
-      final role = (permissionData?['role'] as String?)?.trim().isNotEmpty == true
-          ? (permissionData!['role'] as String).trim()
-          : 'user';
-
-      if (!visibleRoles.contains(role)) {
-        continue;
-      }
-
-      final canUpload = permissionData?['canUpload'] != null
-          ? permissionData!['canUpload'] != false
-          : data['canUpload'] != false;
-
-      items.add(UserItem(uid: doc.id, email: (data['email'] as String?) ?? '', canUpload: canUpload, role: role));
-    }
-
+    if (isClosed) return [];
+    lastDocument = cursor;
+    items.sort((a, b) {
+      final roleOrder = (FirebaseManager.roleWeights[a.role] ?? 2).compareTo(FirebaseManager.roleWeights[b.role] ?? 2);
+      return roleOrder != 0 ? roleOrder : a.email.compareTo(b.email);
+    });
     return items;
   }
 
@@ -243,7 +245,7 @@ class UserServerRemoteController extends ServerRemotePageController<UserItem> {
   Future<void> onConfigSaved(String docId, Map<String, dynamic> updateData) async {
     if (isClosed) return;
 
-    await FirebaseFirestore.instance.collection('users').doc(docId).update(updateData);
+    await writeCloudUser(docId, updateData);
 
     if (isClosed) return;
 

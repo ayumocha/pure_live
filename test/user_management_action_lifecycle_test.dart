@@ -44,14 +44,23 @@ class _Actions extends UserManagementActions {
 class _Controller extends UserServerRemoteController {
   int refreshes = 0;
   Completer<void>? refreshGate;
+  bool _initializing = true;
   @override
   void onInit() {
     super.onInit();
     isSuperAdmin = true;
+    _initializing = false;
   }
 
   @override
+  Future<List<String>> readCloudUserIds() async => ['u'];
+
+  @override
+  Future<Map<String, String>> readCloudRoles(List<String>? uids) async => {};
+
+  @override
   Future<void> refreshData() async {
+    if (_initializing) return;
     refreshes++;
     await refreshGate?.future;
   }

@@ -22,7 +22,7 @@ void main() {
     );
 
     final finder = find.byKey(const ValueKey('live-danmaku-section-tabs'));
-    final tabBar = tester.widget<TabBar>(finder);
+    final tabBar = tester.widget<TabBar>(find.descendant(of: finder, matching: find.byType(TabBar)));
     expect(tabBar.isScrollable, isFalse);
     expect(tabBar.tabAlignment, TabAlignment.fill);
     for (final label in tabs) {

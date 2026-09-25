@@ -195,12 +195,14 @@ class _RecordActionButtonState extends State<RecordActionButton> {
     await widget.recorderController.unRecorder(task);
   }
 
-  Future<String?> _showActionDialog(BuildContext context, {required bool exists, required bool isRunning}) {
+  Future<String?> _showActionDialog(BuildContext context, {required bool exists, required bool isRunning}) async {
     final theme = Theme.of(context);
+    ModalRoute<String>? dialogRoute;
 
-    return showDialog<String>(
+    final action = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
+        dialogRoute ??= ModalRoute.of<String>(dialogContext);
         final mediaQuery = MediaQuery.of(dialogContext);
         final availableHeight =
             mediaQuery.size.height - mediaQuery.padding.vertical - mediaQuery.viewInsets.vertical - 32;
@@ -335,6 +337,11 @@ class _RecordActionButtonState extends State<RecordActionButton> {
         );
       },
     );
+    // showDialog returns on pop, before its reverse transition removes the
+    // overlay. Opening the recorder route while that overlay remains can
+    // overlap the native video surface with the next route.
+    if (action == 'page') await dialogRoute?.completed;
+    return action;
   }
 }
 

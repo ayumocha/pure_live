@@ -181,20 +181,28 @@ void main() {
     await open(
       tester,
       onOpenRecordCenter: () async {
+        expect(find.byKey(const ValueKey('record-action-dialog')), findsNothing);
         opens++;
       },
     );
     await openDialog(tester);
+    final dialog = find.byKey(const ValueKey('record-action-dialog'));
+    final route = ModalRoute.of<String>(tester.element(dialog))!;
+    final reverseDuration = route.reverseTransitionDuration;
+    expect(reverseDuration, greaterThan(Duration.zero));
 
     await tester.tap(find.text(translations['en']!['go_record_center'] as String));
     await tester.pump();
+    expect(route.animation!.status, AnimationStatus.reverse);
+    expect(dialog, findsOneWidget);
     expect(opens, 0);
-    await tester.pump(kThemeAnimationDuration - const Duration(milliseconds: 1));
+    await tester.pump(Duration(microseconds: reverseDuration.inMicroseconds ~/ 2));
+    expect(route.animation!.status, AnimationStatus.reverse);
+    expect(dialog, findsOneWidget);
     expect(opens, 0);
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(opens, 1);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('record-action-dialog')), findsNothing);
+    expect(dialog, findsNothing);
+    expect(opens, 1);
   });
 }
 

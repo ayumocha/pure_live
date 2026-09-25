@@ -1,11 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:pure_live/common/index.dart';
 import 'package:pure_live/player/utils/player_consts.dart';
+import 'package:pure_live/player/utils/mpv_platform_profile.dart';
 
 class RendererSettingsPage extends GetView<SettingsService> {
   const RendererSettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final platform = defaultTargetPlatform;
+    final available = mpvVideoOutputDriversForPlatform(platform);
     return Scaffold(
       appBar: AppBar(title: Text(i18n('video_output_driver'))),
       body: ListView(
@@ -16,9 +20,10 @@ class RendererSettingsPage extends GetView<SettingsService> {
           context.buildModernCard([
             Obx(
               () => Column(
-                children: PlayerConsts.videoRenderersList.map((item) {
-                  final key = item['key']!;
-                  final selected = controller.player.videoOutputDriver.v == key;
+                children: available.entries.map((item) {
+                  final key = item.key;
+                  final selected =
+                      normalizeMpvVideoOutputDriverForPlatform(controller.player.videoOutputDriver.v, platform) == key;
 
                   return _RendererTile(
                     title: _getLocalizedName(context, item),
@@ -37,9 +42,14 @@ class RendererSettingsPage extends GetView<SettingsService> {
     );
   }
 
-  String _getLocalizedName(BuildContext context, Map<String, String> item) {
+  String _getLocalizedName(BuildContext context, MapEntry<String, String> item) {
     final bool isZh = Get.locale?.languageCode == 'zh';
-    return isZh ? item['nameZh']! : item['nameEn']!;
+    if (!isZh) return item.value;
+    final translated = PlayerConsts.videoRenderersList.firstWhere(
+      (driver) => driver['key'] == item.key,
+      orElse: () => {'nameZh': item.value},
+    );
+    return translated['nameZh']!;
   }
 }
 

@@ -13,6 +13,7 @@ void main() {
     VersionUtil.latestUpdateLog = '';
     VersionUtil.latestAndroidAbis = const {};
     VersionUtil.latestWindowsMsixAvailable = false;
+    VersionUtil.latestAssets = [];
   });
 
   test('failed update check always leaves a retryable terminal state', () async {
@@ -74,6 +75,17 @@ void main() {
     VersionUtil.latestBuildNumber = 5000;
     VersionUtil.latestUpdateLog = '# Pure Live 3.2.0';
     VersionUtil.latestAndroidAbis = const {'arm64-v8a'};
+    VersionUtil.latestAssets = [
+      {
+        'name': 'android-arm64-v8a',
+        'url': 'https://github.com/ayumocha/pure_live/releases/download/v3.2.0/PureLive-3.2.0-5000-android-arm64-v8a-release.apk',
+      },
+      {
+        'name': 'windows-x64-setup.exe',
+        'url':
+            'https://github.com/ayumocha/pure_live/releases/download/v3.2.0/PureLive-3.2.0-5000-windows-x64-setup.exe',
+      },
+    ];
     final controller = VersionController(
       updateChecker: () async => true,
       packageInfoLoader: () async => localPackage(),

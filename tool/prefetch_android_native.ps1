@@ -106,8 +106,8 @@ function Get-FFmpegBuilderProfile {
             CacheVersion = '0.11.1-ffmpeg-9.0.2-b1'
             AndroidSha256 = 'c6c9b1ff7be756b0fb587f98e05972ca4dae97e8275c22961b443b4fd5f49bf7'
             WindowsSha256 = 'e61684a91f7471ba00f1d5b36a24e93ab602ef72bd57000d94990e7e0c5dfe3a'
-            AndroidUrl = 'https://github.com/liuchuancong/pure_live/releases/download/native-ffmpeg-9.0.2-b1/bundle-base-shared-lgpl-release.aar'
-            WindowsUrl = 'https://github.com/liuchuancong/pure_live/releases/download/native-ffmpeg-9.0.2-b1/bundle-base-windows-x86_64-shared-lgpl.zip'
+            AndroidUrl = 'https://github.com/wzgrx/pure_live/releases/download/native-ffmpeg-9.0.2-b1/bundle-base-shared-lgpl-release.aar'
+            WindowsUrl = 'https://github.com/wzgrx/pure_live/releases/download/native-ffmpeg-9.0.2-b1/bundle-base-windows-x86_64-shared-lgpl.zip'
         }
     }
     $profile = $profiles[$packageVersion]
@@ -221,3 +221,9 @@ Install-VerifiedAsset `
     -CachePath (Join-Path $persistentRoot "ffmpeg-kit\v$ffmpegCacheVersion-windows\$ffmpegWindowsName") `
     -Url $ffmpegProfile.WindowsUrl `
     -Sha256 $ffmpegProfile.WindowsSha256
+if ($ffmpegProfile.PackageVersion -eq '0.6.2') {
+    & (Join-Path $PSScriptRoot 'ensure_ffmpeg_windows_cache.ps1') `
+        -RepoRoot $repoRoot `
+        -ArchiveSha256 $ffmpegProfile.WindowsSha256 `
+        -DllSha256 '302d978048f389dbb07f01c1a34a4988a92d1e3ebf0e960e2dd8314f83632b34'
+}

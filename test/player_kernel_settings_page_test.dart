@@ -10,7 +10,9 @@ import 'package:pure_live/common/services/settings_service.dart';
 import 'package:pure_live/common/services/utils/hive_rx.dart';
 import 'package:pure_live/common/utils/hive_pref_util.dart';
 import 'package:pure_live/get/get.dart';
+import 'package:pure_live/modules/settings/pages/audio_output_settings_page.dart';
 import 'package:pure_live/modules/settings/pages/player_kernel_settings_page.dart';
+import 'package:pure_live/modules/settings/pages/renderer_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -81,17 +83,20 @@ void main() {
     await _scrollPageUntilHitTestable(tester, videoOutputTitle);
     await tester.tap(videoOutputTitle.hitTestable());
     await tester.pumpAndSettle();
-    final dialog = find.byType(AlertDialog);
-    expect(dialog, findsOneWidget);
+    final rendererPage = find.byType(RendererSettingsPage);
+    expect(rendererPage, findsOneWidget);
     final lastOption = find.text('libmpv');
-    final dialogScrollable = find.descendant(of: dialog, matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(lastOption, 100, scrollable: dialogScrollable);
+    final rendererScrollable = find.descendant(of: rendererPage, matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(lastOption, 100, scrollable: rendererScrollable);
     await tester.pumpAndSettle();
     expect(tester.getRect(lastOption).bottom, lessThanOrEqualTo(480));
-    await tester.tap(find.ancestor(of: lastOption, matching: find.byType(RadioListTile<String>)));
+    await tester.tap(lastOption.hitTestable());
     await tester.pumpAndSettle();
     expect(SettingsService.to.player.videoOutputDriver.value, 'libmpv');
-    expect(dialog, findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(rendererPage, findsNothing);
+    expect(find.text('libmpv'), findsOneWidget);
 
     final audioOutputTitle = find.text('Audio Output Driver (--ao)');
     await _scrollPageUntilHitTestable(tester, audioOutputTitle);
@@ -112,8 +117,8 @@ void main() {
     await tester.tap(audioOutputTitle.hitTestable());
     await tester.pumpAndSettle();
 
-    final dialog = find.byType(AlertDialog);
-    expect(dialog, findsOneWidget);
+    final audioPage = find.byType(AudioOutputSettingsPage);
+    expect(audioPage, findsOneWidget);
     for (final label in <String>[
       'auto (Automatic fallback)',
       'audiotrack (Android AudioTrack)',
@@ -121,24 +126,29 @@ void main() {
       'opensles (Legacy fallback)',
       'null (No audio output)',
     ]) {
-      expect(find.descendant(of: dialog, matching: find.text(label)), findsOneWidget);
+      expect(find.descendant(of: audioPage, matching: find.text(label)), findsOneWidget);
     }
     for (final desktopOnly in <String>['wasapi', 'coreaudio', 'alsa', 'pulse']) {
       expect(
         find.descendant(
-          of: dialog,
+          of: audioPage,
           matching: find.byWidgetPredicate((widget) => widget is Text && widget.data?.startsWith(desktopOnly) == true),
         ),
         findsNothing,
       );
     }
 
-    await tester.tap(
-      find.ancestor(of: find.text('aaudio (Android 8.0+)'), matching: find.byType(RadioListTile<String>)),
-    );
+    final nativeDriver = find.text('aaudio (Android 8.0+)');
+    final audioScrollable = find.descendant(of: audioPage, matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(nativeDriver, 100, scrollable: audioScrollable);
+    await tester.pumpAndSettle();
+    await tester.tap(nativeDriver.hitTestable());
     await tester.pumpAndSettle();
     expect(SettingsService.to.player.audioOutputDriver.v, 'aaudio');
-    expect(dialog, findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(audioPage, findsNothing);
+    expect(find.text('aaudio (Android 8.0+)'), findsOneWidget);
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   }, skip: !Platform.isWindows);

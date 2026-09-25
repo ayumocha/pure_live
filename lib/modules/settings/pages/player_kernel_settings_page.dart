@@ -7,6 +7,7 @@ import 'package:pure_live/common/index.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:pure_live/core/common/proxy_routing.dart';
 import 'package:pure_live/player/utils/player_consts.dart';
+import 'package:pure_live/player/utils/mpv_platform_profile.dart';
 import 'package:pure_live/player/models/player_engine.dart';
 import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/modules/settings/pages/decoder_settings.dart';
@@ -198,28 +199,25 @@ class PlayerKernelSettingsPage extends GetView<SettingsService> {
 
   String _getAudioOutputDriverName() {
     final key = settings.player.audioOutputDriver.v;
-
-    final item = PlayerConsts.audioOutputDriversList.firstWhere(
-      (item) => item['key'] == key,
-      orElse: () => PlayerConsts.audioOutputDriversList.first,
-    );
-
     final isZh = Get.locale?.languageCode == 'zh';
-
-    return isZh ? item['nameZh']! : item['nameEn']!;
+    final available = mpvAudioOutputDriversForPlatform(defaultTargetPlatform);
+    final normalized = normalizeMpvAudioOutputDriverForPlatform(key, defaultTargetPlatform);
+    if (!isZh) return available[normalized]!;
+    final item = PlayerConsts.audioOutputDriversList.firstWhere((item) => item['key'] == normalized);
+    return item['nameZh']!;
   }
 
   String _getRendererName() {
     final key = settings.player.videoOutputDriver.v;
-
-    final item = PlayerConsts.videoRenderersList.firstWhere(
-      (item) => item['key'] == key,
-      orElse: () => PlayerConsts.videoRenderersList.first,
-    );
-
     final isZh = Get.locale?.languageCode == 'zh';
-
-    return isZh ? item['nameZh']! : item['nameEn']!;
+    final available = mpvVideoOutputDriversForPlatform(defaultTargetPlatform);
+    final normalized = normalizeMpvVideoOutputDriverForPlatform(key, defaultTargetPlatform);
+    if (!isZh) return available[normalized]!;
+    final item = PlayerConsts.videoRenderersList.firstWhere(
+      (item) => item['key'] == normalized,
+      orElse: () => {'nameZh': available[normalized]!},
+    );
+    return item['nameZh']!;
   }
 
   String _getHardwareDecoderName() {
@@ -236,7 +234,53 @@ class PlayerKernelSettingsPage extends GetView<SettingsService> {
   }
 
   Widget _buildMpvWarningAndReset(BuildContext context, ThemeData theme) {
-    final theme = Theme.of(context);
+    final warning = Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 2,
+        children: [
+          Text(
+            i18n('mpv_warning_text'),
+            style: AppTextStyles.t12.copyWith(color: theme.hintColor.withValues(alpha: 0.65)),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () => launchUrlString('https://mpv.io'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Text(
+                i18n('mpv_official_docs'),
+                style: AppTextStyles.t12.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final reset = InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => settings.player.resetMpvPlayerSettings(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          children: [
+            const Icon(Remix.refresh_line, size: 15, color: Colors.red),
+            Text(
+              i18n('reset'),
+              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -245,60 +289,27 @@ class PlayerKernelSettingsPage extends GetView<SettingsService> {
         context.buildModernCard([
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 12, 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 5),
-                    child: Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 4,
-                      runSpacing: 2,
-                      children: [
-                        Text(
-                          i18n('mpv_warning_text'),
-                          style: AppTextStyles.t12.copyWith(color: theme.hintColor.withValues(alpha: 0.65)),
-                        ),
-                        InkWell(
-                          borderRadius: BorderRadius.circular(4),
-                          onTap: () => launchUrlString('https://mpv.io'),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                            child: Text(
-                              i18n('mpv_official_docs'),
-                              style: AppTextStyles.t12.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => settings.player.resetMpvPlayerSettings(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Remix.refresh_line, size: 15, color: Colors.red),
-                        const SizedBox(width: 4),
-                        Text(
-                          i18n('reset'),
-                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 360 || MediaQuery.textScalerOf(context).scale(1) > 1.5) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      warning,
+                      const SizedBox(height: 8),
+                      Align(alignment: Alignment.centerRight, child: reset),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: warning),
+                    const SizedBox(width: 8),
+                    reset,
+                  ],
+                );
+              },
             ),
           ),
         ]),

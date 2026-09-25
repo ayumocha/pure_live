@@ -25,6 +25,7 @@ void main() {
     await controller.startAsyncInit();
 
     expect(backend.initializeCalls, 1);
+    expect(backend.probeCalls, 0);
     expect(controller.isInitSuccess, isTrue);
     expect(controller.isReady, isTrue);
   });
@@ -101,17 +102,20 @@ void main() {
   });
 
   test('closing during initialization prevents late setup and subscription', () async {
-    final accessResult = Completer<bool>();
-    final backend = _FixtureBackend(accessResult: accessResult);
+    final initializeResult = Completer<void>();
+    final backend = _FixtureBackend(initializeResult: initializeResult);
     final controller = AuthController(backend: backend, autoStart: false);
 
     final initialization = controller.startAsyncInit();
+    await _flushAsync();
+    expect(backend.initializeCalls, 1);
     controller.onClose();
-    accessResult.complete(true);
+    initializeResult.complete();
     await initialization;
     await _flushAsync();
 
-    expect(backend.initializeCalls, 0);
+    expect(backend.initializeCalls, 1);
+    expect(controller.isInitSuccess, isFalse);
     expect(backend.listenerCount, 0);
   });
 
@@ -200,7 +204,7 @@ void main() {
 class _FixtureBackend extends FirebaseAuthControllerBackend {
   _FixtureBackend({
     this.canAccessWebsite = true,
-    this.accessResult,
+    this.initializeResult,
     this.currentUser,
     this.syncResult,
     this.syncFailuresRemaining = 0,
@@ -210,7 +214,7 @@ class _FixtureBackend extends FirebaseAuthControllerBackend {
   }
 
   final bool canAccessWebsite;
-  final Completer<bool>? accessResult;
+  final Completer<void>? initializeResult;
   @override
   final fb.User? currentUser;
   final Completer<void>? syncResult;
@@ -219,11 +223,15 @@ class _FixtureBackend extends FirebaseAuthControllerBackend {
   final _authStates = StreamController<fb.User?>.broadcast();
   final syncedUserIds = <String>[];
   int initializeCalls = 0;
+  int probeCalls = 0;
   int clearSessionCalls = 0;
   int listenerCount = 0;
 
   @override
-  Future<bool> canAccessFirebaseWebsite() async => accessResult?.future ?? canAccessWebsite;
+  Future<bool> canAccessFirebaseWebsite() async {
+    probeCalls++;
+    return canAccessWebsite;
+  }
 
   @override
   Future<void> initialize() async {
@@ -232,6 +240,7 @@ class _FixtureBackend extends FirebaseAuthControllerBackend {
       initializeFailuresRemaining--;
       throw StateError('fixture initialization failure');
     }
+    await initializeResult?.future;
   }
 
   @override
