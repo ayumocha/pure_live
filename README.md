@@ -55,8 +55,8 @@
 | [Documentation index](docs/README.md) | Historical and active reference links |
 <!-- stable-doc-index:end -->
 
-- **最新稳定版**：[v3.0.9](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9)
-- **当前发布**：Windows `3.0.9+4097` 已发布 EXE/ZIP，新增手动响度补偿。macOS 仍使用 v3.0.8 universal DMG/ZIP；Android 按用户要求暂缓，Android/Linux/iOS 更新 feed 保留 `3.0.7+4095`。版本说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，正式门禁与产物校验见[响度补偿报告](docs/LOUDNESS_COMPENSATION.md)。
+- **最新稳定版**：[v3.0.10](https://github.com/ayumocha/pure_live/releases/tag/v3.0.10)
+- **当前发布**：Windows `3.0.10+4098` 已发布 EXE/ZIP，移除第三方代理与启动时默认注册自启，保留手动响度补偿。macOS 仍使用 v3.0.8 universal DMG/ZIP；Android 按用户要求暂缓，Android/Linux/iOS 更新 feed 保留 `3.0.7+4095`。版本说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，正式门禁、产物与本机杀软验证见[启动告警报告](docs/KASPERSKY_STARTUP_3_0_10.md)。
 
 **历史 v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
 

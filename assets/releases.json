@@ -3,6 +3,79 @@
     {
       "assets": [
         {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588627150",
+          "contentType": "application/zip",
+          "createdAt": "2026-09-25T15:19:04Z",
+          "digest": "sha256:019475b0320163ccb47c226c0e6dd536de082e04ef5201a796653ffd9d86cb5f",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jFbzO",
+          "label": "",
+          "name": "PureLive-3.0.10-4098-windows-x64-portable.zip",
+          "size": 76643533,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T15:20:06Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.10/PureLive-3.0.10-4098-windows-x64-portable.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588632992",
+          "contentType": "application/x-msdownload",
+          "createdAt": "2026-09-25T15:22:12Z",
+          "digest": "sha256:ce4a05650c456426db4a904b25f47dd477f3a53a007c3c767d391dfdb10786f5",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jFdOg",
+          "label": "",
+          "name": "PureLive-3.0.10-4098-windows-x64-setup.exe",
+          "size": 58059192,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T15:23:00Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.10/PureLive-3.0.10-4098-windows-x64-setup.exe"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588627149",
+          "contentType": "application/json",
+          "createdAt": "2026-09-25T15:19:04Z",
+          "digest": "sha256:3b9a4a7115b9069785a0c2350f6c10cd358ce93edc0b5d8202691761e8859d2e",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jFbzN",
+          "label": "",
+          "name": "WINDOWS_BUILD_METADATA.json",
+          "size": 1118,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T15:19:04Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.10/WINDOWS_BUILD_METADATA.json"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588627148",
+          "contentType": "text/plain; charset=utf-8",
+          "createdAt": "2026-09-25T15:19:04Z",
+          "digest": "sha256:11e18435021749df8bbc6512ba2582439ec500952746d7d6433511aab8cc98d2",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jFbzM",
+          "label": "",
+          "name": "WINDOWS_SHA256SUMS.txt",
+          "size": 318,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T15:19:04Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.10/WINDOWS_SHA256SUMS.txt"
+        }
+      ],
+      "author": {
+        "id": "U_kgDOD6z9Iw",
+        "login": "ayumocha"
+      },
+      "body": "# Pure Live v3.0.10\r\n\r\nWindows x64 版本为 `3.0.10+4098`。构建、回归与实际杀软验证状态见[启动告警报告](https://github.com/ayumocha/pure_live/blob/master/docs/KASPERSKY_STARTUP_3_0_10.md)。告警根因尚未获厂商确认，不能承诺不会再报毒；Windows 安装包未作 Authenticode 签名。Android、Linux、iOS 继续使用 `3.0.7+4095`，macOS 继续使用 `3.0.8+4096`。\r\n\r\n- GitHub 配置、更新检查与字体下载统一使用官方来源，不经第三方代理。\r\n- Windows 只读取已有的开机自启状态；新安装默认关闭，只有用户明确开启后才写入 Run 项，恢复备份不会授予或开启自启。\r\n- 关闭自动检查更新后，不再发起后台更新请求。\r\n- 保留 Windows 手动响度补偿：关闭、+3、+6、+9 dB，默认关闭。\r\n\r\n源码提交：`74bbb889720015f56a80a2687e5e6b968b2576b7`。文件校验值见附件 `WINDOWS_SHA256SUMS.txt`。\r\n\r\n验证：5314 项 Flutter 测试与 42 项接口检查通过；卡巴斯基扫描 ZIP/EXE 共 2670 个对象，0 检出、0 错误。2026-09-25 本机保持系统监控开启的 45 秒启动观察中，进程持续运行、EXE 保留、没有新增 Pure Live 系统监控事件，也没有创建/修改 Run 自启动项。此为单机启动采样，不代表长时间直播或所有杀软版本的保证。\r\n",
+      "createdAt": "2026-09-25T15:18:43Z",
+      "isDraft": false,
+      "isPrerelease": false,
+      "name": "Pure Live v3.0.10",
+      "publishedAt": "2026-09-25T15:23:25Z",
+      "tagName": "v3.0.10",
+      "targetCommitish": "master",
+      "url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.10"
+    },
+    {
+      "assets": [
+        {
           "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/588190368",
           "contentType": "application/zip",
           "createdAt": "2026-09-25T11:10:48Z",

@@ -1,10 +1,10 @@
 # 本地构建、测试与发布
 
-Windows v3.0.10 的启动告警修复正在验证；问题来源、样本身份和分层验证记录见[启动告警报告](KASPERSKY_STARTUP_3_0_10.md)。v3.0.9 已收到卡巴斯基行为告警，既有构建通过记录不代表杀软放行。
+The current release is [Pure Live v3.0.10](https://github.com/ayumocha/pure_live/releases/tag/v3.0.10), built from `74bbb889720015f56a80a2687e5e6b968b2576b7` (`3.0.10+4098`). It provides Windows x64 EXE/ZIP with official GitHub sources and opt-in startup registration. macOS remains on v3.0.8; Android/Linux/iOS remain on v3.0.7. [KASPERSKY_STARTUP_3_0_10.md](KASPERSKY_STARTUP_3_0_10.md) owns this release's source, quality, build, artifact and antivirus observation evidence. Use Flutter 3.47.5. Past device evidence never authorizes device work for the current task.
 
-The current release is [Pure Live v3.0.9](https://github.com/ayumocha/pure_live/releases/tag/v3.0.9), built from `661aba3c0b655379ff85daf2f4f7c19337e36d6e` (`3.0.9+4097`). It provides Windows x64 EXE/ZIP with optional manual loudness compensation. macOS remains on v3.0.8; Android/Linux/iOS remain on v3.0.7. [LOUDNESS_COMPENSATION.md](LOUDNESS_COMPENSATION.md) owns this release's complete quality, build and artifact evidence. Use Flutter 3.47.5. Past device evidence never authorizes device work for the current task.
+本次 v3.0.10 已发布为 Latest。5314 项 Flutter 测试与 42 项接口检查通过；Windows 云端附件的 SHA-256 与本地一致。卡巴斯基对新 ZIP/EXE 扫描 2670 个对象、0 检出；保持系统监控开启的 45 秒进程级启动观察没有新增告警或自启动项。此证据不代表长时间直播、可视界面或所有杀软版本保证。Android 继续暂缓，其他平台更新源保留原版本。
 
-本次 v3.0.9 已发布为 Latest，完整门禁通过 5306 项 Flutter 测试与 42 项公开接口检查。Windows 安装包和便携包的云端 SHA-256 与本地一致；未进行客户端安装或声卡试听。Android 继续暂缓，其他平台更新源保留原版本。
+v3.0.9 已收到卡巴斯基行为告警；此前的构建/测试通过不代表杀软放行。历史响度功能验证见 [LOUDNESS_COMPENSATION.md](LOUDNESS_COMPENSATION.md)。
 
 历史 v3.0.8 上游同步及 Windows/macOS 发布证据见[同步报告](UPSTREAM_SYNC_RESULT_2026_09_25.md)。
 

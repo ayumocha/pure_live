@@ -10,7 +10,7 @@
 ## 根因与来源
 
 1. **第三方镜像自动联网：`upstream-existing`，先前修复不完整。** 普通 Windows 主实例启动会访问 `SettingsService.startup`，构造 `StartupController`，其 `onInit` 无条件调用 `HuyaSite.getHuYaUA`。`GitHubMirror.mirrors` 列出的第三方代理由 `RaceHttp` 同时请求，包括 `gh-proxy.net`。先前修复只删除了 `v6.gh-proxy.org`。`ww19` 并非源码常量，是否来自服务重定向仍缺少网络链路证据。
-2. **启动时写入自启：现有实现与旧默认配置的行为问题，杀软因果为 `not-reproduced`。** `enableStartUp` 缺省为 true，初始化会据此校验并重建 `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` 中的应用条目。用户没有点击设置，也可能发生这次写入。这是确认的程序行为，但 SW2 摘要未指明哪一次系统操作命中了检测规则，不能将其宣布为 PDM 告警的唯一原因。
+2. **启动时写入自启：`upstream-existing`，杀软因果为 `not-reproduced`。** `enableStartUp` 缺省为 true，初始化会据此校验并重建 `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` 中的应用条目。用户没有点击设置，也可能发生这次写入。这是确认的程序行为，但 SW2 摘要未指明哪一次系统操作命中了检测规则，不能将其宣布为 PDM 告警的唯一原因。
 3. **自动更新开关顺序：`upstream-existing`。** 首页先联网检查版本，随后才判断 `enableAutoCheckUpdate`，所以关闭开关只抑制提示，不能阻止后台请求。
 4. 新增响度代码只在创建播放器后绑定，首页不创建原生播放器；当前启动调用链不能支持“响度补偿导致木马告警”的结论。没有发现普通启动执行更新安装器、PowerShell/CMD 自替换脚本的调用链；这不是全仓无恶意认证。
 
@@ -27,12 +27,26 @@
 本轮范围为 Windows；Android 延续暂缓，macOS/Linux/iOS 不构建。先做确定性回归，再在冻结提交上执行完整质量门禁和 Windows Release 构建。杀软文件扫描、实际启动观察以及厂商复核属于不同证据，不互相替代。当前修复不能承诺任意杀软版本永不告警。
 
 - 定向回归：9 个测试文件、58 项通过，覆盖启动只读/备份/显式点击/竞态、官方来源及失败路径、关闭自动更新、设置与版本页面。记录：`local-artifacts/build-records/20260925T150850511Z-quality-focused.json`。首次测试的 fixture 类型和 FakeAsync 文件写入问题已修正；通过结果对应修正后的测试，不计入此前中止运行。
-- `validate_build_policy.ps1` 与发布工作流数据单测（2 项）通过。完整门禁、构建及杀软行为复测结果在完成后补齐。
+- `validate_build_policy.ps1` 与发布工作流数据单测（2 项）通过。
+- 冻结源码 `74bbb889720015f56a80a2687e5e6b968b2576b7` 上的 Full 门禁通过：5314 项 Flutter 测试、42 项公开接口检查；Analyze 0 error / 0 warning / 7 info（其中 1 项为隔离测试 fixture 的字段覆盖提示）。记录：`local-artifacts/build-records/20260925T151332591Z-quality-full.json`，230.602 秒，源码干净且运行中未改变，结束后活跃重型进程为 0。
+- 同一源码完成 Windows x64 Release，复用上述 Full，记录：`local-artifacts/build-records/20260925T151540507Z-build-windowsx64-release.json`，116.649 秒，结束后活跃重型进程为 0。ZIP CRC、版本、依赖 DLL、无运行数据/开发文件、SHA-256 均核验；AOT 产物未含已移除的六类代理域名字符串。已有 CMake/MSBuild 警告仍存在，未导致构建失败。
 
 - 卡巴斯基本机 CLI 扫描旧 v3.0.9 便携 ZIP：1335 个对象全部 OK，0 检出、0 可疑、0 错误，数据库日期 `2026-09-25 11:36:00`；报告 `local-artifacts/kaspersky-startup/old-package-scan.txt`。该结果与已确认的启动行为告警并存，说明静态文件扫描不能替代行为复测。CLI 提示非交互模式会忽略请求的 `/i0` 单次动作参数，实际保留产品原有响应策略，未改全局防护。
+- 新 ZIP/EXE 文件扫描：2670 个对象全部 OK，0 检出、0 可疑、0 错误；报告 `local-artifacts/kaspersky-startup/new-package-scan.txt`。使用产品原有扫描响应设置。
+- 在独立便携目录中，于 `2026-09-25 23:16:15–23:17:01 +08:00` 进行 45 秒进程级启动观察。卡巴斯基 SW2 保持 running；EXE 保留、进程未被终止，前后 Pure Live 系统监控事件均为 13 条，没有新样本事件。Run 项前后均不存在，未新增自启。观察后仅清理本次创建的进程；未操作用户既有进程或安装目录。
+- 该启动采样以隐藏方式启动，主窗口句柄未取得，因此不作为可视界面验收。没有完成长时间直播或不同杀软/数据库版本验证，也没有取得卡巴斯基厂商的误报确认。不能由“本机未复现”推导出“绝不会再报毒”。
+
+| Windows 交付物 | SHA-256 |
+| --- | --- |
+| `PureLive-3.0.10-4098-windows-x64-portable.zip` | `019475b0320163ccb47c226c0e6dd536de082e04ef5201a796653ffd9d86cb5f` |
+| `PureLive-3.0.10-4098-windows-x64-setup.exe` | `ce4a05650c456426db4a904b25f47dd477f3a53a007c3c767d391dfdb10786f5` |
 
 ## 兼容与回滚
 
 - GitHub 不可达时使用调用方已有缓存/内置数据或显示失败；不再自动尝试陌生代理。字体在线下载可能因此需要用户可用的 GitHub 网络环境。
 - 用户需要在新设备或移动后的便携目录中手动开启自启。恢复备份不修改本机注册表，避免把其他设备的选择当作授权。
 - 响度设置和直播数据格式保持不变。可回退源码提交，但已报行为告警的 3.0.8/3.0.9 不作为推荐运行回退包；不得为回退绕过防护。
+
+## 发布
+
+已合并并推送 master；[v3.0.10](https://github.com/ayumocha/pure_live/releases/tag/v3.0.10) 于 `2026-09-25T15:23:25Z` 发布为 Latest，tag 指向已验证的 `74bbb889`。EXE、ZIP、构建元数据和校验文件四个云端附件的大小与 SHA-256 均核对本地一致。发布记录索引同步包含该版本。
