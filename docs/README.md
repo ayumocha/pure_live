@@ -1,6 +1,6 @@
 # Pure Live 文档
 
-This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. The 3.2.0 acceptance pages below are historical fork evidence, not current verification, release status, or device-work authorization.
+The current fork release is [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), built from `06768f75aafde48389ad7f073969424afe07e645` with Flutter 3.47.5. [Build and release](BUILD_AND_RELEASE.md) is the current status owner; the [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) owns release evidence. The 3.2.0 acceptance pages below are historical fork evidence, not current verification or device-work authorization.
 
 
 本目录保存产品、开发、验证与发布证据。此页只列稳定入口，不再为每个日期化审计追加一行；具体根因报告从中央台账、编号矩阵、专题文档中的反向链接或仓库搜索进入。旧的逐篇索引保存在[历史归档](README_HISTORY_2026_09_19.md)。

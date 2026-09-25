@@ -2,11 +2,11 @@
 
 ## Current fork state (read first when taking over)
 
-- Current master includes the accepted `codex/sync-upstream-20260925` candidate through `e6f20091`, with frozen upstream `9b376ec9ef25b532296871073a39075f6f9db397` and the blocked-mirror fix. Version 3.0.8+4096 is being prepared for release. Read [the current sync result](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md) and [the complete audit](docs/UPSTREAM_AUDIT_9b376ec9ef25.md); historical handoff test and device claims do not validate this checkout.
+- Current master includes the accepted `codex/sync-upstream-20260925` integration through `e6f20091`, with frozen upstream `9b376ec9ef25b532296871073a39075f6f9db397` and the blocked-mirror fix. Version `3.0.8+4096` is published as [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), with Windows x64 EXE/ZIP and macOS universal DMG/ZIP. Android was deferred at the user's request; Linux/iOS were not built, and all three platform feeds remain at `3.0.7+4095`. Read [the release and sync status](docs/BUILD_AND_RELEASE.md) and [the sync result](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md); historical handoff test and device claims do not validate this checkout.
 
-- Historical fork handoff: [docs/HANDOFF_3_0_7.md](https://github.com/ayumocha/pure_live/blob/e33795ccf8cd51ac5548ff960fa389282d8d6171/docs/HANDOFF_3_0_7.md) describes the released 3.0.7 state and Windows workarounds. Use current candidate code and audit evidence for new decisions.
-- Released line: `3.0.7+4095` (GitHub Release `v3.0.7` in `ayumocha/pure_live`). `RELEASE_NOTES.md` entries above v3.0.7 are unreleased forward-looking notes — increment from the `pubspec.yaml` baseline instead.
-- Historical 3.0.7 platform addition: Xiaohongshu used the `xhs` ID and link-watching mode (see `docs/STAGE_UPDATE_3_0_7.md`). This upstream-sync candidate uses `xiaohongshu` and must migrate legacy saved IDs and links; the historical handoff is not a candidate validation report.
+- Historical fork handoff: [docs/HANDOFF_3_0_7.md](https://github.com/ayumocha/pure_live/blob/e33795ccf8cd51ac5548ff960fa389282d8d6171/docs/HANDOFF_3_0_7.md) describes the released 3.0.7 state and Windows workarounds. Use current source and audit evidence for new decisions.
+- Released line: `3.0.8+4096` (GitHub Release [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8)). The opening v3.0.8 section of `RELEASE_NOTES.md` describes this fork's current release; subsequent upstream history does not establish that this fork published those versions. Increment future versions from the `pubspec.yaml` baseline.
+- Historical 3.0.7 platform addition: Xiaohongshu used the `xhs` ID and link-watching mode (see `docs/STAGE_UPDATE_3_0_7.md`). The released 3.0.8 uses `xiaohongshu` and migrates legacy saved IDs and links; the historical handoff is not validation evidence for 3.0.8.
 - Before editing UI layout, window settings, player adapters or workflows, run `tool/validate_build_policy.ps1` first: it asserts layout invariant markers, player geometry red lines, workflow markers and version consistency.
 
 ## Project structure

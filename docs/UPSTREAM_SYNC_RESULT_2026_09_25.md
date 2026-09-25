@@ -2,7 +2,7 @@
 
 本次按用户选择，在 `codex/sync-upstream-20260925` 完整合入冻结上游 `9b376ec9ef25b532296871073a39075f6f9db397`，真实 merge 为 `a7c36b93`。独立验证阶段 `master` 保持 `e33795cc`，旧斗鱼补丁保存在 `codex/backup-douyu-recovery-20260925` 的 `b9f270b8`。版本 `3.0.8+4096`，Flutter `3.47.5`。
 
-用户验收镜像修复候选后明确要求合入主分支并更新 GitHub Release。已将 `master` 从 `e33795cc` 快进至 `e6f20091` 并推送，保留完整提交历史，应用代码与已验收的 `b0dfb22f` 构建一致。正式发布校验与产物正在准备，以下候选证据不替代发布门禁。
+用户验收镜像修复候选后明确要求合入主分支并更新 GitHub Release。已将 `master` 从 `e33795cc` 快进至 `e6f20091` 并推送，保留完整提交历史，应用代码与已验收的 `b0dfb22f` 构建一致。正式发布源码为 `06768f75aafde48389ad7f073969424afe07e645`；Windows/macOS 已发布为 [v3.0.8（Latest）](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8)。正式门禁和产物证据见文末，以下候选记录保留为过程证据。
 
 正式发布范围由用户明确为 **Windows + macOS**。仓库 Secrets 与 Environments 均为空，Android 正式签名不可用，用户选择暂缓 Android。本机补齐固定 Inno Setup `6.7.1` 以生成 Windows 安装程序：官方安装器 SHA-256 为 `4d11e8050b6185e0d49bd9e8cc661a7a59f44959a621d31d11033124c4e8a7b0`，Authenticode 校验有效，安装在当前用户工具目录。平台构建仍串行执行。
 
@@ -71,6 +71,26 @@
 
 ## 使用与回退边界
 
-独立候选验证阶段未启动用户正在使用的播放器，未安装应用、读取真实配置、操作手机/ADB 或发布 Release。当时 Android、Linux 和 Apple 原生构建未验证；后续发布结果单独记录。Windows 候选随后由用户验收，但代理未进行长时间播放采样。新的 SQLite/Hive 数据不能声明可被旧版无损降级；源码回退点不等于数据降级工具。
+独立候选验证阶段未启动用户正在使用的播放器，未安装应用、读取真实配置、操作手机/ADB 或发布 Release。当时 Android、Linux 和 Apple 原生构建未验证；后续 Windows/macOS 发布结果见下方正式发布记录。Windows 候选随后由用户验收，但代理未进行长时间播放采样。新的 SQLite/Hive 数据不能声明可被旧版无损降级；源码回退点不等于数据降级工具。
 
 FFmpeg helper 真实 ZIP 验证遗留临时目录 `C:\Users\ayu\AppData\Local\Temp\ffmpeg-real-archive-uhokd2xa`。递归清理由自动审批以 `blocked by policy` 拒绝，已停止清理，未绕过；不影响同步与构建。
+
+## v3.0.8 正式发布记录
+
+发布仓库为 `ayumocha/pure_live`，版本 `3.0.8+4096`，Release [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8) 于 `2026-09-25T08:10:44Z` 公开并设为 Latest。Windows 与 macOS 产物均来自干净源码提交 **`06768f75aafde48389ad7f073969424afe07e645`**，annotated tag `v3.0.8` 解析到同一提交；发布后的 master 只追加交接文档和实际 Release 索引，不改变包内应用代码。
+
+- 正式 Full 门禁：**5,290 项 Flutter 测试通过，42/42 项公共接口探测通过**；Analyze 一次，0 errors、0 warnings、1 条既有 `unnecessary_import` info。全仓审计 5,206 个已跟踪文件，0 errors、2 warnings（公开 TLS fixture 与空 catch 清单）。记录 `local-artifacts/build-records/20260925T072256433Z-quality-full.json`，源码和工作树在运行期间未变化，结束后 active heavy processes=0。首次尝试仅在 Java 17 环境预检失败；切换已校验的本机便携 Temurin 25.0.4.1 后完整门禁通过，没有为此改动业务源码。
+- Windows x64 Release：本机 `build_local_release.ps1 -Target WindowsX64 -Configuration Release -SkipQuality`，复用同一提交的 Full 结果。构建记录 `20260925T072840697Z-build-windowsx64-release.json`；EXE 产品版本、ZIP CRC、Flutter/MPV/FFmpeg 和应用目录 VC 运行库通过。FFmpeg DLL SHA-256 仍为 `302d978048f389dbb07f01c1a34a4988a92d1e3ebf0e960e2dd8314f83632b34`；AOT 不含被拦截域名，归档不含用户运行数据。保留第三方原生构建警告记录；Windows 安装包未作 Authenticode 签名。
+- macOS Release：Windows 构建完成后手动调度 [Actions run 36107912238](https://github.com/ayumocha/pure_live/actions/runs/36107912238)，仅启用 macOS，其他平台及发布 job 均跳过，复用同提交 Full 结果。macos-15 / Flutter 3.47.5 构建成功；下载 artifact `10852283259` 并核对整包 SHA-256 `91a2116b7f89206b76898f20137c490fa5b17d2c08d5a32562421075f988e5e3`。发布 ZIP CRC、Info.plist 的 3.0.8/build4096、资源版本和 **33 个实际 Mach-O 的 Intel/Apple Silicon 双架构**均通过；FFmpeg 为 n9.0.2，实际框架 SHA-256 `a64309f9677cda3a9bb51b34a81185607f6b81f8cdc68eb6f4e35be9b3f3594f`。App.framework 无被拦截域名，归档无用户运行数据。DMG 的构建校验和及 UDIF 文件尾通过。macOS 未作 Developer ID 签名或 Apple 公证，未进行实机播放或 DMG 挂载验证。
+- 上传与发布：四个应用包、`WINDOWS_BUILD_METADATA.json`、`MACOS_BUILD_METADATA.json`、统一 `SHA256SUMS.txt`，共 **7 个附件**。上传后逐一核对 GitHub 的大小、`uploaded` 状态与 SHA-256；公开后再次核对 Latest、附件集合和标签源提交。`assets/releases.json` 更新本 fork 实际发布的 v3.0.8/v3.0.7 条目，并保留既有历史记录。
+
+| 发布包 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `PureLive-3.0.8-4096-windows-x64-portable.zip` | 76,636,173 | `8818048ab2dfd57f56f18621f1e27accf7224c9fcfb4066afbd09fb0dbe719f7` |
+| `PureLive-3.0.8-4096-windows-x64-setup.exe` | 58,051,952 | `407173a0d35c20d0de85bc8814b1d20a3da57a00f620856c5b2e6608abc77712` |
+| `PureLive-3.0.8-4096-macos-universal.zip` | 104,859,160 | `1a94df132a2226173e422b5348d06e16fb81d5fe6e215d983003a41f5d02b5c8` |
+| `PureLive-3.0.8-4096-macos-universal.dmg` | 118,261,565 | `14f44db3730a31cf6c62e5cc3fe2f7f1cfb6ed2ac59e141468f5ade22ffc3435` |
+
+Windows/macOS 的详细本地校验分别在 `local-artifacts/upstream-reviews/windows-release-3.0.8-verification.json`、`macos-release-3.0.8-verification.json`；上传校验为 `release-3.0.8-assets-verification.json`。发布包、统一校验清单与构建元数据可在 Release 下载。
+
+Windows 候选已由用户验收，但本轮代理没有启动正式应用、安装 EXE、进行真实长时间播放或复测杀毒软件；自动测试和包校验不替代这些证据。Android 按用户选择暂缓，Linux/iOS 本轮未构建，三者更新清单仍为 `3.0.7+4095`。没有操作用户手机、ADB、真实设置或收藏数据。

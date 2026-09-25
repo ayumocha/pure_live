@@ -48,19 +48,19 @@
 <!-- stable-doc-index:start -->
 | Document | Purpose |
 | --- | --- |
-| [Build and release](docs/BUILD_AND_RELEASE.md) | Current candidate status and local workflow |
+| [Build and release](docs/BUILD_AND_RELEASE.md) | Current release status and local workflow |
 | [Platform compatibility](docs/PLATFORM_COMPATIBILITY.md) | Platform contracts and historical evidence |
 | [Maintenance policy](MAINTENANCE_POLICY.md) | Fork maintenance scope |
 | [Upstream review policy](UPSTREAM_REVIEW_POLICY.md) | Synchronization audit requirements |
 | [Documentation index](docs/README.md) | Historical and active reference links |
 <!-- stable-doc-index:end -->
 
-- **最新稳定版**：[v3.0.7](https://github.com/ayumocha/pure_live/releases/tag/v3.0.7)
-- **当前主分支**：已合入经用户验收的 `3.0.8+4096`，正在准备正式发布。采用上游斗鱼恢复机制，移除被拦截镜像，并修复官方更新源设置；Flutter SDK 为 `3.47.5`。本轮验证与交付记录见 [同步报告](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。
+- **最新稳定版**：[v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8)
+- **当前发布**：`3.0.8+4096` 已正式发布，提供 Windows x64 EXE/ZIP 与 macOS universal DMG/ZIP。Android 按用户要求暂缓，Linux/iOS 本轮未构建；Android、Linux、iOS 的应用更新 feed 均仍为 `3.0.7+4095`。版本说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，发布范围与验证记录见[同步报告](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。
 
-**v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
+**历史 v3.0.7 变更（Windows 正式版）**：新增小红书直播平台（方案 A：链接观看——直播间/主播主页链接、xhslink 短链与 `livestream/{动态段}/{房间号}` 均可在免签名 SSR 通道解析直播状态、多档清晰度并收藏关注）；工具箱链接解析支持小红书，未开播/已结束房间可一键加入关注，未开播不再生成假直链；修复 Windows 打包的 Debug 清单与链接解析边界。详细功能说明见下文；Android/Linux/macOS/iOS 沿用既有源码，本轮未重新构建。
 
-本版本还会在启动、备份恢复和手动清理时剔除空平台、空房间号、`0/null/undefined/nan/none` 等无效关注记录，并按“平台 + 房间号”去重，避免损坏的历史收藏继续参与首页刷新。
+v3.0.7 还会在启动、备份恢复和手动清理时剔除空平台、空房间号、`0/null/undefined/nan/none` 等无效关注记录，并按“平台 + 房间号”去重，避免损坏的历史收藏继续参与首页刷新。
 
 录制页的自动重连、轮询、缓存限制、最高画质和目录命名等开关现在直接绑定持久化配置；缓存限制改为实时读取，重新进入页面或升级后保持用户选择。
 Android 录制在创建任务和申请存储权限前检查目录：应用私有目录会提示选择可导出的目录且不会留下“未启动”幽灵任务；工作资料等任意数字用户空间均能正确识别，外部同名文件夹不会误判。
@@ -516,6 +516,6 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\build_local_release.ps1 `
 
 > 您的支持是我持续维护的动力！感谢 ❤️
 
-## 独立同步候选（未发布）
+## v3.0.8 上游同步记录
 
-`codex/sync-upstream-20260925` 完整同步上游 `9b376ec9ef25`，候选版本 `3.0.8+4096`。直接采用上游斗鱼恢复机制，保留维护分支更新源与旧小红书配置迁移。局域网远程同步因未认证敏感配置接口暂缓启用。验证状态以本轮独立审查台账和候选门禁记录为准，此处不代表已发布新安装包。
+`codex/sync-upstream-20260925` 完整同步上游 `9b376ec9ef25`，合入的 `3.0.8+4096` 已作为 [v3.0.8 正式发布](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8)。本次直接采用上游斗鱼恢复机制，保留维护分支更新源与旧小红书配置迁移；局域网远程同步因未认证敏感配置接口暂缓启用。发布范围与验证证据见[同步报告](docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。

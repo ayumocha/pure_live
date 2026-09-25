@@ -3,6 +3,121 @@
     {
       "assets": [
         {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587866523",
+          "contentType": "application/json",
+          "createdAt": "2026-09-25T08:07:09Z",
+          "digest": "sha256:ac1561b0d1225f8715562a02f949477389b16afed020cfe105ddbb25edfcd61a",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jCiGb",
+          "label": "",
+          "name": "MACOS_BUILD_METADATA.json",
+          "size": 1632,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:07:09Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/MACOS_BUILD_METADATA.json"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587864477",
+          "contentType": "application/x-apple-diskimage",
+          "createdAt": "2026-09-25T08:05:59Z",
+          "digest": "sha256:14f44db3730a31cf6c62e5cc3fe2f7f1cfb6ed2ac59e141468f5ade22ffc3435",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jChmd",
+          "label": "",
+          "name": "PureLive-3.0.8-4096-macos-universal.dmg",
+          "size": 118261565,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:08:38Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/PureLive-3.0.8-4096-macos-universal.dmg"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587864475",
+          "contentType": "application/zip",
+          "createdAt": "2026-09-25T08:05:59Z",
+          "digest": "sha256:1a94df132a2226173e422b5348d06e16fb81d5fe6e215d983003a41f5d02b5c8",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jChmb",
+          "label": "",
+          "name": "PureLive-3.0.8-4096-macos-universal.zip",
+          "size": 104859160,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:08:05Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/PureLive-3.0.8-4096-macos-universal.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587856580",
+          "contentType": "application/zip",
+          "createdAt": "2026-09-25T08:01:51Z",
+          "digest": "sha256:8818048ab2dfd57f56f18621f1e27accf7224c9fcfb4066afbd09fb0dbe719f7",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jCfrE",
+          "label": "",
+          "name": "PureLive-3.0.8-4096-windows-x64-portable.zip",
+          "size": 76636173,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:04:20Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/PureLive-3.0.8-4096-windows-x64-portable.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587856581",
+          "contentType": "application/x-msdownload",
+          "createdAt": "2026-09-25T08:01:51Z",
+          "digest": "sha256:407173a0d35c20d0de85bc8814b1d20a3da57a00f620856c5b2e6608abc77712",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jCfrF",
+          "label": "",
+          "name": "PureLive-3.0.8-4096-windows-x64-setup.exe",
+          "size": 58051952,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:03:36Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/PureLive-3.0.8-4096-windows-x64-setup.exe"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587866521",
+          "contentType": "text/plain; charset=utf-8",
+          "createdAt": "2026-09-25T08:07:09Z",
+          "digest": "sha256:60ae790a0c7163f450cb3e79650e33dd8dcdcff8dd7286c4bca3a7817eb44fe5",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jCiGZ",
+          "label": "",
+          "name": "SHA256SUMS.txt",
+          "size": 623,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:07:09Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/SHA256SUMS.txt"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/587856582",
+          "contentType": "application/json",
+          "createdAt": "2026-09-25T08:01:51Z",
+          "digest": "sha256:68a72fb3055561ea916cfce297f0fb21be1590495619fbb2b7b5c43f014ebd07",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4jCfrG",
+          "label": "",
+          "name": "WINDOWS_BUILD_METADATA.json",
+          "size": 1116,
+          "state": "uploaded",
+          "updatedAt": "2026-09-25T08:01:51Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.8/WINDOWS_BUILD_METADATA.json"
+        }
+      ],
+      "author": {
+        "id": "U_kgDOD6z9Iw",
+        "login": "ayumocha"
+      },
+      "body": "# Pure Live v3.0.8\r\n\r\n本次更新面向 **Windows x64 和 macOS（Apple Silicon / Intel）**，版本 `3.0.8+4096`。已将通过 Windows 用户验收的上游同步版本合入主分支。\r\n\r\n- 同步上游 `9b376ec9ef25`，采用其斗鱼直播源刷新与播放恢复机制。\r\n- 移除卡巴斯基拦截的 `v6.gh-proxy.org` 镜像；修复“使用 GitHub 官方更新源”开启后，更新记录仍访问第三方镜像的问题。\r\n- 保留本维护分支的更新仓库，兼容旧小红书收藏、历史、设置、主播主页及动态直播链接。\r\n- 保留本地播放器兼容修补，更新并固定 Flutter `3.47.5` 和原生依赖。\r\n- 暂缓启用未认证的局域网远程同步；本地备份、WebDAV 和电视扫码继续可用。\r\n\r\nWindows 提供 EXE 安装包和便携 ZIP；macOS 提供 universal DMG 和 ZIP。Windows 包未作 Authenticode 签名，macOS 包未作 Developer ID 签名或 Apple 公证。Android 本轮暂缓发布，Linux/iOS 继续使用已有发布版本；应用更新清单按平台分别维护。\r\n\r\nWindows 候选由用户验收；自动测试、正式构建和校验记录见 [同步与发布报告](https://github.com/ayumocha/pure_live/blob/master/docs/UPSTREAM_SYNC_RESULT_2026_09_25.md)。macOS 的编译校验不等同于实机长时间播放验证。升级前请备份自己的设置与收藏，旧版本不保证能读取升级后的数据库。\r\n\r\n验证：同一发布源码通过 5,290 项 Flutter 测试、42/42 项接口检查和完整静态分析（0 errors、0 warnings、1 条既有 info）。Windows/macOS 安装包附 SHA-256 校验文件。\r\n\r\n发布源码：`06768f75aafde48389ad7f073969424afe07e645`。\r\n",
+      "createdAt": "2026-09-25T08:01:25Z",
+      "isDraft": false,
+      "isPrerelease": false,
+      "name": "Pure Live v3.0.8",
+      "publishedAt": "2026-09-25T08:10:44Z",
+      "tagName": "v3.0.8",
+      "targetCommitish": "06768f75aafde48389ad7f073969424afe07e645",
+      "url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.8"
+    },
+    {
+      "assets": [
+        {
           "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532789566",
           "contentType": "application/json",
           "createdAt": "2026-08-27T19:46:16Z",
@@ -85,18 +200,48 @@
           "state": "uploaded",
           "updatedAt": "2026-08-27T19:46:21Z",
           "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-macos-universal.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532852005",
+          "contentType": "application/zip",
+          "createdAt": "2026-08-27T20:46:06Z",
+          "digest": "sha256:f0b79798225c63bf894048eabe899647131db2fb0babcaa351d7353574f393d4",
+          "downloadCount": 1,
+          "id": "RA_kwDOUF8Dls4fwq0l",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-windows-x64-portable.zip",
+          "size": 76959618,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T20:46:56Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-windows-x64-portable.zip"
+        },
+        {
+          "apiUrl": "https://api.github.com/repos/ayumocha/pure_live/releases/assets/532852004",
+          "contentType": "application/x-msdownload",
+          "createdAt": "2026-08-27T20:46:06Z",
+          "digest": "sha256:5e7c48a2cbd5b4f5f2b01d4371f701edeea21d6c1f277de0ff9831a92598a93c",
+          "downloadCount": 0,
+          "id": "RA_kwDOUF8Dls4fwq0k",
+          "label": "",
+          "name": "PureLive-3.0.7-4095-windows-x64-setup.exe",
+          "size": 58746126,
+          "state": "uploaded",
+          "updatedAt": "2026-08-27T20:46:52Z",
+          "url": "https://github.com/ayumocha/pure_live/releases/download/v3.0.7/PureLive-3.0.7-4095-windows-x64-setup.exe"
         }
       ],
       "author": {
         "id": "MDM6Qm90NDE4OTgyODI=",
         "login": "github-actions[bot]"
       },
-      "body": "# 缁绢垳琛ラ惄瀛樻尡 v3.0.7\n|閻楀牊婀皘娑撳娴囬崷鏉挎絻|\n|---|---|\n|TV閻楀澗[pure_live_TV](https://github.com/liuchuancong/pure_live_TV/releases/latest)|\n|Windows/macOS/Android/iOS閻楀澗[pure_live](https://github.com/liuchuancong/pure_live/releases/latest)|\n### 棣冩灱閿?Windows 閻?          - **Portable ZIP**閿涙俺袙閸樺宓嗛悽顭掔礉閺冪娀娓剁€瑰顥?          - **EXE 鐎瑰顥婇崠?*閿涙岸鈧倸鎮庨幍鈧張澶屾暏閹?          - **MSIX 閸?*閿涙氨骞囨禒锝呯安閻劍鐗稿蹇ョ礉閺€顖涘瘮楠炴彃鍣ｉ崡姝屾祰\n- 闁倿鍘ら敍姝恑ndows 10/11 x64\n### 棣冨磿 macOS 閻?          - macOS 濡楀矂娼伴悧?          - Universal閿涙pple Silicon + Intel\n- ZIP / DMG\n### 棣冩懌 Android 閻?          - Android 8.0+閿涘湏PI 26閿涘瓗FmpegKit 瑜版洖鍩楁笟婵婄鐟曚焦鐪伴敍?          - ARM64-v8a\n- ARMv7\n- x86_64\n- 缂佺喍绔?SHA256 閺嶏繝鐛欓弬鍥︽閿涙瓟**ANDROID_SHA256SUM.txt**](https://github.com/liuchuancong/pure_live/releases/download/v3.0.7/ANDROID_SHA256SUM.txt)\n### 棣冩儌 Linux 閻?          - Linux x64\n- Portable tar.gz\n### 棣冨磿 iOS 閻?          - unsigned iOS device application\n- TrollStore / ad-hoc IPA\n- ARM64\n### 棣冩暋 Build Metadata\n[**BUILD_METADATA.json**](https://github.com/liuchuancong/pure_live/releases/download/v3.0.7/BUILD_METADATA.json)\n### 棣冩憫 閺堫剚顐奸弴瀛樻煀\nversion: 3.0.7\n版本更新：\n- 新增小红书直播平台：支持直播间/主播主页链接、xhslink 短链与 dynpath 双段链接解析，免签名 SSR 解析直播状态、多档清晰度并可收藏关注（方案 A：链接观看）\n- 工具箱链接解析新增小红书平台，未开播/已结束房间支持一键加入关注\n- 修复 Windows 打包清单与链接解析边界（manifest 根路径、dynpath 识别、文本链接提取）\n",
+      "body": "# 纯粹直播 v3.0.7\n\n**小红书直播接入 + Windows 正式发布版**（build 4095，源码提交 `cd99288c`）——本轮由 GitHub Actions 全平台流水线构建（Linux/macOS/iOS），Windows 便携包为本机正式构建后补传。\n\n## 各平台产物\n\n| 平台 | 产物 |\n| --- | --- |\n| Windows x64 | `PureLive-3.0.7-4095-windows-x64-portable.zip`（解压即用，数据保存在安装目录 AppData） |\n| Linux x64 | `PureLive-3.0.7-4095-linux-x64.tar.gz` |\n| macOS | `PureLive-3.0.7-4095-macos-universal.zip` / `.dmg`（Apple Silicon + Intel Universal） |\n| iOS | `PureLive-3.0.7-4095-ios-arm64-unsigned-app.zip`（未签名）/ `-trollstore.ipa`（TrollStore / ad-hoc） |\n| 元数据 | `BUILD_METADATA.json`（提交、运行、构建选项与产物清单） |\n\n> Android 正式包需要仓库签名 Secrets（keystore），本轮未构建；配置 Secrets 后可在 Actions 工作流勾选 `build_android` 一键产出三 ABI 正式包。\n\n## 本次更新（v3.0.7 + build 4095）\n\n- **新增小红书直播平台**：链接观看模式——支持直播间/主播主页链接、`livestream/{动态段}/{房间号}`、`xhslink.com` 短链与分享文本提取；免签名 SSR 解析直播状态、标题、封面、主播、人数与 `pullConfig` 多档清晰度（h264/h265）。\n- 未开播/已结束房间可**一键加入关注**（工具箱弹窗），开播后从关注列表进入；未开播不再生成假直链。\n- 工具箱链接解析新增小红书；网页搜索页新增🔗粘贴链接入口；Android 分享的直播间链接可直接打开。\n- 修复与对齐：Windows 打包清单（Debug/Release）、录制参数契约（原生参数向量）、竖屏/画中画备份迁移契约、Action 版本钉版与全平台 CI 串行化。\n- 平台边界（如实说明）：小红书列表/分类浏览、原生搜索与实时弹幕未接入——其接口要求浏览器级签名，纯客户端不可直连（详见 `docs/STAGE_UPDATE_3_0_7.md`）。\n\n## 验证\n\n- 全量测试 450/450（GitHub Actions Ubuntu + 本机 Windows）通过；`flutter analyze` 零问题。\n- 公共接口探测：本机国内网络 40 项全部通过；GitHub 托管 runner 因出口地区限制，探测结果记录于日志（不阻塞流水线）。\n",
+      "createdAt": "2026-08-27T19:16:02Z",
       "isDraft": false,
       "isPrerelease": false,
       "name": "v3.0.7",
       "publishedAt": "2026-08-27T19:46:22Z",
       "tagName": "v3.0.7",
+      "targetCommitish": "master",
       "url": "https://github.com/ayumocha/pure_live/releases/tag/v3.0.7"
     },
     {

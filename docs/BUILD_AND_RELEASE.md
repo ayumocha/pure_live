@@ -1,13 +1,13 @@
 # 本地构建、测试与发布
 
-The accepted upstream-sync candidate and blocked-mirror fix have been merged into master. Version 3.0.8+4096 is being prepared for release; current evidence is recorded in [the sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md). The linked 3.2.0 acceptance reports are historical fork evidence. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
+The current release is [Pure Live v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), built from source commit `06768f75aafde48389ad7f073969424afe07e645` (`3.0.8+4096`). It provides Windows x64 EXE/ZIP and macOS universal DMG/ZIP. Android was deferred at the user's request; Linux/iOS were not built, and the Android/Linux/iOS update feeds remain at `3.0.7+4095`. The [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) owns the release evidence and validation details. The linked 3.2.0 acceptance reports are historical fork evidence. Use Flutter 3.47.5. No past device session or report authorizes device work for the current task.
 
-本次用户明确选择 Windows 与 macOS：Windows 在本机生成 EXE/ZIP，完成后仅调度 macOS 托管构建。Android 因当前仓库尚无正式签名 Secrets，由用户选择暂缓；Linux/iOS 本轮不构建。未发布平台的更新清单保持旧版，不能因源码版本递增而宣告存在新安装包。
+本次 v3.0.8 发布范围为 Windows x64 与 macOS：Windows EXE/ZIP 和 macOS universal DMG/ZIP 已发布。Android 按用户要求暂缓，Linux/iOS 本轮未构建；三个平台的更新 feed 继续指向 `3.0.7+4095`。具体发布资产、哈希与门禁结果以[同步报告](UPSTREAM_SYNC_RESULT_2026_09_25.md)为准。
 
 
 本仓库采用“本机优先、Actions 手动兜底”的流程，固定使用 Flutter `3.47.5`。`pubspec.lock`、Git 依赖提交和 FFmpeg 产物地址均已固定，便于复现结果。平台范围、CPU/RAM 配额、缓存、互斥和记录格式以 [`BUILD_POLICY.md`](../BUILD_POLICY.md) 为准。
 
-The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line. Candidate-specific gates, artifacts, and platform blockers must be recorded against the 3.0.8+4096 source commit before any release.
+The linked [3.2.0 acceptance snapshot](ACCEPTANCE_STATUS_3_2_0.md) is historical evidence for the earlier fork line. For v3.0.8, use the release evidence and platform scope recorded in the [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md); do not treat historical candidate reports as current validation.
 
 ## 前置环境
 

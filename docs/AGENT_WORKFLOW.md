@@ -1,6 +1,6 @@
 # Agent task and workflow routing
 
-This independent upstream-sync checkout is an unpublished 3.0.8+4096 candidate using Flutter 3.47.5. The 3.2.0 ledgers below are historical fork evidence, not current candidate validation or device authorization.
+The current fork release is [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), built from `06768f75aafde48389ad7f073969424afe07e645` with Flutter 3.47.5. [Build and release](BUILD_AND_RELEASE.md) owns the current platform scope and status; the [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) owns release evidence. The 3.2.0 ledgers below are historical fork evidence, not current verification or device authorization.
 
 
 This is an on-demand execution map. AGENTS.md contains session defaults; BUILD_POLICY.md owns resource/signing rules; MAINTENANCE_POLICY.md owns bug provenance; UPSTREAM_REVIEW_POLICY.md owns merge review. Do not duplicate those rules in new skills.
