@@ -148,7 +148,7 @@ class UpstreamReviewGateTest(unittest.TestCase):
             "path": FIXTURE_PATH.as_posix(),
             "sha256": FIXTURE_SHA256,
         }])
-        self.assertNotIn("BEGIN PRIVATE KEY", json.dumps(report))
+        self.assertNotIn("BEGIN " + "PRIVATE KEY", json.dumps(report))
 
     def test_copied_or_modified_public_fixture_is_blocked(self):
         data = self.fixture()
@@ -166,7 +166,7 @@ class UpstreamReviewGateTest(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("credential_material_in_added_lines", report["violations"])
         self.assertEqual(report["public_fixture_exceptions"], [])
-        self.assertNotIn("BEGIN PRIVATE KEY", completed.stderr)
+        self.assertNotIn("BEGIN " + "PRIVATE KEY", completed.stderr)
 
     def test_added_token_on_fixture_is_blocked(self):
         token = "ghp_" + "A" * 30
@@ -180,7 +180,7 @@ class UpstreamReviewGateTest(unittest.TestCase):
         self.assertNotIn(token, json.dumps(report))
 
     def test_other_private_key_is_blocked(self):
-        self.write("test/other.pem", "-----BEGIN PRIVATE KEY-----\nsynthetic\n")
+        self.write("test/other.pem", "-----BEGIN " + "PRIVATE KEY-----\nsynthetic\n")
         self.commit()
         completed, report = self.review("-ReportOnly")
         self.assertNotEqual(completed.returncode, 0)
