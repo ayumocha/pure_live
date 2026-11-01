@@ -386,7 +386,7 @@ class _WallpaperPreviewPageState extends State<WallpaperPreviewPage> {
                 onTap: () => Navigator.of(dialogContext).pop(option),
               );
             },
-          
+
             physics: const PureLiveScrollPhysics(),),
         ),
         actions: <Widget>[TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(i18n('cancel')))],
