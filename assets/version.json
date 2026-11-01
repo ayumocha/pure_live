@@ -9,7 +9,7 @@
   ],
   "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
   "prerelease": false,
-  "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19",
+  "download_url": "https://github.com/ayumocha/pure_live/releases",
   "platforms": {
     "android": {
       "version": "3.1.19",
@@ -17,7 +17,7 @@
       "version_num": 301184108,
       "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19",
+      "download_url": "https://github.com/ayumocha/pure_live/releases",
       "android_abis": [
         "armeabi-v7a",
         "arm64-v8a",
@@ -30,7 +30,7 @@
       "version_num": 301184108,
       "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19",
+      "download_url": "https://github.com/ayumocha/pure_live/releases",
       "windows_msix_available": true
     },
     "linux": {
@@ -39,7 +39,7 @@
       "version_num": 301184108,
       "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19"
+      "download_url": "https://github.com/ayumocha/pure_live/releases"
     },
     "macos": {
       "version": "3.1.19",
@@ -47,7 +47,7 @@
       "version_num": 301184108,
       "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19"
+      "download_url": "https://github.com/ayumocha/pure_live/releases"
     },
     "ios": {
       "version": "3.1.19",
@@ -55,7 +55,7 @@
       "version_num": 301184108,
       "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
       "prerelease": false,
-      "download_url": "https://github.com/liuchuancong/pure_live/releases/tag/v3.1.19"
+      "download_url": "https://github.com/ayumocha/pure_live/releases"
     }
   }
 }
