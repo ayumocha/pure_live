@@ -159,7 +159,7 @@
 
 并入后**不再提供**的站点：`dailymotion`、`goodgame`、`huajiao`、`kick`、`langlive`、`nimotv`、`openrec`、
 `popkontv`、`rumble`、`shopeelive`、`taobaolive`、`tting`、`vkvideolive`、`zhanqi`（Kick 为上游明示下线，其余为静默移除）。
-代码仍保留在回滚点 `backup/pre-upstream-adopt-81bd78c1c`，需要时可从该标签取回并适配新契约。
+用户已明确**不需要恢复**这批站点；代码只保留在回滚点 `backup/pre-upstream-adopt-81bd78c1c`，不再适配新契约。
 
 ### 5.3 本仓被上游取代的实现
 
@@ -191,11 +191,11 @@ Android/iOS/macOS/Linux 只能到源码与构建层。
 | 处置 | 数量 | 说明 |
 | --- | --- | --- |
 | `accept` | 2019 | 上游应用代码、测试、工具、原生配置整体接受 |
-| `adapt` | 4 | 工作流默认值、`.gitattributes` 空白规则、镜像域名排除（均已落地） |
+| `adapt` | 5 | 工作流默认值、`.gitattributes` 空白规则、镜像域名排除（均已落地） |
 | `rewrite` | 0 | 本轮不重写上游实现 |
 | `drop` | 本仓实现，非入站文件 | 见 5.3：xhs、旧播放栈、旧录制命令构造、旧工作流补丁 |
-| `defer` | 1 | `.env` 发布身份：需要用户决定版本线与更新源后再改，本轮不发布 |
-| `defer`（非入站） | 14 | 被上游移除的站点，需要时从备份标签重新适配，不在本轮恢复 |
+| `defer` | 0 | `.env` 发布身份：需要用户决定版本线与更新源后再改，本轮不发布 |
+| `drop`（用户决定） | 14 | 被上游移除的站点：用户明确不需要恢复，代码只留在回滚点 |
 
 需要 `adapt` 的入站文件明细：
 
@@ -205,6 +205,7 @@ Android/iOS/macOS/Linux 只能到源码与构建层。
 | `.gitattributes` | adapt：为 `*.patch` 声明 whitespace=-trailing-space,-space-before-tab，native 补丁的上下文行本身以空格开头，cannot 被裁剪。 |
 | `lib/core/release/github_mirror.dart` | adapt：上游仍包含被卡巴斯基拦截的 `https://v6.gh-proxy.org/`，本仓保持排除该域名。 |
 | `tool/test-ghproxy.ps1` | adapt：与 github_mirror.dart 同一域名的探测脚本同步排除。 |
+| `.env` | adapt：已把更新源身份改回本仓（PURELIVE_UPDATE_OWNER=ayumocha），并用 tool/update_releases.py 从本仓重新生成发布索引；上游值会把应用内更新指向 liuchuancong 的安装包。 |
 
 ## 8 `conflict_resolution`
 
@@ -448,7 +449,7 @@ python tool\validate_architecture.py --strict
 | 157 | `60844297dfcf7b62a78308f71d3cd156e132cdf4` | 2026-09-27 | Merge remote-tracking branch 'wzgrx/master' | — | accept |
 | 158 | `cb9565a4bf34e0af650825aff9bb468b771628c5` | 2026-09-27 | refactor: clean up imports and formatting across multiple files | 依赖与供应链、其他 | accept |
 | 159 | `561cc3f7bee26506e7154287cb569a6d95651472` | 2026-09-27 | Merge branch 'master' of https://github.com/liuchuancong/pure_live | — | accept |
-| 160 | `7307c921a59d0625e96a904acbdaf210d9f80b13` | 2026-09-27 | feat(tool): 仓库与原生库地址改为 .env 变量派生, 新增同步/校验工具 | 工具与策略脚本、文档、仓库元数据… | accept |
+| 160 | `7307c921a59d0625e96a904acbdaf210d9f80b13` | 2026-09-27 | feat(tool): 仓库与原生库地址改为 .env 变量派生, 新增同步/校验工具 | 工具与策略脚本、文档、仓库元数据… | adapt |
 | 161 | `6594c5c48ca696c16e416513ab00ed9cb16c7910` | 2026-09-27 | fix: 更新 changelog 中的合并信息，修正 GitHub 地址引用 | 依赖与供应链、测试、资源与翻译… | accept |
 | 162 | `2ed66103ca6115d45e77471b4cf531b9dea15ac8` | 2026-09-27 | chore: 更新版本号至 3.1.7，修正相关配置文件 | 依赖与供应链、工作流、资源与翻译… | adapt |
 | 163 | `6e4d3920461baa7538a1b6edb5093ab910ba1e18` | 2026-09-27 | fix(media_kit_video): ios/macos 的 MPVHelpers 与 darwin 那份统一，补回 803c4a27 的守卫 | 依赖与供应链 | accept |
@@ -1001,7 +1002,7 @@ python tool\validate_architecture.py --strict
 
 | 状态 | 文件 | category | risk | + | − | 处置 |
 | --- | --- | --- | --- | --- | --- | --- |
-| M | `.env` | `repository_metadata` | low | 3 | 0 | defer |
+| M | `.env` | `repository_metadata` | low | 3 | 0 | adapt |
 | M | `.env.dev` | `repository_metadata` | low | 3 | 0 | accept |
 | M | `.env.prod` | `repository_metadata` | low | 3 | 0 | accept |
 | M | `.gitattributes` | `repository_metadata` | low | 1 | 0 | adapt |
