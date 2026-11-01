@@ -29,7 +29,6 @@ class GitHubMirror {
     'https://ghproxy.link/',
     'https://gh-proxy.net/',
     'https://gitproxy.click/',
-    'https://v6.gh-proxy.org/',
 
     'https://ghproxy.net/',
     'https://wget.la/',
