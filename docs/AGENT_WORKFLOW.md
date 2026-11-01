@@ -1,8 +1,5 @@
 # Agent task and workflow routing
 
-[Build and release](BUILD_AND_RELEASE.md) owns the current fork release, platform scope and status. Use Flutter 3.47.5 and the current release's linked evidence report. The [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) and 3.2.0 ledgers below are historical fork evidence, not current verification or device authorization.
-
-
 This is an on-demand execution map. AGENTS.md contains session defaults; BUILD_POLICY.md owns resource/signing rules; MAINTENANCE_POLICY.md owns bug provenance; UPSTREAM_REVIEW_POLICY.md owns merge review. Do not duplicate those rules in new skills.
 
 ## Select the evidence needed
@@ -90,7 +87,7 @@ GitHub Actions remain explicit fallback/signing infrastructure; local Android/Wi
 | Route | Use |
 | --- | --- |
 | `audit-upstream.yml` | Read-only incoming-change inventory; no merge |
-| `feature-build.yml` | Main hosted fallback; selected platforms run serially. Manual dispatch only; no tag-triggered build |
+| `feature-build.yml` | Main hosted fallback; selected platforms run serially. Sole owner of `stage-linux-*`, `stage-macos-*`, `stage-ios-*` tag triggers |
 | `build_pure_live_release.yml` | Manual legacy/all-ABI compatibility entrypoint; no stage-tag trigger |
 | `build-ios-unsigned.yml` | Explicit manual standalone iOS build; no duplicate tag build |
 | `local-signed-android.yml` | Explicit self-hosted Android fallback |

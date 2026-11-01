@@ -1,11 +1,8 @@
 # Pure Live 文档
 
-The current fork release is [v3.0.8](https://github.com/ayumocha/pure_live/releases/tag/v3.0.8), built from `06768f75aafde48389ad7f073969424afe07e645` with Flutter 3.47.5. [Build and release](BUILD_AND_RELEASE.md) is the current status owner; the [sync report](UPSTREAM_SYNC_RESULT_2026_09_25.md) owns release evidence. The 3.2.0 acceptance pages below are historical fork evidence, not current verification or device-work authorization.
-
-
 本目录保存产品、开发、验证与发布证据。此页只列稳定入口，不再为每个日期化审计追加一行；具体根因报告从中央台账、编号矩阵、专题文档中的反向链接或仓库搜索进入。旧的逐篇索引保存在[历史归档](README_HISTORY_2026_09_19.md)。
 
-## Historical 3.2.0 work entries
+## 当前 3.2.0 工作入口
 
 - [完整验收入口](ACCEPTANCE_3_2_0.md)：最短证据链、Android/Windows 批次、质量/构建/发布门禁。
 - [当前状态快照](ACCEPTANCE_STATUS_3_2_0.md)：当前候选、编号统计、主要阻塞与下一批顺序。
@@ -33,6 +30,9 @@ The current fork release is [v3.0.8](https://github.com/ayumocha/pure_live/relea
 ## 产品与平台参考
 
 - [平台接口与兼容性](PLATFORM_COMPATIBILITY.md)：目录、搜索、弹幕、人数和能力边界。
+- [全平台端到端探针](PLATFORM_PROBE_2026_09_25.md)：45 个平台从目录到真实媒体的逐站结论与复现命令。
+- [双端功能测试清单](TEST_CHECKLIST.md)：Android / Windows 全部可见功能的检查点与验证方式。
+- [验收流程](ACCEPTANCE_FLOW.md)：L0～L3 四级门禁、真机租约规则与记录方式。
 - [网络代理链路](NETWORK_PROXY_AUDIT_3_1_0.md)：API、媒体、图片和 WebSocket 的代理所有权。
 - [关注刷新设计](FAVORITE_REFRESH_DESIGN.md)：刷新、并发、快照和失败语义。
 - [录制参考审计](RECORDER_REFERENCE_AUDIT_3_1_0.md)：录制架构、参考项目和已知边界。

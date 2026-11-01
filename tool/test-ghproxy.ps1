@@ -31,6 +31,7 @@ $proxies = @(
     "https://gh-proxy.pages.dev/"
     "https://ghproxy.link/"
     "https://tvv.tw/"
+    "https://v6.gh-proxy.org/"
     "https://ghfile.geekertao.top/"
     "https://ghm.078465.xyz/"
     "https://ghproxy.cxkpro.top/"
