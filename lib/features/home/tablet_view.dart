@@ -6,7 +6,6 @@ class HomeTabletView extends StatelessWidget {
   final Widget body;
   final int index;
   final List<String> activeMenuIds;
-  final bool showRecord;
   final void Function(int) onDestinationSelected;
 
   const HomeTabletView({
@@ -14,7 +13,6 @@ class HomeTabletView extends StatelessWidget {
     required this.body,
     required this.index,
     required this.activeMenuIds,
-    required this.showRecord,
     required this.onDestinationSelected,
   });
 
@@ -116,14 +114,6 @@ class HomeTabletView extends StatelessWidget {
                           icon: const Icon(CustomIcons.search),
                         ),
                       ),
-                      if (showRecord)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 0, bottom: 12, left: 12, right: 12),
-                          child: IconButton(
-                            onPressed: () => Get.toNamed(RoutePath.kRecordPage),
-                            icon: const Icon(Remix.download_2_line),
-                          ),
-                        ),
                     ],
                   ),
                   destinations: destinations,

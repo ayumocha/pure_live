@@ -4,6 +4,7 @@ import 'package:pure_live/core/platform/platform_utils.dart';
 import 'package:pure_live/domains/live/presentation/favorite/favorite_controller.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card_layout.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 @visibleForTesting
 bool shouldWrapFavoritePullToRefresh({required double viewportWidth, required bool isMobilePlatform}) {
@@ -38,9 +39,9 @@ class RoomGridView extends GetView<FavoriteController> {
           final mainAxisSpacing = SettingsService.to.theme.mainAxisSpacing.v;
           final roomCardAppearance = SettingsService.to.roomCard.resolve();
           final isVerifyingFavorites = controller.isVerifyingFavorites.value;
-          var crossAxisCount = width > 1280 ? 4 : (width > 960 ? 3 : (width > 640 ? 2 : 1));
+          var crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 4 : (width > 960 ? 3 : (width > 640 ? 2 : 1)));
           if (dense) {
-            crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
+            crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2)));
           }
 
           Widget buildScrollable(ScrollPhysics physics) {

@@ -2,6 +2,7 @@ import 'package:remixicon/remixicon.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:pure_live/core/index.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 class PopularGridView extends StatelessWidget {
   final String tag;
@@ -14,7 +15,7 @@ class PopularGridView extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraint) {
         final width = constraint.maxWidth;
-        final crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
+        final crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2)));
         return BasePageView<BasePageScrollAndStateBone<LiveRoom>, LiveRoom>(
           controller: controller,
           showScrollToTopBtn: SettingsService.to.page.showScrollToTopBtn.v,

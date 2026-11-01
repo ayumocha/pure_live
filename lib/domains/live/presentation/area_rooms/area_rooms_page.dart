@@ -9,6 +9,7 @@ import 'package:pure_live/domains/live/data/platforms/sites.dart';
 import 'package:pure_live/domains/live/data/favorite_room_controller.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card_layout.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 class AreasRoomPage extends StatefulWidget {
   final Site site;
@@ -53,7 +54,7 @@ class _AreasRoomPageState extends State<AreasRoomPage> {
               return LayoutBuilder(
                 builder: (context, constraint) {
                   final width = constraint.maxWidth;
-                  final crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
+                  final crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2)));
                   final spacing = SettingsService.to.theme.crossAxisSpacing.v;
                   final itemWidth = (width - 12 - spacing * (crossAxisCount - 1)) / crossAxisCount;
                   return GridView.builder(

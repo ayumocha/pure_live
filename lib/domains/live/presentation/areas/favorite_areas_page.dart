@@ -5,6 +5,7 @@ import 'package:pure_live/domains/live/presentation/areas/area_card.dart';
 import 'package:pure_live/domains/live/presentation/areas/favorite_areas_controller.dart';
 import 'package:pure_live/domains/live/data/platforms/sites.dart';
 import 'package:pure_live/domains/live/presentation/widgets/platform_tab.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 class FavoriteAreasPage extends GetView<FavoriteAreasController> {
   const FavoriteAreasPage({super.key});
@@ -14,7 +15,7 @@ class FavoriteAreasPage extends GetView<FavoriteAreasController> {
     return LayoutBuilder(
       builder: (context, constraint) {
         final width = constraint.maxWidth;
-        final crossAxisCount = width > 1280 ? 9 : (width > 960 ? 7 : (width > 640 ? 5 : 3));
+        final crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 9 : (width > 960 ? 7 : (width > 640 ? 5 : 3)));
         return Scaffold(
           appBar: AppBar(title: Text(i18n("favorite_areas"))),
           body: Obx(() {

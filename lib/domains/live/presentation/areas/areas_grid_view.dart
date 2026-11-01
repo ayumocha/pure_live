@@ -3,6 +3,7 @@ import 'package:pure_live/core/index.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:pure_live/domains/live/presentation/areas/area_card.dart';
 import 'package:pure_live/domains/live/presentation/areas/areas_list_controller.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 class AreaGridView extends StatefulWidget {
   final String tag;
@@ -276,7 +277,7 @@ class _AreaGridViewState extends State<AreaGridView> with TickerProviderStateMix
     return LayoutBuilder(
       builder: (context, constraint) {
         final width = constraint.maxWidth;
-        final crossAxisCount = width > 1280 ? 9 : (width > 960 ? 7 : (width > 640 ? 5 : 3));
+        final crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 9 : (width > 960 ? 7 : (width > 640 ? 5 : 3)));
         final spacing = SettingsService.to.theme.crossAxisSpacing.v;
         final itemWidth = (width - 12 - spacing * (crossAxisCount - 1)) / crossAxisCount;
 

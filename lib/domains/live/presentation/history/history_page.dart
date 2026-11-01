@@ -5,6 +5,7 @@ import 'package:pure_live/core/widgets/refresh_indicators.dart';
 import 'package:waterfall_flow/waterfall_flow.dart';
 import 'package:pure_live/domains/live/data/platforms/sites.dart';
 import 'package:pure_live/domains/live/presentation/widgets/room_card.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key, this.loadRoom});
@@ -198,8 +199,8 @@ class _HistoryPageState extends State<HistoryPage> {
         return LayoutBuilder(
           builder: (context, constraint) {
             final width = constraint.maxWidth;
-            int crossAxisCount = width > 1280 ? 4 : (width > 960 ? 3 : (width > 640 ? 2 : 1));
-            if (dense) crossAxisCount = width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2));
+            int crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 4 : (width > 960 ? 3 : (width > 640 ? 2 : 1)));
+            if (dense) crossAxisCount = HomeLayout.evenColumnsForFold(width > 1280 ? 5 : (width > 960 ? 4 : (width > 640 ? 3 : 2)));
             final indicators = appRefreshIndicators(context, maxWidth: width);
             return EasyRefresh(
               header: indicators.header,

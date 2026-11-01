@@ -7,6 +7,7 @@ import 'package:pure_live/core/index.dart';
 import 'package:move_to_desktop/move_to_desktop.dart';
 import 'package:pure_live/core/consts/app_consts.dart';
 import 'package:pure_live/domains/live/presentation/areas/areas_page.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 import 'package:pure_live/features/home/mobile_view.dart';
 import 'package:pure_live/features/home/tablet_view.dart';
 import 'package:pure_live/core/platform/initial_room_handoff.dart';
@@ -118,10 +119,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
         return;
       }
       List<String> value = List<String>.from(v as List);
-      final bool isTablet = Get.width > 680;
-      if (isTablet) {
-        value = value.where((id) => id != HomeMenu.record.id).toList();
-      }
       if (value.isEmpty) {
         setState(() {
           _selectedIndex = -1;
@@ -177,10 +174,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
 
   void _syncInitialIndex() {
     List<String> activeIds = SettingsService.to.app.savedMenuIds.v;
-    final bool isTablet = Get.width > 680;
-    if (isTablet) {
-      activeIds = activeIds.where((id) => id != HomeMenu.record.id).toList();
-    }
     if (activeIds.isNotEmpty) {
       final firstMenu = HomeMenu.fromId(activeIds.first);
       if (firstMenu != null) {
@@ -240,23 +233,17 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
       onPopInvokedWithResult: onBackButtonPressed,
       child: LayoutBuilder(
         builder: (context, constraint) {
-          final bool isTablet = constraint.maxWidth > 680;
+          final bool sideNavigation = HomeLayout.useSideNavigation(constraint.biggest);
 
           return Obx(() {
             final activeMenuIds = List<String>.from(SettingsService.to.app.savedMenuIds.v);
-            List<String> tabletActiveMenuIds = List.from(activeMenuIds);
-            if (isTablet) {
-              tabletActiveMenuIds.remove(HomeMenu.record.id);
-            }
 
             int adjustedIndex = _selectedIndex;
             Widget currentWidget = const SizedBox.shrink();
 
-            if (tabletActiveMenuIds.isNotEmpty) {
-              if (adjustedIndex < 0 ||
-                  adjustedIndex >= HomeMenu.values.length ||
-                  (isTablet && HomeMenu.values[adjustedIndex] == HomeMenu.record)) {
-                final fallbackMenu = HomeMenu.fromId(tabletActiveMenuIds.first);
+            if (activeMenuIds.isNotEmpty) {
+              if (adjustedIndex < 0 || adjustedIndex >= HomeMenu.values.length) {
+                final fallbackMenu = HomeMenu.fromId(activeMenuIds.first);
                 if (fallbackMenu != null) {
                   adjustedIndex = fallbackMenu.index;
                 }
@@ -269,7 +256,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
               adjustedIndex = -1;
             }
 
-            return !isTablet
+            return !sideNavigation
                 ? HomeMobileView(
                     body: currentWidget,
                     index: adjustedIndex,
@@ -278,8 +265,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin,
                 : HomeTabletView(
                     body: currentWidget,
                     index: adjustedIndex,
-                    activeMenuIds: tabletActiveMenuIds,
-                    showRecord: activeMenuIds.contains(HomeMenu.record.id),
+                    activeMenuIds: activeMenuIds,
                     onDestinationSelected: onDestinationSelected,
                   );
           });
