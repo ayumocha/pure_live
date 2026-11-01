@@ -9,6 +9,7 @@ import 'package:pure_live/core/config/app_settings_controller.dart';
 import 'package:pure_live/core/config/player_settings_controller.dart';
 import 'package:pure_live/features/settings/pages/portrait_live_settings_page.dart';
 import 'package:pure_live/features/settings/pages/audience_metric_settings_page.dart';
+import 'package:pure_live/features/settings/pages/player_loudness_page.dart';
 
 typedef SleepTimerConfigurator = Future<void> Function({required bool enabled, required int minutes});
 typedef SleepPermissionRequester = Future<bool> Function();
@@ -168,6 +169,13 @@ class _VideoSettingsPageState extends State<VideoSettingsPage> {
               icon: Icons.groups_2_rounded,
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Get.to(() => const AudienceMetricSettingsPage()),
+            ),
+            context.buildTile(
+              title: i18n('loudness_compensation_section'),
+              subtitle: i18n('loudness_compensation_desc'),
+              icon: Icons.graphic_eq_rounded,
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Get.to(() => const PlayerLoudnessPage()),
             ),
             if (_isAndroid)
               context.buildSwitchTile(

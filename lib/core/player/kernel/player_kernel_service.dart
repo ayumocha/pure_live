@@ -14,6 +14,7 @@ import 'package:pure_live/core/player/kernel/mpv_log_forwarder.dart';
 import 'package:media_core_ijk_player/media_core_ijk_player.dart';
 import 'package:media_core_logging/media_core_logging.dart' as mlog;
 import 'package:media_core_mediasession/media_core_mediasession.dart';
+import 'package:pure_live/core/player/kernel/loudness_compensation.dart';
 import 'package:pure_live/core/player/kernel/media_kit_live_properties.dart';
 import 'package:pure_live/core/player/kernel/open_volume.dart';
 import 'package:media_core_better_player/media_core_better_player.dart';
@@ -50,6 +51,9 @@ class PlayerKernelService {
               } catch (_) {}
             }
             await MediaKitLiveProperties.applyToSource(player, source);
+            // Saved loudness gain, if the user enabled it. This runs before the
+            // first loadfile, so the room opens already at the chosen level.
+            await MediaKitLiveProperties.applyLoudnessCompensation(player, LoudnessCompensation.savedMode);
           },
           videoControllerConfigurationBuilder: MediaKitLiveProperties.buildVideoControllerConfiguration,
           // The app declares every tuning value it wants; the adapter applies
@@ -107,6 +111,17 @@ class PlayerKernelService {
       }
       unawaited(MediaKitLiveProperties.engineOptions().then((options) => handle.applyEngineOptions(options)));
     };
+
+    // A loudness change is one mpv property write on the engine that is
+    // already playing. The handle reports whether the engine took it, and a
+    // rejection is remembered for the settings page instead of entering the
+    // playback error/reconnect path.
+    PlayerSettingsController.loudnessCompensationDispatcher = () {
+      final handle = GlobalPlayerService.instance.player.handle;
+      if (handle == null) return;
+      unawaited(LoudnessCompensation.applyTo(handle));
+    };
+
     logRing = mlog.MediaCoreLog.attachMemorySink(capacity: 500);
     if (!const bool.fromEnvironment('dart.vm.product')) {
       mlog.MediaCoreLog.level = mlog.LogLevel.debug;

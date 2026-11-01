@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'package:media_core/media_core.dart';
 import 'package:media_core_ingest/media_core_ingest.dart' show isHlsManifestUri;
 import 'package:media_core_media_kit/media_core_media_kit.dart';
+import 'package:pure_live/core/player/kernel/loudness_compensation.dart';
 import 'package:pure_live/core/player/kernel/player_preset.dart';
 import 'package:pure_live/core/player/core/playback_proxy_policy.dart';
 import 'package:pure_live/core/player/core/playback_source_hints.dart';
@@ -201,6 +202,23 @@ abstract final class MediaKitLiveProperties {
   }
 
   /// The native player configuration; only the log level differs from media_kit's
+  /// Applies the saved source loudness gain just before the source opens.
+  ///
+  /// The write belongs in the kernel's awaited `beforeOpen`, not in [build]:
+  /// the assembly table is handed to the adapter once and its writes race the
+  /// per-source ones, so a per-open decision must not live there. `off` writes
+  /// nothing at all — an install that never enabled the feature keeps
+  /// `volume-gain` untouched, while a live toggle back to off goes through
+  /// [LoudnessCompensation.applyTo].
+  static Future<void> applyLoudnessCompensation(Player player, LoudnessCompensationMode mode) async {
+    if (mode == LoudnessCompensationMode.off) return;
+
+    final platform = player.platform;
+    if (platform is! NativePlayer) return;
+
+    await platform.setProperty(loudnessCompensationProperty, '${loudnessCompensationGainDb(mode)}');
+  }
+
   /// defaults, since passing this object at all means restating them.
   static mkv.PlayerConfiguration playerConfiguration() => mkv.PlayerConfiguration(
     logLevel: const bool.fromEnvironment('dart.vm.product') ? mkv.MPVLogLevel.warn : mkv.MPVLogLevel.v,
@@ -242,7 +260,6 @@ abstract final class MediaKitLiveProperties {
 
   /// Whether the super-resolution shaders should mount on this machine.
   static bool get superResolutionAvailable => Platform.isWindows;
-
   static SuperResolutionMode get _superResolution =>
       SuperResolutionMode.fromName(SettingsService.to.player.superResolutionMode.v);
 }

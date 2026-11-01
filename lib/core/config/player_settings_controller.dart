@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pure_live/core/index.dart';
 import 'package:pure_live/core/consts/app_consts.dart';
 import 'package:pure_live/core/player/core/portrait_stream_support.dart';
+import 'package:pure_live/core/player/kernel/loudness_compensation.dart';
 import 'package:pure_live/core/player/kernel/player_preset.dart';
 import 'package:pure_live/core/player/super_resolution.dart';
 import 'package:pure_live/core/player/kernel/mpv_platform_profile.dart';
@@ -38,6 +39,13 @@ class PlayerSettingsController extends GetxController {
   /// mpv render context is bound to the video output driver) and the
   /// engine must be rebuilt to pick it up.
   static void Function({required bool rebuild})? outputSettingsDispatcher;
+
+  /// Pushes a loudness change to the live engine.
+  ///
+  /// Kept apart from [outputSettingsDispatcher] on purpose: a source gain is
+  /// not a render-context change, so it never rebuilds the engine and never
+  /// reconfigures the output.
+  static void Function()? loudnessCompensationDispatcher;
 
   static const int defaultVideoFitIndex = 0;
 
@@ -238,6 +246,11 @@ class PlayerSettingsController extends GetxController {
   /// Anime4K super-resolution mode (Windows/desktop GPUs only).
   final RxString superResolutionMode = hiveString('superResolutionMode', SuperResolutionMode.off.name);
 
+  /// Source loudness gain applied to every live engine. `off` is both the
+  /// feature default and what an install predating this key resolves to, so
+  /// upgrading never changes anyone's audio unasked.
+  final RxString loudnessCompensation = hiveString('loudnessCompensation', LoudnessCompensationMode.off.name);
+
   // Portrait-source presentation. These are deliberately separate from the
   // device orientation and from the global danmaku style.
   final RxBool enablePortraitStreamAdaptation = hiveBool('enablePortraitStreamAdaptation', true);
@@ -362,6 +375,7 @@ class PlayerSettingsController extends GetxController {
     videoHardwareDecoder.listen((_) => dispatch());
     videoOutputDriver.listen((_) => dispatch());
     customPlayerOutput.listen((_) => dispatch());
+    loudnessCompensation.listen((_) => loudnessCompensationDispatcher?.call());
   }
 
   void _normalizeMpvSettingsForPlatform(TargetPlatform platform) {
