@@ -179,4 +179,3 @@ class LiveRouteObserver extends RouteObserver<PageRoute<dynamic>> {
     }
   }
 }
-

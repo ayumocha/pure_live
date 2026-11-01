@@ -7,27 +7,27 @@ on:
         description: Build Android Release APKs for all ABIs
         required: true
         type: boolean
-        default: true
+        default: false
       build_windows:
         description: Build Windows EXE, MSIX and portable ZIP
         required: true
         type: boolean
-        default: true
+        default: false
       build_linux:
         description: Build Linux x64 DEB and portable archives
         required: true
         type: boolean
-        default: true
+        default: false
       build_macos:
         description: Build macOS universal application archive
         required: true
         type: boolean
-        default: true
+        default: false
       build_ios:
         description: Build unsigned iOS app and TrollStore IPA
         required: true
         type: boolean
-        default: true
+        default: false
       run_quality:
         description: Run analyze, tests and public interface probes first
         required: true
@@ -42,7 +42,7 @@ on:
         description: Release tag (e.g. v1.0.0) – required if create_release is true
         required: true
         type: string
-        default: "v3.1.18"
+        default: ""
 permissions:
   contents: read
 concurrency:
