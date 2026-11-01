@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 CACHE = REPO / '.dart_tool/hooks_runner/shared/ffmpeg_kit_extended_flutter/build/ffmpeg_kit_cache'
 ARCHIVES = {
     'android': ('bundle-base-shared-lgpl-release.aar', 'c6c9b1ff7be756b0fb587f98e05972ca4dae97e8275c22961b443b4fd5f49bf7'),
-    'windows': ('bundle-base-windows-x86_64-shared-lgpl.zip', 'e61684a91f7471ba00f1d5b36a24e93ab602ef72bd57000d94990e7e0c5dfe3a'),
+    'windows': ('bundle-base-windows-x86_64-shared-lgpl.zip', 'ac4f7c6893eb2d2a7d9c1c7a08e8cad42105b509d097ce2b2eceabcdcbd7cb47'),
     'linux': ('bundle-base-linux-x86_64-shared-lgpl.zip', 'd6003c3feb2bdcdccd0d4ad5e7b76fa8e8951430c6a22c1db7be5e13da19403d'),
     'macos': ('bundle-base-macos-universal-lgpl.xcframework.zip', '9977fc0d3de38af4830c54f536146b2595843d7a45850c50c6205ffb56ca899a'),
     'ios': ('bundle-base-ios-universal-lgpl.xcframework.zip', 'f1758956e81d938bedf39e796dc99a3b34951cffcc681ab52e241d47b0c93aa4'),

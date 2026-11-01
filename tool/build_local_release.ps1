@@ -264,7 +264,7 @@ try {
 
         $windowsFfmpegZip = Join-Path $repoRoot '.dart_tool\hooks_runner\shared\ffmpeg_kit_extended_flutter\build\ffmpeg_kit_cache\windows\bundle-base-windows-x86_64-shared-lgpl.zip'
         if (-not (Test-Path -LiteralPath $windowsFfmpegZip -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $windowsFfmpegZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'e61684a91f7471ba00f1d5b36a24e93ab602ef72bd57000d94990e7e0c5dfe3a') {
+            (Get-FileHash -LiteralPath $windowsFfmpegZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ac4f7c6893eb2d2a7d9c1c7a08e8cad42105b509d097ce2b2eceabcdcbd7cb47') {
             throw 'Windows FFmpeg Kit hook artifact differs from the pinned n9.0.2 ZIP.'
         }
 
