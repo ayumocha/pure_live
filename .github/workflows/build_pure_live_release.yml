@@ -492,7 +492,8 @@ jobs:
         (inputs.build_macos || inputs.build_ios) &&
         (needs.quality.result == 'success' || needs.quality.result == 'skipped') }}
     needs: [quality]
-    runs-on: macos-15
+    # macos-15 stopped being scheduled for this repo; macos-latest is the maintained label.
+    runs-on: macos-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
