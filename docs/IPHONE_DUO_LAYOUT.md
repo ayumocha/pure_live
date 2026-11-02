@@ -19,6 +19,17 @@ HIG 要求：按尺寸类适配、不要把宽度写死；工具栏与标签栏�
 | 录制中心入口 | 宽布局被从侧栏剔除，只作为顶部动作图标出现 | 始终作为侧栏目的地，与竖屏底部栏顺序一致 |
 | 网格列数 | 2/3/4/5、3/5/7/9 等奇偶混排 | iOS 上走 `HomeLayout.evenColumnsForFold`，奇数列下取偶数（3→2、5→4、7→6、9→8）；其他平台密度不变 |
 
+### 侧栏形态（Material 3，不是系统玻璃）
+
+Duo 上系统把标签栏/工具栏渲染成侧边胶囊，本仓按同一位置规则，但**材质保持自己的 Material 3 语言**，不套 iOS 液态玻璃：
+
+- 不透明 `surfaceContainerHigh` 胶囊，`elevation: 3` + 阴影，圆角 28，`outlineVariant` 半透明描边；
+- 每个按钮 40dp 圆形，选中态为 `secondaryContainer` 实心圆 + `onSecondaryContainer` 图标；
+- 组间用 1dp `outlineVariant` 细分隔线（M3 的分组方式），不是整条贴边的 rail；
+- 只有图标，名称走 Tooltip + Semantics，符合 HIG「提供标题但不常显」；
+- 固定 72pt 栏宽，内容永远从栏右侧开始，开合时不跳动。
+
+组件：`lib/features/home/duo_side_bar.dart`；测试：`test/features/home/duo_side_bar_test.dart`（3 项：选中态图标、栏宽、分组与栏内布局）。
 代码落点：
 
 - `lib/core/layout/home_layout.dart`：两条规则与注释（放在 `core` 以满足分层约束 `domains -> core`）。
