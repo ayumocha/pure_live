@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:pure_live/core/index.dart';
+import 'package:pure_live/core/platform/mobile_manager.dart';
 import 'package:pure_live/domains/live/domain/global_player_service.dart';
 import 'package:pure_live/core/player/presentation/player_back_scope.dart';
 import 'package:pure_live/domains/live/presentation/playback/states/ui_state.dart';
@@ -47,7 +50,7 @@ class LivePlayPage extends GetView<LivePlayController> {
       return PlayerBackScope(
         presentationActive: presentationActive,
         onExitPresentation: controller.exitPresentationForSystemBack,
-        child: page,
+        child: _PlaybackSystemChrome(child: page),
       );
     });
   }
@@ -98,4 +101,35 @@ class LivePlayPage extends GetView<LivePlayController> {
       ],
     );
   }
+}
+
+/// Hides the system status bar for as long as a room is open.
+///
+/// Wrapping the page instead of the route keeps every exit path covered: the
+/// back gesture, a controller pop and PiP teardown all dispose this widget,
+/// which restores the chrome the home shell expects.
+class _PlaybackSystemChrome extends StatefulWidget {
+  const _PlaybackSystemChrome({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PlaybackSystemChrome> createState() => _PlaybackSystemChromeState();
+}
+
+class _PlaybackSystemChromeState extends State<_PlaybackSystemChrome> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(MobileManager.enterImmersivePlayback());
+  }
+
+  @override
+  void dispose() {
+    unawaited(MobileManager.exitImmersivePlayback());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

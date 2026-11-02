@@ -88,4 +88,32 @@ class MobileManager {
       debugPrint('状态栏样式设置失败: $e');
     }
   }
-}
+
+  /// Hides the system chrome while a playback route is open.
+  ///
+  /// On Duo the status bar shares the screen edge with the app's own vertical
+  /// controls, so a room spends that edge on a clock and a battery icon for no
+  /// reason. Only iOS changes behaviour: Android already runs edge-to-edge and
+  /// its bars are transparent, so hiding them there would remove reachable
+  /// controls instead of freeing space.
+  static Future<void> enterImmersivePlayback() async {
+    if (!PlatformUtils.isMobile || !Platform.isIOS) return;
+
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: const <SystemUiOverlay>[]);
+    } catch (e) {
+      debugPrint('隐藏状态栏失败: $e');
+    }
+  }
+
+  /// Restores the chrome the rest of the app expects after a room closes.
+  static Future<void> exitImmersivePlayback() async {
+    if (!PlatformUtils.isMobile || !Platform.isIOS) return;
+
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      await _initializeIOS();
+    } catch (e) {
+      debugPrint('恢复状态栏失败: $e');
+    }
+  }}
