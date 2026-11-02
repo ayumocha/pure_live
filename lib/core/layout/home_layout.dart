@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
-import 'package:flutter/widgets.dart' show Size;
+import 'package:flutter/widgets.dart' show EdgeInsets, Size;
 
 /// Layout decisions for the home shell that differ from a plain phone.
 ///
@@ -34,6 +34,20 @@ abstract final class HomeLayout {
     return size.width > size.height * shortWideRatio;
   }
 
+  /// Which edge the Duo side bar sits on.
+  ///
+  /// Apple's rule is hardware-referenced, never language-referenced: on the
+  /// cover screen the vertical bars share the axis of the cover camera (this
+  /// device puts it in the top-right corner, so the bar belongs on the right),
+  /// and in split multitasking each app's bars move to its own outer edge. The
+  /// widest safe-area inset marks that outer edge, so the bar follows it and
+  /// otherwise stays on the right. A reading-direction mirror is deliberately
+  /// absent: the same guidance requires the bars to keep their side in RTL.
+  static bool sideBarOnRight(EdgeInsets padding, {double threshold = 8}) {
+    if (padding.left - padding.right > threshold) return false;
+
+    return true;
+  }
   /// Keeps a grid's column count even so no column of cards straddles the
   /// fold. The HIG asks for even columns on foldable screens; other platforms
   /// keep their existing density.

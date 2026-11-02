@@ -54,6 +54,48 @@ void main() {
     expect(tapped, ['多画面', '热门']);
   });
 
+  testWidgets('侧栏在右侧时贴右边缘，内容整体在它左边', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
+        home: Scaffold(
+          body: Row(
+            children: [
+              const Expanded(child: SizedBox()),
+              DuoSideBar(
+                onRight: true,
+                actions: const [],
+                destinations: const [
+                  DuoSideBarEntry(icon: Icons.favorite, selectedIcon: Icons.favorite, label: '关注', onTap: _noop),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final screenWidth = tester.getSize(find.byType(Scaffold)).width;
+    final barRect = tester.getRect(find.byType(DuoSideBar));
+    expect(barRect.right, screenWidth);
+  });
+
+  testWidgets('侧栏在左侧时贴左边缘', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        const DuoSideBar(
+          onRight: false,
+          actions: [],
+          destinations: [
+            DuoSideBarEntry(icon: Icons.favorite, selectedIcon: Icons.favorite, label: '关注', onTap: _noop),
+          ],
+        ),
+      ),
+    );
+
+    final barRect = tester.getRect(find.byType(DuoSideBar));
+    expect(barRect.left, 0);
+  });
   testWidgets('侧栏只占固定栏宽，内容从栏右侧开始', (tester) async {
     await tester.pumpWidget(_host(const DuoSideBar(actions: [], destinations: [])));
 

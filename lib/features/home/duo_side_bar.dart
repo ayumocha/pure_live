@@ -34,6 +34,7 @@ class DuoSideBar extends StatelessWidget {
     required this.actions,
     required this.destinations,
     this.leading,
+    this.onRight = true,
     this.width = 72,
   });
 
@@ -48,6 +49,11 @@ class DuoSideBar extends StatelessWidget {
   /// own popup, so it cannot be expressed as a [DuoSideBarEntry]).
   final Widget? leading;
 
+  /// Which edge the bar floats on. The Duo guidance anchors this to the
+  /// hardware (cover camera axis) and to the app's outer edge in split view,
+  /// so the caller passes the answer instead of relying on text direction.
+  final bool onRight;
+
   /// Width of the gutter the bar floats in; content starts after it.
   final double width;
 
@@ -61,9 +67,9 @@ class DuoSideBar extends StatelessWidget {
       child: SafeArea(
         right: false,
         child: Align(
-          alignment: Alignment.centerLeft,
+          alignment: onRight ? Alignment.centerRight : Alignment.centerLeft,
           child: Padding(
-            padding: const EdgeInsets.only(left: 8),
+            padding: EdgeInsets.only(left: onRight ? 0 : 8, right: onRight ? 8 : 0),
             child: Material(
               color: colors.surfaceContainerHigh,
               elevation: 3,

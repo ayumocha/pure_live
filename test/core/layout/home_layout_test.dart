@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
-import 'package:flutter/widgets.dart' show Size;
+import 'package:flutter/widgets.dart' show EdgeInsets, Size;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pure_live/core/layout/home_layout.dart';
 
@@ -30,6 +30,16 @@ void main() {
     });
   });
 
+  group('侧栏在哪一侧（硬件参照，不看语言方向）', () {
+    test('外屏摄像头在右上角，镜像与分屏外的默认都是右侧', () {
+      // 安全区对称（整屏）→ 右侧。
+      expect(HomeLayout.sideBarOnRight(const EdgeInsets.only(top: 47, bottom: 34)), isTrue);
+      // 左内边距明显更大 → 这一侧才是设备外缘 → 左侧。
+      expect(HomeLayout.sideBarOnRight(const EdgeInsets.only(top: 47, bottom: 34, left: 62)), isFalse);
+      // 差在阈值内仍按右侧，避免开合过程中来回跳。
+      expect(HomeLayout.sideBarOnRight(const EdgeInsets.only(top: 47, left: 6)), isTrue);
+    });
+  });
   group('偶数网格列', () {
     tearDown(() {
       debugDefaultTargetPlatformOverride = null;

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 import 'package:remixicon/remixicon.dart';
 import 'package:pure_live/core/index.dart';
 import 'package:pure_live/core/consts/app_consts.dart';
+import 'package:pure_live/core/layout/home_layout.dart';
 import 'package:pure_live/features/home/duo_side_bar.dart';
 
 class HomeTabletView extends StatelessWidget {
@@ -20,6 +21,10 @@ class HomeTabletView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Read the real insets before SafeArea consumes them: the widest one marks
+    // the device's outer edge, which is where Duo wants the bar.
+    final bool dockOnRight = HomeLayout.sideBarOnRight(MediaQuery.paddingOf(context));
+
     return Scaffold(
       body: SafeArea(
         child: Builder(
@@ -131,10 +136,8 @@ class HomeTabletView extends StatelessWidget {
             // buttons rather than a full-height material rail with a divider.
             // iOS gets that shape; desktop keeps the rail it already uses.
             if (defaultTargetPlatform == TargetPlatform.iOS) {
-              return Obx(
-                () => Row(
-                  children: [
-                    DuoSideBar(
+              final sideBar = Obx(
+                () => DuoSideBar(
                       leading: const MenuButton(),
                       actions: [
                         if (SettingsService.to.app.enableMultiView.v)
@@ -158,10 +161,14 @@ class HomeTabletView extends StatelessWidget {
                         ),
                       ],
                       destinations: duoDestinations,
+                      onRight: dockOnRight,
                     ),
-                    Expanded(child: content),
-                  ],
-                ),
+              );
+
+              return Row(
+                children: dockOnRight
+                    ? [Expanded(child: content), sideBar]
+                    : [sideBar, Expanded(child: content)],
               );
             }
 
