@@ -42,7 +42,7 @@ void main() {
       fetched.add(url);
       return <String>['dy_did=xyz'];
     };
-    DouyuUtils.debugCookiePersister = (_, __) {};
+    DouyuUtils.debugCookiePersister = (_, _) {};
 
     await DouyuUtils.primeDeviceId();
 
@@ -55,7 +55,7 @@ void main() {
       calls++;
       return const <String>[];
     };
-    DouyuUtils.debugCookiePersister = (_, __) {};
+    DouyuUtils.debugCookiePersister = (_, _) {};
 
     // 先取一次，模拟“已经拿到过”。
     await DouyuUtils.primeDeviceId(roomId: '1');
@@ -79,7 +79,7 @@ void main() {
 
   test('网络异常只记录日志，不抛给调用方', () async {
     DouyuUtils.debugCookieFetcher = (url, headers) async => throw const SocketExceptionStub();
-    DouyuUtils.debugCookiePersister = (_, __) {};
+    DouyuUtils.debugCookiePersister = (_, _) {};
 
     await expectLater(DouyuUtils.primeDeviceId(roomId: '9999'), completes);
   });
@@ -90,7 +90,7 @@ void main() {
       calls++;
       return const <String>[];
     };
-    DouyuUtils.debugCookiePersister = (_, __) {};
+    DouyuUtils.debugCookiePersister = (_, _) {};
 
     await DouyuUtils.primeDeviceId(roomId: '9999');
     await DouyuUtils.primeDeviceId(roomId: '9999');

@@ -266,9 +266,7 @@ dependencies:
   easy_localization: ^3.0.8 #多语言
   app_links: ^7.2.1
   scroll_animator: 0.3.0
-
-
-# 依赖覆盖（强制指定版本）
+  cupertino_http: ^3.1.1
 dependency_overrides:
   # media_kit 链与 better_player_plus 对 wakelock_plus 的约束无交集,
   # 与 media_core 工作区同样以 override 对齐

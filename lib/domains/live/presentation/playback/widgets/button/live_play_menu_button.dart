@@ -201,7 +201,8 @@ class LivePlayMenuButton extends StatelessWidget {
       if (controller.localInteractionController.enabled.v)
         _item(value: 7, icon: Icons.auto_awesome_rounded, text: i18n('local_interaction_title')),
 
-      if (Platform.isWindows) _item(value: 8, icon: Icons.open_in_new_rounded, text: i18n('open_room_in_new_window')),
+      if (Platform.isWindows && SettingsService.to.app.enableNewWindowPlay.v)
+        _item(value: 8, icon: Icons.open_in_new_rounded, text: i18n('open_room_in_new_window')),
     ];
   }
 

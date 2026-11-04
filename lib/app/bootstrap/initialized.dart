@@ -144,7 +144,9 @@ class AppInitializer {
       await MobileManager.initialize();
     }
 
-    if (PlatformUtils.isDesktopNotMac && instanceId.isEmpty) {
+    // Only reconcile the Run key when the viewer asked for auto-start; the
+    // default install must not write one at all.
+    if (PlatformUtils.isDesktopNotMac && instanceId.isEmpty && SettingsService.to.startup.enableStartUp.v) {
       _setupLaunchAtStartupSafe();
     }
 

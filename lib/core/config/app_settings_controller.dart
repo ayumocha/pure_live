@@ -59,7 +59,9 @@ class AppSettingsController extends GetxController {
   // Defaulting missing keys to true keeps upgrades feature-compatible while
   // still allowing users to hide either entry explicitly.
   final RxBool enableMultiView = hiveBool('enableMultiView', true);
-  final RxBool enableNewWindowPlay = hiveBool('enableNewWindowPlay', true);
+  // Off by default: this feature starts a second copy of our own exe, which
+  // is one of the shapes behaviour-based antivirus treats as a dropper.
+  final RxBool enableNewWindowPlay = hiveBool('enableNewWindowPlay', false);
 
   AppRefreshRateMode get refreshRateMode => AppRefreshRateMode.parse(refreshRateModeName.v);
 
@@ -240,7 +242,7 @@ class AppSettingsController extends GetxController {
         normalizeMenuIds(List<String>.from(json['savedMenuIds'] ?? HomeMenu.values.map((e) => e.id).toList())),
       ),
       'enableMultiView': typed<bool>(json['enableMultiView'] ?? true),
-      'enableNewWindowPlay': typed<bool>(json['enableNewWindowPlay'] ?? true),
+      'enableNewWindowPlay': typed<bool>(json['enableNewWindowPlay'] ?? false),
     };
   }
 
@@ -290,7 +292,7 @@ class AppSettingsController extends GetxController {
         List<String>.from(app['savedMenuIds'] ?? HomeMenu.values.map((menu) => menu.id).toList()),
       ),
       'enableMultiView': app['enableMultiView'] ?? true,
-      'enableNewWindowPlay': app['enableNewWindowPlay'] ?? true,
+      'enableNewWindowPlay': app['enableNewWindowPlay'] ?? false,
     };
   }
 

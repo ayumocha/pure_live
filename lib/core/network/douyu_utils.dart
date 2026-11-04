@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:pure_live/core/logging/core_log.dart';
+import 'package:pure_live/core/network/douyu_native_http.dart';
 import 'package:pure_live/core/network/http_client.dart';
 import 'package:pure_live/core/network/cookie_sanitizer.dart';
 import 'package:pure_live/core/storage/hive_rx.dart';
@@ -174,11 +175,21 @@ class DouyuUtils {
     // Cookie: Douyu issues the descriptor to a device and rejects a signature
     // presented by another one (a plain 403 from its edge, with no API error).
     final did = effectiveDeviceId();
-    final response = await HttpClient.instance.getJson(
+    // Douyu's edge rejects this client's dart:io fingerprint with a bare
+    // 400 while a browser-shaped stack is accepted, so the key request
+    // goes through the platform client where one exists.
+    final native = await DouyuNativeHttp.getJson(
       _apiDouyuEnc,
       queryParameters: {'did': did},
-      header: requestHeaders(),
+      headers: requestHeaders(),
     );
+    final response =
+        native ??
+        await HttpClient.instance.getJson(
+          _apiDouyuEnc,
+          queryParameters: {'did': did},
+          header: requestHeaders(),
+        );
     final rawData = response is Map ? response['data'] : null;
     if (rawData is! Map) {
       throw const FormatException('Douyu encryption response is missing data');
@@ -210,11 +221,15 @@ class DouyuUtils {
 
       final room = roomId.trim();
       final url = Uri.parse(room.isEmpty ? 'https://www.douyu.com/' : 'https://www.douyu.com/$room');
-      final setCookies = await _fetchSetCookies(url, <String, String>{
+      final headers = <String, String>{
         'user-agent': userAgent,
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'accept-language': 'zh-CN,zh;q=0.9',
-      });
+      };
+      // The native stack keeps a cookie store, so it reports the issued
+      // cookies directly; dart:io has to be asked for the header.
+      final nativeFetch = await DouyuNativeHttp.getWithCookies(url.toString(), headers: headers);
+      final setCookies = nativeFetch?.setCookies ?? await _fetchSetCookies(url, headers);
       if (setCookies.isEmpty) return;
 
       final merged = mergeSetCookieLines(stored, setCookies);

@@ -21,7 +21,10 @@ class StartupController extends GetxController {
   final StartupStateWriter _enableStartupAction;
   final StartupStateWriter _disableStartupAction;
 
-  final RxBool enableStartUp = hiveBool('enableStartUp', true);
+  // Off by default: writing a Run key at first launch is persistence, which
+  // behaviour-based antivirus scores as hostile. The switch in settings is
+  // the only thing that may create the entry.
+  final RxBool enableStartUp = hiveBool('enableStartUp', false);
   final RxBool isApplyingStartup = false.obs;
   final RxString startupStatusKey = ''.obs;
 
@@ -130,7 +133,7 @@ class StartupController extends GetxController {
 
   /// Parse the complete section without notifying observers or persisting values.
   static Map<String, dynamic> parseConfig(Map<String, dynamic> json) {
-    return {'enableStartUp': (json['enableStartUp'] ?? true) as bool};
+    return {'enableStartUp': (json['enableStartUp'] ?? false) as bool};
   }
 
   void fromJson(Map<String, dynamic> json) {
@@ -140,7 +143,7 @@ class StartupController extends GetxController {
 
   static Map<String, dynamic> extractConfig(Map<String, dynamic>? rootConfig) {
     final startup = rootConfig?['startup'] as Map<String, dynamic>? ?? {};
-    return {'enableStartUp': startup['enableStartUp'] ?? true};
+    return {'enableStartUp': startup['enableStartUp'] ?? false};
   }
 
   static Map<String, dynamic> mergeConfig(Map<String, dynamic> rootConfig, Map<String, dynamic> updateFields) {

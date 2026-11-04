@@ -6,6 +6,7 @@ import 'package:pure_live/core/models/live_category.dart';
 import 'package:pure_live/core/models/live_anchor_item.dart';
 import 'package:pure_live/core/logging/core_log.dart';
 import 'package:pure_live/core/network/core_error.dart';
+import 'package:pure_live/core/network/douyu_native_http.dart';
 import 'package:pure_live/core/network/http_client.dart';
 import 'package:pure_live/core/models/live_play_quality.dart';
 import 'package:pure_live/shared/platforms/live_site.dart';
@@ -369,12 +370,23 @@ class DouyuSite
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final sign = await DouyuUtils.sign(roomId, rate: rate, cdn: cdn, forceRefresh: attempt > 0);
-        final result = await HttpClient.instance.postJson(
-          'https://www.douyu.com/lapi/live/getH5PlayV1/$roomId',
-          data: sign,
-          formUrlEncoded: true,
-          header: DouyuUtils.requestHeaders(roomId),
+        const playUrl = 'https://www.douyu.com/lapi/live/getH5PlayV1/';
+        final headers = DouyuUtils.requestHeaders(roomId);
+        // Same reason as the signing key: the native client is the only
+        // shape Douyu's edge accepts on mobile.
+        final native = await DouyuNativeHttp.postFormJson(
+          '$playUrl$roomId',
+          body: sign,
+          headers: headers,
         );
+        final result =
+            native ??
+            await HttpClient.instance.postJson(
+              '$playUrl$roomId',
+              data: sign,
+              formUrlEncoded: true,
+              header: headers,
+            );
         return parsePlayResponse(result);
       } catch (error) {
         lastError = error;
