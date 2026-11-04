@@ -12,6 +12,11 @@ param(
     [switch] $UseOfficialRepositories,
     [switch] $RequireReleaseSigning,
     [switch] $DedicatedBuild,
+    # Diagnostic packaging: do not place the MSVC runtime next to the exe.
+    # App-local runtime DLLs are the shape antivirus products score as DLL
+    # side-loading, so a build without them can show whether that is the
+    # trigger. The machine-wide VC++ redistributable must be installed.
+    [switch] $WithoutAppLocalMsvc,
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$')]
     [string] $CandidateLabel = ''
 )
@@ -356,6 +361,12 @@ try {
             if ([IO.Path]::GetExtension($sourceFile).ToLowerInvariant() -in $developmentExtensions) {
                 continue
             }
+            # Diagnostic packaging: CMake lists the MSVC runtime on its install
+            # manifest, so skipping the explicit copy below is not enough.
+            if ($WithoutAppLocalMsvc.IsPresent -and
+                [IO.Path]::GetFileName($relativePath) -in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+                continue
+            }
 
             $destination = Join-Path $windowsPackageFull $relativePath
             $destinationParent = Split-Path -Parent $destination
@@ -371,7 +382,7 @@ try {
         # reviewed runtime allowlist explicit rather than reopening the whole
         # incremental Release directory.
         $requiredRunnerFiles = @('pure_live.exe', 'WebView2Loader.dll')
-        if ($Configuration -eq 'Release') {
+        if ($Configuration -eq 'Release' -and -not $WithoutAppLocalMsvc.IsPresent) {
             # These are app-local runtime files required by Flutter's Windows
             # deployment contract. CMake resolves the versions matching the
             # active MSVC toolset and adds them to the install manifest.
@@ -391,7 +402,7 @@ try {
             (Test-Path -LiteralPath (Join-Path $windowsPackageFull 'data\flutter_assets\kernel_blob.bin') -PathType Leaf)) {
             throw 'The staged Windows package contains a debug kernel_blob.bin.'
         }
-        if ($Configuration -eq 'Release') {
+        if ($Configuration -eq 'Release' -and -not $WithoutAppLocalMsvc.IsPresent) {
             foreach ($runtimeFile in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
                 if (-not (Test-Path -LiteralPath (Join-Path $windowsPackageFull $runtimeFile) -PathType Leaf)) {
                     throw "The staged Windows package is missing the app-local MSVC runtime: $runtimeFile"
