@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'dart:developer' as developer;
 
 import 'package:pure_live/core/index.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:pure_live/core/models/live_play_quality.dart';
 import 'package:pure_live/shared/platforms/live_site.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -612,6 +613,10 @@ class PlayerController extends GetxController {
       if (!_isLoadCurrent(loadEpoch, room, site)) return;
 
       if (playQualites.isEmpty) {
+        DouyuDiagnose.record('qualities-empty', <String, Object?>{
+          'platform': site.id,
+          'room': room.roomId,
+        });
         ToastUtil.show(i18n('cannot_read_video_info'));
         _main.updateRoom(success: false);
         return;
@@ -632,6 +637,11 @@ class PlayerController extends GetxController {
         name: 'PlayerController',
         stackTrace: stackTrace,
       );
+      DouyuDiagnose.record('qualities-failed', <String, Object?>{
+        'platform': site.id,
+        'room': room.roomId,
+        'error': error,
+      });
       ToastUtil.show(i18n(streamMetadataFailureKey(
         error: error,
         appProxyEnabled: SettingsService.to.proxy.enableAppProxy.v,
@@ -679,10 +689,21 @@ class PlayerController extends GetxController {
     if (!_isLoadCurrent(loadEpoch, liveroom, site)) return;
 
     if (!resolution.hasSources) {
+      DouyuDiagnose.record('play-url-empty', <String, Object?>{
+        'platform': site.id,
+        'room': liveroom.roomId,
+        'quality': playerState.qualites[playerState.currentQuality].quality,
+      });
       ToastUtil.show(i18n('cannot_read_play_url'));
       _main.updateRoom(success: false);
       return;
     }
+    DouyuDiagnose.record('sources-ready', <String, Object?>{
+      'platform': site.id,
+      'room': liveroom.roomId,
+      'scheme': Uri.tryParse(resolution.urls.first)?.scheme,
+      'host': Uri.tryParse(resolution.urls.first)?.host,
+    });
 
     final appliedQuality = resolveAppliedQualityIndex(
       qualities: playerState.qualites,
@@ -761,6 +782,10 @@ class PlayerController extends GetxController {
       if (!_isLoadCurrent(loadEpoch, room, site) || selectionEpoch != _streamSelectionEpoch) return false;
       final urls = resolution.urls;
       if (!resolution.hasSources) {
+        DouyuDiagnose.record('play-url-empty-recovery', <String, Object?>{
+          'platform': site.id,
+          'room': room.roomId,
+        });
         ToastUtil.show(i18n('cannot_read_play_url'));
         return false;
       }
