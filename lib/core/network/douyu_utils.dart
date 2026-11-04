@@ -174,6 +174,9 @@ class DouyuUtils {
   /// The room the current play attempt belongs to, for the diagnostics.
   static String roomIdForLog = '';
 
+  /// Whether a Douyu key response actually carries a descriptor.
+  static bool _hasEncryptionData(Object value) => value is Map && value['data'] is Map;
+
   static Future<void> _fetchEncryptionKey() async {
     // The same DID has to be used here, in the signed query and in the request
     // Cookie: Douyu issues the descriptor to a device and rejects a signature
@@ -191,13 +194,27 @@ class DouyuUtils {
       queryParameters: {'did': did},
       headers: requestHeaders(),
     );
-    final response =
-        native ??
-        await HttpClient.instance.getJson(
-          _apiDouyuEnc,
-          queryParameters: {'did': did},
-          header: requestHeaders(),
-        );
+    Object? response = native;
+    // A response without `data` is not a key: Douyu sends that shape when it
+    // dislikes the request (wrong device cookie, a challenge page, an error
+    // object). Record what came back and try the other stack before giving up.
+    if (native != null && !_hasEncryptionData(native)) {
+      DouyuDiagnose.record(
+        'encryption-shape',
+        <String, Object?>{'kind': native.runtimeType.toString(), 'body': native},
+      );
+      response = await HttpClient.instance.getJson(
+        _apiDouyuEnc,
+        queryParameters: {'did': did},
+        header: requestHeaders(),
+      );
+    } else if (native == null) {
+      response = await HttpClient.instance.getJson(
+        _apiDouyuEnc,
+        queryParameters: {'did': did},
+        header: requestHeaders(),
+      );
+    }
     final rawData = response is Map ? response['data'] : null;
     if (rawData is! Map) {
       throw const FormatException('Douyu encryption response is missing data');

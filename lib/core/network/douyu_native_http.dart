@@ -23,6 +23,10 @@ class DouyuNativeHttp {
 
   static http.Client? _cached;
 
+  /// Priming keeps NSURLSession's cookie store so the page visit can hand us the
+  /// device id Douyu issues.
+  static http.Client? _cookieClient;
+
   /// Test seam: a fake client, or `null` to fall back to `dart:io`.
   @visibleForTesting
   static http.Client? debugClientOverride;
@@ -41,11 +45,39 @@ class DouyuNativeHttp {
     if (!isSupported) return null;
 
     try {
-      return _cached ??= CupertinoClient.defaultSessionConfiguration();
+      return _cached ??= _createClient(setCookies: false);
     } catch (error) {
       CoreLog.w('Douyu native HTTP client unavailable: $error');
       return null;
     }
+  }
+
+  static http.Client? get _primingClient {
+    final override = debugClientOverride;
+    if (override != null) return override;
+    if (!isSupported) return null;
+
+    try {
+      return _cookieClient ??= _createClient(setCookies: true);
+    } catch (error) {
+      CoreLog.w('Douyu native cookie client unavailable: $error');
+      return null;
+    }
+  }
+
+  /// `setCookies: false` keeps NSURLSession from replacing the Cookie header we
+  /// send. Douyu signs the request with the `did` in the query and rejects a
+  /// signature carrying another device's cookie, and letting the session manage
+  /// cookies put a different `dy_did` on the wire than the one we signed with —
+  /// the endpoint then answers JSON without a `data` field.
+  static http.Client _createClient({required bool setCookies}) {
+    if (!setCookies) {
+      final config = URLSessionConfiguration.defaultSessionConfiguration()
+        ..httpShouldSetCookies = false
+        ..httpCookieAcceptPolicy = NSHTTPCookieAcceptPolicy.NSHTTPCookieAcceptPolicyNever;
+      return CupertinoClient.fromSessionConfiguration(config);
+    }
+    return CupertinoClient.defaultSessionConfiguration();
   }
 
   /// GET returning decoded JSON, or `null` when this platform has no native
@@ -87,7 +119,7 @@ class DouyuNativeHttp {
     Map<String, String>? headers,
     Duration timeout = const Duration(seconds: 15),
   }) async {
-    final client = _client;
+    final client = _primingClient;
     if (client == null) return null;
 
     final response = await client.get(Uri.parse(url), headers: headers).timeout(timeout);
@@ -133,6 +165,7 @@ class DouyuNativeHttp {
   @visibleForTesting
   static void debugReset() {
     _cached = null;
+    _cookieClient = null;
     debugClientOverride = null;
     debugDisable = false;
   }

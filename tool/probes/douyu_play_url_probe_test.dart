@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:pure_live/core/config/settings_service.dart';
 import 'package:pure_live/core/storage/hive_pref_util.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:pure_live/shared/platforms/douyu/douyu_site.dart';
 import 'package:pure_live/core/models/live_play_quality.dart';
 import 'package:pure_live/core/models/live_room.dart';
@@ -54,6 +55,8 @@ void main() {
         liveroom: detail,
         quality: qualities.isEmpty ? LivePlayQuality(quality: '原画', sort: 0) : qualities.first,
       );
+      // ignore: avoid_print
+      print('[probe] diagnose:\n');
       // ignore: avoid_print
       print('[probe] play url: ${urls.isEmpty ? '<empty>' : urls.first}');
       expect(urls, isNotEmpty);
