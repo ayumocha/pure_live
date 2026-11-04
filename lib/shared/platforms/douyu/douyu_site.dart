@@ -389,6 +389,7 @@ class DouyuSite
               formUrlEncoded: true,
               header: headers,
             );
+        DouyuUtils.guestMode = false;
         return parsePlayResponse(result);
       } catch (error) {
         lastError = error;
@@ -401,6 +402,13 @@ class DouyuSite
             'native': DouyuNativeHttp.isSupported,
           },
         );
+        if (error is DouyuSessionExpiredException && !DouyuUtils.guestMode) {
+          // The stored login no longer exists on Douyu's side. Retry as a guest
+          // instead of failing the room: the viewer asked to watch, not to log in.
+          DouyuUtils.guestMode = true;
+          CoreLog.w('Douyu session expired, retrying as guest');
+          continue;
+        }
         CoreLog.w(
           'Douyu play request failed (attempt ${attempt + 1}): $error'
           '${error is HttpError && error.statusCode != 0 ? ' status=${error.statusCode}' : ''}'
@@ -415,6 +423,7 @@ class DouyuSite
       }
     }
     await DouyuDiagnose.flushToDisk();
+    DouyuUtils.guestMode = false;
     throw DouyuPlayApiException('H5 play request failed after retry', cause: lastError);
   }
 

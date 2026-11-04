@@ -35,8 +35,20 @@ enum DouyuSessionState {
   expired,
 }
 
+/// Douyu answered 902: the request carried a login the server no longer knows.
+class DouyuSessionExpiredException implements Exception {
+  const DouyuSessionExpiredException();
+
+  @override
+  String toString() => 'DouyuSessionExpiredException(902)';
+}
+
 class DouyuUtils {
   static const String defaultDeviceId = '10000000000000000000000000001501';
+  /// Douyu's "login information expired" code. It means the request carried
+  /// a session cookie the server no longer accepts, not that the room is bad.
+  static const int sessionExpiredError = 902;
+
   static const String _apiDouyuEnc = 'https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption';
   static const int _expirySafetySeconds = 30;
   static const int _maximumCacheAgeSeconds = 5 * 60;
@@ -214,6 +226,10 @@ class DouyuUtils {
         queryParameters: {'did': did},
         header: requestHeaders(),
       );
+    }
+    if (response is Map && _asInt(response['error']) == sessionExpiredError) {
+      DouyuDiagnose.record('session-expired', <String, Object?>{'msg': response['msg']});
+      throw const DouyuSessionExpiredException();
     }
     final rawData = response is Map ? response['data'] : null;
     if (rawData is! Map) {
@@ -588,6 +604,10 @@ class DouyuUtils {
     }
   }
 
+  /// Set while retrying after Douyu reported an expired login: the request
+  /// then carries only the device cookies, never the stored account cookie.
+  static bool guestMode = false;
+
   static Map<String, String> requestHeaders([String roomId = '']) {
     final referer = roomId.isEmpty ? 'https://www.douyu.com/' : 'https://www.douyu.com/$roomId';
     return <String, String>{
@@ -596,7 +616,7 @@ class DouyuUtils {
       'origin': 'https://www.douyu.com',
       'referer': referer,
       'user-agent': userAgent,
-      'cookie': cookieHeader(),
+      'cookie': cookieHeader(accountCookie: guestMode ? '' : null),
     };
   }
 
