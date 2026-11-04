@@ -25,10 +25,10 @@
       ]
     },
     "windows": {
-      "version": "3.1.19",
-      "build_number": 4108,
-      "version_num": 301184108,
-      "version_desc": "version: 3.1.19\n版本更新：\n- 修复部分bug",
+      "version": "3.1.20",
+      "build_number": 4201,
+      "version_num": 301204201,
+      "version_desc": "version: 3.1.20\n- Windows build refreshed to escape the flagged binary hash",
       "prerelease": false,
       "download_url": "https://github.com/ayumocha/pure_live/releases",
       "windows_msix_available": true
