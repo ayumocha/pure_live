@@ -7,6 +7,7 @@ import 'package:pure_live/core/models/live_anchor_item.dart';
 import 'package:pure_live/core/logging/core_log.dart';
 import 'package:pure_live/core/network/core_error.dart';
 import 'package:pure_live/core/network/douyu_native_http.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:pure_live/core/network/http_client.dart';
 import 'package:pure_live/core/models/live_play_quality.dart';
 import 'package:pure_live/shared/platforms/live_site.dart';
@@ -367,6 +368,7 @@ class DouyuSite
     await DouyuUtils.ensureFreshSession();
 
     Object? lastError;
+    DouyuUtils.roomIdForLog = roomId;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final sign = await DouyuUtils.sign(roomId, rate: rate, cdn: cdn, forceRefresh: attempt > 0);
@@ -390,6 +392,15 @@ class DouyuSite
         return parsePlayResponse(result);
       } catch (error) {
         lastError = error;
+        DouyuDiagnose.record(
+          'play-request-failed',
+          <String, Object?>{
+            'attempt': attempt + 1,
+            'room': roomId,
+            'error': error,
+            'native': DouyuNativeHttp.isSupported,
+          },
+        );
         CoreLog.w(
           'Douyu play request failed (attempt ${attempt + 1}): $error'
           '${error is HttpError && error.statusCode != 0 ? ' status=${error.statusCode}' : ''}'
@@ -403,6 +414,7 @@ class DouyuSite
         await DouyuUtils.ensureFreshSession(force: true);
       }
     }
+    await DouyuDiagnose.flushToDisk();
     throw DouyuPlayApiException('H5 play request failed after retry', cause: lastError);
   }
 

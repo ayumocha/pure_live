@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:pure_live/core/logging/core_log.dart';
 import 'package:pure_live/core/network/douyu_native_http.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:pure_live/core/network/http_client.dart';
 import 'package:pure_live/core/network/cookie_sanitizer.dart';
 import 'package:pure_live/core/storage/hive_rx.dart';
@@ -170,11 +171,18 @@ class DouyuUtils {
     }
   }
 
+  /// The room the current play attempt belongs to, for the diagnostics.
+  static String roomIdForLog = '';
+
   static Future<void> _fetchEncryptionKey() async {
     // The same DID has to be used here, in the signed query and in the request
     // Cookie: Douyu issues the descriptor to a device and rejects a signature
     // presented by another one (a plain 403 from its edge, with no API error).
     final did = effectiveDeviceId();
+    DouyuDiagnose.record(
+      'encryption',
+      <String, Object?>{'did': did, 'native': DouyuNativeHttp.isSupported, 'room': roomIdForLog},
+    );
     // Douyu's edge rejects this client's dart:io fingerprint with a bare
     // 400 while a browser-shaped stack is accepted, so the key request
     // goes through the platform client where one exists.
