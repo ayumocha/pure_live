@@ -75,13 +75,19 @@ PowerShell -ExecutionPolicy Bypass -File .\tool\build_local_release.ps1 `
 
 Windows 保留 Flutter/CMake 的增量构建目录，只清理可丢弃的打包暂存区；脚本检查 `AppData`、缓存数据库等运行时状态未进入便携包或安装器，并剔除 `.lib`、`.exp`、`.pdb`、`.ilk` 等仅供原生开发/链接使用的文件。请勿直接把运行过的 Release 目录手工压缩发布。
 
-Windows Release 便携 ZIP 与 EXE 安装包会把当前 Visual C++ 工具链解析出的
-`msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll` 放在 `pure_live.exe`
-同级目录。打包脚本把这三个文件列为必需运行时并逐项检查，避免构建机已安装的全局
-运行库掩盖干净 Windows 10/11 设备上的启动依赖。该布局遵循
-[Flutter Windows 部署说明](https://docs.flutter.dev/platform-integration/windows/building)；
+Windows Release 便携 ZIP 把当前 Visual C++ 工具链解析出的
+`msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll` 放在包的
+`msvc-runtime/` 子目录，**不放在 `pure_live.exe` 同级**。原因：未签名的 exe 从
+自身目录加载这三个系统 DLL，正是杀软判定 DLL 侧载（DLL side-loading）的形状；
+卡巴斯基据此把主程序判为 `PDM:Trojan.Win32.Generic` 并删除。去掉同级副本后同一
+构建不再被拦截（对照见本文末的验证记录）。
+
+运行库仍在包里，`msvc-runtime/README.txt` 说明两种自救方式：安装
+[Microsoft VC++ 2015-2022 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)（推荐），
+或把三个 DLL 复制到上一级目录。需要恢复 Flutter 文档里的 app-local 布局时传
+`-WithAppLocalMsvc`；打包脚本对两种布局都逐项检查，缺项即中止。
 运行库版本必须不低于构建工具链要求，参见
-[Microsoft VC++ Redistributable 兼容规则](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)。
+[Flutter Windows 部署说明](https://docs.flutter.dev/platform-integration/windows/building)。
 
 质量模式也必须明确二选一：正式交付使用 `-FullRegression`；已经完成本轮定向验证或同提交完整门禁时使用 `-SkipQuality`。其他参数：`-SkipInstaller`、`-UseOfficialRepositories`、`-RequireReleaseSigning`、`-DedicatedBuild`。交互模式 Gradle workers 为 16；专门构建传 `-DedicatedBuild` 后为 20。
 

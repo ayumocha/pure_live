@@ -257,7 +257,7 @@ foreach ($marker in @(
     'build\windows\x64\install_manifest.txt',
     '$manifestSourceMarker = "\build\windows\x64\runner\$configurationDirectory\"',
     "'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'",
-    'The staged Windows package is missing the app-local MSVC runtime',
+    'The staged Windows package is missing the MSVC runtime copy: $runtimeFile',
     'Keep dependency resolution single-owner',
     'Retired QuickJS runtime files appeared in the Windows package',
     'automatic_follow_up = $false'

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('AndroidArm64', 'WindowsX64')]
@@ -12,10 +12,13 @@ param(
     [switch] $UseOfficialRepositories,
     [switch] $RequireReleaseSigning,
     [switch] $DedicatedBuild,
-    # Diagnostic packaging: do not place the MSVC runtime next to the exe.
-    # App-local runtime DLLs are the shape antivirus products score as DLL
-    # side-loading, so a build without them can show whether that is the
-    # trigger. The machine-wide VC++ redistributable must be installed.
+    # Legacy layout: place the MSVC runtime next to the exe. The default keeps
+    # those DLLs in a `msvc-runtime` subfolder instead, because an unsigned
+    # exe loading msvcp140.dll from its own directory is the DLL-side-loading
+    # shape antivirus products delete as PDM:Trojan.Win32.Generic.
+    [switch] $WithAppLocalMsvc,
+    # Kept for callers of the previous diagnostic switch; the default is now
+    # the subfolder layout this switch used to produce.
     [switch] $WithoutAppLocalMsvc,
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$')]
     [string] $CandidateLabel = ''
@@ -361,9 +364,9 @@ try {
             if ([IO.Path]::GetExtension($sourceFile).ToLowerInvariant() -in $developmentExtensions) {
                 continue
             }
-            # Diagnostic packaging: CMake lists the MSVC runtime on its install
-            # manifest, so skipping the explicit copy below is not enough.
-            if ($WithoutAppLocalMsvc.IsPresent -and
+            # CMake lists the MSVC runtime on its install manifest, so the
+            # subfolder layout has to drop it here as well.
+            if (-not $WithAppLocalMsvc.IsPresent -and
                 [IO.Path]::GetFileName($relativePath) -in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
                 continue
             }
@@ -382,10 +385,10 @@ try {
         # reviewed runtime allowlist explicit rather than reopening the whole
         # incremental Release directory.
         $requiredRunnerFiles = @('pure_live.exe', 'WebView2Loader.dll')
-        if ($Configuration -eq 'Release' -and -not $WithoutAppLocalMsvc.IsPresent) {
-            # These are app-local runtime files required by Flutter's Windows
-            # deployment contract. CMake resolves the versions matching the
-            # active MSVC toolset and adds them to the install manifest.
+        if ($Configuration -eq 'Release' -and $WithAppLocalMsvc.IsPresent) {
+            # Legacy layout: app-local runtime next to the exe, the layout
+            # Flutter documents. CMake resolves the versions matching the
+            # active MSVC toolset.
             $requiredRunnerFiles += @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
         }
         foreach ($requiredRunnerFile in $requiredRunnerFiles) {
@@ -402,11 +405,39 @@ try {
             (Test-Path -LiteralPath (Join-Path $windowsPackageFull 'data\flutter_assets\kernel_blob.bin') -PathType Leaf)) {
             throw 'The staged Windows package contains a debug kernel_blob.bin.'
         }
-        if ($Configuration -eq 'Release' -and -not $WithoutAppLocalMsvc.IsPresent) {
-            foreach ($runtimeFile in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
-                if (-not (Test-Path -LiteralPath (Join-Path $windowsPackageFull $runtimeFile) -PathType Leaf)) {
-                    throw "The staged Windows package is missing the app-local MSVC runtime: $runtimeFile"
+        if ($Configuration -eq 'Release') {
+            $runtimeDllNames = @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+            $runtimeFolder = if ($WithAppLocalMsvc.IsPresent) {
+                $windowsPackageFull
+            } else {
+                Join-Path $windowsPackageFull 'msvc-runtime'
+            }
+            if (-not $WithAppLocalMsvc.IsPresent) {
+                New-Item -ItemType Directory -Force -Path $runtimeFolder | Out-Null
+                foreach ($runtimeFile in $runtimeDllNames) {
+                    Copy-Item -LiteralPath (Join-Path $windowsSourceFull $runtimeFile) `
+                        -Destination (Join-Path $runtimeFolder $runtimeFile) -Force
                 }
+            }
+
+            foreach ($runtimeFile in $runtimeDllNames) {
+                if (-not (Test-Path -LiteralPath (Join-Path $runtimeFolder $runtimeFile) -PathType Leaf)) {
+                    throw "The staged Windows package is missing the MSVC runtime copy: $runtimeFile"
+                }
+            }
+            if (-not $WithAppLocalMsvc.IsPresent) {
+                $readme = @'
+MSVC 运行库备用副本
+
+默认布局不把这三个 DLL 放在 pure_live.exe 同目录，因为未签名 exe 从自身目录加载
+msvcp140.dll 是杀软判定的 DLL 侧载特征（卡巴斯基曾据此误删主程序）。
+
+如果程序提示缺少 msvcp140.dll / vcruntime140.dll，二选一：
+1. 安装 Microsoft Visual C++ 2015-2022 x64 运行库（推荐）；
+2. 把本目录下三个 DLL 复制到上一级目录（即 pure_live.exe 旁边）再启动。
+'@
+
+                Set-Content -LiteralPath (Join-Path $runtimeFolder 'README.txt') -Value $readme -Encoding utf8
             }
         }
         $developmentFiles = Get-ChildItem -LiteralPath $windowsPackageFull -Recurse -File |
