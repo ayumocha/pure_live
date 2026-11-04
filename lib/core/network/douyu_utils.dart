@@ -110,6 +110,11 @@ class DouyuUtils {
   /// signed request fail — and switching accounts (which changes the stored
   /// `dy_did`) has to invalidate it.
   static String? _encKeyDeviceId;
+
+  /// One priming attempt per process: the room visit either adopts Douyu's
+  /// own DID or the request goes out as a guest, and repeating it on every
+  /// key refresh would add a page load to each playback.
+  static bool _devicePrimed = false;
   static final String _sessionDeviceId = generateDeviceId();
 
   static String get deviceId => _sessionDeviceId;
@@ -152,6 +157,9 @@ class DouyuUtils {
       if (_isCachedEncryptionKeyUsable(_nowSeconds())) return;
     }
 
+    // Sign only after the DID Douyu knows about is in place.
+    await primeDeviceId();
+
     final refresh = _fetchEncryptionKey();
     _encKeyRefresh = refresh;
     try {
@@ -182,6 +190,46 @@ class DouyuUtils {
     _encKey = data;
     _encKeyFetchedAtSeconds = _nowSeconds();
     _encKeyDeviceId = did;
+  }
+
+  /// Adopts the DID Douyu itself issued instead of signing with a synthetic one.
+  ///
+  /// A freshly generated DID is not accepted by the edge: the encryption
+  /// request comes back as a bare 400 with an empty body, which surfaces as
+  /// "cannot read video info" for the viewer. A normal page visit sets
+  /// `dy_did`, and the signed request works from then on, so this visits the
+  /// room once per process and merges whatever cookies come back. Best effort:
+  /// a failure leaves the session DID in place rather than blocking playback.
+  static Future<void> primeDeviceId({String roomId = ''}) async {
+    if (_devicePrimed) return;
+    _devicePrimed = true;
+
+    try {
+      final stored = normalizeAccountCookie(_configuredAccountCookie());
+      if (cookieField(stored, deviceIdName)?.isNotEmpty == true) return;
+
+      final room = roomId.trim();
+      final url = Uri.parse(room.isEmpty ? 'https://www.douyu.com/' : 'https://www.douyu.com/$room');
+      final setCookies = await _fetchSetCookies(url, <String, String>{
+        'user-agent': userAgent,
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'zh-CN,zh;q=0.9',
+      });
+      if (setCookies.isEmpty) return;
+
+      final merged = mergeSetCookieLines(stored, setCookies);
+      if (cookieField(merged, deviceIdName)?.isNotEmpty != true) return;
+
+      await _persistCookie(merged, DateTime.now());
+      CoreLog.i('Douyu device id adopted from the room page');
+    } catch (error) {
+      CoreLog.w('Douyu device priming failed: $error');
+    }
+  }
+
+  @visibleForTesting
+  static void debugResetDevicePriming() {
+    _devicePrimed = false;
   }
 
   /// Creates the browser DID used by a single app process.

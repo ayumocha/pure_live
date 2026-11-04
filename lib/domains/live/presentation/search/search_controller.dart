@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:win32_registry/win32_registry.dart';
 import 'package:pure_live/core/network/request_scope.dart';
 import 'package:pure_live/shared/platforms/live_search.dart';
 
@@ -144,32 +145,35 @@ class SearchController extends GetxController {
     }
   }
 
+  /// Reads the EdgeUpdate client keys directly.
+  ///
+  /// This used to shell out to `reg.exe query`, which looks like registry
+  /// scraping to behaviour-based antivirus products and got the release
+  /// flagged. Reading the same values in-process is equivalent and silent.
+  static String? _edgeWebViewVersion(String subKey) {
+    for (final registry in <PredefinedRegistryKey>[LOCAL_MACHINE, CURRENT_USER]) {
+      try {
+        final key = registry.open(subKey);
+        try {
+          final value = key.getValue('pv');
+          if (value is StringValue && value.value.trim().isNotEmpty) return value.value.trim();
+        } finally {
+          key.close();
+        }
+      } catch (_) {
+        // Missing key or no access on this machine: try the next hive.
+      }
+    }
+    return null;
+  }
+
   Future<bool> isWebView2Installed() async {
     if (!Platform.isWindows) return true;
 
-    try {
-      var result64 = await Process.run('reg', [
-        'query',
-        r'HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
-        '/v',
-        'pv',
-      ]);
+    const machineWide = r'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+    const perUser = r'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
 
-      var resultUser = await Process.run('reg', [
-        'query',
-        r'HKEY_CURRENT_USER\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
-        '/v',
-        'pv',
-      ]);
-
-      if ((result64.exitCode == 0 && result64.stdout.toString().contains('REG_SZ')) ||
-          (resultUser.exitCode == 0 && resultUser.stdout.toString().contains('REG_SZ'))) {
-        return true;
-      }
-    } catch (e) {
-      debugPrint("检测 WebView2 失败: $e");
-    }
-    return false;
+    return _edgeWebViewVersion(machineWide) != null || _edgeWebViewVersion(perUser) != null;
   }
 
   Future<void> doSearch() {
