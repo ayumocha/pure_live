@@ -34,6 +34,7 @@ import 'package:pure_live/domains/recorder/presentation/pages/recorder/recorder_
 import 'package:pure_live/domains/account/presentation/account/bilibili/qr_login_page.dart';
 import 'package:pure_live/domains/live/presentation/playback/pages/live_play_page.dart';
 import 'package:pure_live/domains/account/presentation/account/douyu/douyu_cookie_page.dart';
+import 'package:pure_live/domains/account/presentation/account/douyu/douyu_login_page.dart';
 import 'package:pure_live/domains/account/presentation/account/bilibili/bilibili_bindings.dart';
 import 'package:pure_live/domains/account/presentation/account/bilibili/web_login_page.dart';
 import 'package:pure_live/features/remote_receiver/remote_sync_page.dart';
@@ -130,6 +131,12 @@ class AppPages {
       name: RoutePath.kDouyuAccountCookie,
       page: _smoothPage(() => const DouyuCookiePage()),
       bindings: [DouyuCookieBinding()],
+    ),
+
+    GetPage(
+      name: RoutePath.kDouyuLogin,
+      page: _smoothPage(() => const DouyuLoginPage()),
+      bindings: [DouyuLoginBinding()],
     ),
 
     GetPage(

@@ -2662,5 +2662,13 @@
   "player_pause": "暂停",
   "player_back_to_room": "回到直播间",
   "account_email_undisclosed": "未公开邮箱",
-  "live_sc_read_failed": "SC读取失败"
+  "live_sc_read_failed": "SC读取失败",
+  "douyu_login_title": "斗鱼登录",
+  "douyu_login_read": "读取登录状态",
+  "douyu_login_reading": "正在读取登录信息…",
+  "douyu_login_not_ready": "还没有检测到登录，请先在页面里完成登录",
+  "douyu_login_success": "登录成功，登录态会自动续期",
+  "douyu_login_saved": "登录信息已保存",
+  "douyu_login_failed": "读取登录信息失败，可改用粘贴 cookie",
+  "douyu_login_manual": "手动粘贴"
 }

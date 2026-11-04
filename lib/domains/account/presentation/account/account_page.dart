@@ -190,9 +190,9 @@ class AccountPage extends GetView<AccountController> {
                         accountName: i18n('site_douyu'),
                         onConfirm: cookie.clearDouyuSession,
                       )
-                    // A cookie that no longer holds a session is replaced, not
-                    // signed out of: the editor is where the viewer fixes it.
-                    : Get.toNamed(RoutePath.kDouyuAccountCookie),
+                    // Sign in through the H5 page instead of asking for a cookie
+                    // string; the editor stays one tap away inside that page.
+                    : Get.toNamed(RoutePath.kDouyuLogin),
               );
             }),
           ]),

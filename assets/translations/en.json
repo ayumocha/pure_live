@@ -2662,5 +2662,13 @@
   "player_pause": "Pause",
   "player_back_to_room": "Back to the room",
   "account_email_undisclosed": "No email shared",
-  "live_sc_read_failed": "Super Chat lookup failed"
+  "live_sc_read_failed": "Super Chat lookup failed",
+  "douyu_login_title": "Douyu sign-in",
+  "douyu_login_read": "Read sign-in",
+  "douyu_login_reading": "Reading your sign-in…",
+  "douyu_login_not_ready": "No sign-in detected yet — complete it on the page first",
+  "douyu_login_success": "Signed in — the session renews itself",
+  "douyu_login_saved": "Sign-in saved",
+  "douyu_login_failed": "Could not read the sign-in; pasting a cookie still works",
+  "douyu_login_manual": "Paste instead"
 }
