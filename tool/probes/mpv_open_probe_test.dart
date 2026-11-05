@@ -39,6 +39,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // The widget binding replaces HttpClient with a 400 responder; these probes
+  // must reach the real network to learn what the CDN and mpv actually do.
+  HttpOverrides.global = null;
+
   setUpAll(() async {
     if (!enabled) return;
     final temp = await Directory.systemTemp.createTemp('mpv-probe-');
