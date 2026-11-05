@@ -457,7 +457,20 @@ msvcp140.dll 是杀软判定的 DLL 侧载特征（卡巴斯基曾据此误删�
             "PureLive-$artifactVersion-windows-x64-debug.zip"
         }
         $zipPath = Join-Path $output $zipName
-        Compress-Archive -Path (Join-Path $windowsPackageFull '*') -DestinationPath $zipPath -Force
+        # Archive the package under a folder named after the ZIP itself. A flat
+        # archive merges into the extraction directory, so extracting a new build
+        # beside an older one kept that build's app-local MSVC runtime and the
+        # package still looked like DLL side-loading to antivirus products.
+        $zipRootName = [IO.Path]::GetFileNameWithoutExtension($zipName)
+        $zipStaging = Join-Path $output ('.zip-staging-' + $zipRootName)
+        if (Test-Path -LiteralPath $zipStaging) {
+            Remove-Item -LiteralPath $zipStaging -Recurse -Force
+        }
+        $zipStagingRoot = Join-Path $zipStaging $zipRootName
+        New-Item -ItemType Directory -Force -Path $zipStagingRoot | Out-Null
+        Copy-Item -Path (Join-Path $windowsPackageFull '*') -Destination $zipStagingRoot -Recurse -Force
+        Compress-Archive -Path $zipStagingRoot -DestinationPath $zipPath -Force
+        Remove-Item -LiteralPath $zipStaging -Recurse -Force
         $artifactPaths += [IO.Path]::GetFullPath($zipPath)
 
         if ($Configuration -eq 'Release' -and -not $SkipInstaller) {
