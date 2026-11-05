@@ -701,6 +701,7 @@ class PlayerController extends GetxController {
       _main.updateRoom(success: false);
       return;
     }
+    DouyuDiagnose.lastPlayerUrl = resolution.urls.first;
     DouyuDiagnose.record('sources-ready', <String, Object?>{
       'platform': site.id,
       'room': liveroom.roomId,

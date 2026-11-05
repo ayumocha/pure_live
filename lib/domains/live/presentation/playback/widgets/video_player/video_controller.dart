@@ -769,7 +769,11 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
       'code': error.code,
       'message': error.toString(),
     }, 1500);
-    unawaited(DouyuDiagnose.flushToDisk());
+    // Re-fetch the same URL with Dart before writing the file: on the viewer's
+    // machine this is the only way to tell a dead token from a player refusal.
+    unawaited(DouyuDiagnose.probeUrl(DouyuDiagnose.lastPlayerUrl).whenComplete(
+      DouyuDiagnose.flushToDisk,
+    ));
     _setStatus(PlayerStatus.error);
 
     final now = DateTime.now();

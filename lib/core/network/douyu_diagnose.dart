@@ -15,6 +15,12 @@ class DouyuDiagnose {
   DouyuDiagnose._();
 
   static const int _capacity = 40;
+
+  /// The URL handed to the player last. The failure path re-fetches it with
+  /// Dart's HTTP stack: a fresh token that Dart can read but the player cannot
+  /// is a player problem, while a token Dart also rejects is a URL problem, and
+  /// the two need opposite fixes.
+  static String lastPlayerUrl = '';
   static final List<String> _events = <String>[];
 
   @visibleForTesting
@@ -48,6 +54,31 @@ class DouyuDiagnose {
     if (value == null) return '';
     final text = value.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
     return text.length <= limit ? text : '${text.substring(0, limit)}…';
+  }
+
+  /// Reads the first bytes of [url] the way the app itself would.
+  static Future<void> probeUrl(String url) async {
+    if (url.isEmpty) return;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      request.headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      var bytes = 0;
+      await for (final chunk in response.timeout(const Duration(seconds: 10))) {
+        bytes += chunk.length;
+        if (bytes >= 64 * 1024) break;
+      }
+      record('url-probe', <String, Object?>{
+        'status': response.statusCode,
+        'type': response.headers.contentType,
+        'bytes': bytes,
+      });
+    } catch (error) {
+      record('url-probe-failed', <String, Object?>{'error': error});
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static String dump() => _events.isEmpty ? 'no douyu events recorded' : _events.join('\n');

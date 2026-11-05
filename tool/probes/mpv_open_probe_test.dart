@@ -86,13 +86,15 @@ void main() {
     mpv.setOption(handle, 'cache', 'yes');
     // The app sends browser-shaped headers; a CDN that checks Referer would
     // otherwise fail here and hide the real answer.
+    // A browser-shaped agent on purpose: ffmpeg otherwise identifies itself as
+    // Lavf, which several Chinese CDNs refuse outright.
     mpv.setOption(
       handle,
-      'http-header-fields',
-      'Referer: https://www.douyu.com/,Origin: https://www.douyu.com,'
-          'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'user-agent',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+          'Chrome/128.0.0.0 Safari/537.36',
     );
+    mpv.setOption(handle, 'referrer', 'https://www.douyu.com/');
 
     expect(mpv.initialize(handle), 0, reason: 'mpv_initialize 失败');
 
