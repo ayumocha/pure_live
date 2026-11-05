@@ -72,6 +72,15 @@ abstract final class MediaKitLiveProperties {
       'framedrop': 'decoder+vo',
     };
 
+    // `PURELIVE_MPV_LOG=<path>` makes libmpv write its own log. A player that
+    // opens a stream and never advances looks identical to one that cannot read
+    // it, and only mpv knows which happened.
+    final mpvLog = Platform.environment['PURELIVE_MPV_LOG'];
+    if (mpvLog != null && mpvLog.isNotEmpty) {
+      properties['msg-level'] = 'all=v';
+      properties['log-file'] = mpvLog;
+    }
+
     if (_lowEnd) {
       properties['audio-buffer'] = '0.4';
       properties['stream-lavf-o'] =

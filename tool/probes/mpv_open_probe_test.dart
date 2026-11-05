@@ -100,6 +100,34 @@ void main() {
     );
     mpv.setOption(handle, 'referrer', 'https://www.douyu.com/');
 
+
+    // PURELIVE_MPV_APP_PROPS=1 applies the property table the app itself
+    // declares, so a difference between "mpv works" and "the app's mpv does
+    // not" can be attributed to a specific property instead of guessed at.
+    if (Platform.environment['PURELIVE_MPV_APP_PROPS'] == '1') {
+      final appProps = <String, String>{
+        'protocol_whitelist':
+            'httpproxy,udp,rtp,tcp,tls,data,file,http,https,crypto,rtmp,rtmps,rtsp,srt',
+        'demuxer-lavf-probesize': '2097152',
+        'demuxer-lavf-analyzeduration': '2',
+        'hwdec-software-fallback': '1',
+        'cache': 'yes',
+        'cache-on-disk': 'no',
+        'cache-secs': '30',
+        'demuxer-max-bytes': '100663296',
+        'demuxer-max-back-bytes': '8388608',
+        'demuxer-donate-buffer': 'no',
+        'demuxer-readahead-secs': '8',
+        'cache-pause-wait': '4',
+        'demuxer-thread': 'yes',
+        'framedrop': 'decoder+vo',
+        'vd-lavc-o': 'lowres=0',
+        'vd-lavc-skiploopfilter': 'default',
+      };
+      appProps.forEach(mpv.setOptionWithHandle(handle));
+      // ignore: avoid_print
+      print('[mpv-probe] app properties applied: ${appProps.length}');
+    }
     expect(mpv.initialize(handle), 0, reason: 'mpv_initialize 失败');
 
     final commandResult = mpv.command(handle, <String>['loadfile', url]);
@@ -204,6 +232,10 @@ class _Mpv {
   final int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>) _getPropertyString;
   final Pointer<_MpvEvent> Function(Pointer<Void>, double) _waitEvent;
   final void Function(Pointer<Void>) _terminate;
+
+  /// `appProps.forEach(mpv.setOptionWithHandle(handle))` friendly form.
+  void Function(String, String) setOptionWithHandle(Pointer<Void> handle) =>
+      (String name, String value) => setOption(handle, name, value);
 
   Pointer<Void> create() => _create();
 

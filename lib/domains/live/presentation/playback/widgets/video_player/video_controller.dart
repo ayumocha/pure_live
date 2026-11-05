@@ -6,6 +6,8 @@ import 'iptv_programme_policy.dart';
 
 import 'package:flutter/scheduler.dart';
 import 'package:pure_live/core/network/douyu_diagnose.dart';
+import 'package:pure_live/core/player/kernel/player_kernel_service.dart';
+import 'package:media_core_logging/media_core_logging.dart' as mlog;
 import 'package:pure_live/core/index.dart';
 import 'package:media_core/media_core.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -614,6 +616,19 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     // native work. Only from this point may a newly constructed route consume
     // events; its volume initialization must not replay the old same-room URL.
     _acceptSourceCommits = true;
+    try {
+      await _playVideoInner();
+    } catch (error, stackTrace) {
+      DouyuDiagnose.record('play-threw', <String, Object?>{
+        'error': error,
+        'stack': stackTrace.toString().split('\n').take(5).join(' | '),
+      }, 1200);
+      await DouyuDiagnose.flushToDisk();
+      rethrow;
+    }
+  }
+
+  Future<void> _playVideoInner() async {
     final owned = ownedSource;
     if (owned != null) {
       await _playerManager.playSource(
@@ -718,6 +733,17 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     _addSubscription(_playerManager.onSourceCommitted.listen(_handleSourceCommit));
     final sourceCommit = _playerManager.currentSourceCommit;
     if (reuseCurrentSession && sourceCommit != null) _handleSourceCommit(sourceCommit);
+    // The sweep decides on its own which source to abandon and reports only a
+    // summary, so keep the engine's own event sequence: it names the stage a
+    // silent failure stopped at.
+    final kernelHandle = GlobalPlayerService.instance.player.handle;
+    if (kernelHandle != null) {
+      _addSubscription(
+        kernelHandle.adapterEvents.listen((event) {
+          DouyuDiagnose.record('adapter', <String, Object?>{'event': '${event.runtimeType}'}, 200);
+        }),
+      );
+    }
     final errorSub = _playerManager.onError.listen((error) {
       log('error: ${error.toString()}', name: 'initPlayerListener');
       _handlePlayerError(error);
@@ -726,6 +752,9 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     _addSubscription(
       _playerManager.onPlaying.distinct().listen((playing) {
         if (_isDisposed) return;
+        // An engine that never raises playing never opened the stream; one that
+        // plays and then fails was opened and lost, and the two need different fixes.
+        DouyuDiagnose.record('player-playing', <String, Object?>{'playing': playing});
         if (playing) {
           _setStatus(PlayerStatus.playing);
         } else if (_playerManager.hasError.value) {
@@ -736,6 +765,7 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     _addSubscription(
       _playerManager.onLoading.distinct().listen((loading) {
         if (_isDisposed || _playerManager.hasError.value) return;
+        DouyuDiagnose.record('player-loading', <String, Object?>{'loading': loading});
         if (loading) _setStatus(PlayerStatus.loading);
       }),
     );
@@ -765,8 +795,25 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     // The toast only says "decode failed"; the code behind it is what tells a
     // decoder apart from a network, renderer or backend fault, so keep it in the
     // diagnostics file instead of only on screen.
+    // media_core turns an adapter failure into this single code and keeps the
+    // reason in its own log ring, so copy the recent error/warning records out
+    // before they age out.
+    final ring = PlayerKernelService.logRing;
+    if (ring != null) {
+      final recent = ring.records
+          .where((record) => record.level == mlog.LogLevel.error || record.level == mlog.LogLevel.warning)
+          .toList();
+      final tail = recent.length > 8 ? recent.sublist(recent.length - 8) : recent;
+      for (final record in tail) {
+        DouyuDiagnose.record('kernel-log', <String, Object?>{
+          'at': record.category.name,
+          'msg': record.message,
+        }, 700);
+      }
+    }
     DouyuDiagnose.record('player-error', <String, Object?>{
       'code': error.code,
+      'hasError': _playerManager.hasError.value,
       'message': error.toString(),
     }, 1500);
     // Re-fetch the same URL with Dart before writing the file: on the viewer's

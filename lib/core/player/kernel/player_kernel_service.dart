@@ -11,6 +11,7 @@ import 'package:media_core_media_kit/media_core_media_kit.dart' hide PlayerConst
 import 'package:pure_live/core/player/presentation/windows_pip_driver.dart';
 import 'package:pure_live/core/player/kernel/owned_input_opener.dart';
 import 'package:pure_live/core/player/kernel/mpv_log_forwarder.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:media_core_ijk_player/media_core_ijk_player.dart';
 import 'package:media_core_logging/media_core_logging.dart' as mlog;
 import 'package:media_core_mediasession/media_core_mediasession.dart';
@@ -28,6 +29,7 @@ class PlayerKernelService {
   static final FloatingDriver floatingDriver = FloatingDriver();
 
   static mlog.MemoryLogSink? logRing;
+  static bool _diagnosticSinkAttached = false;
 
   PlayerKernel? _kernel;
 
@@ -43,17 +45,39 @@ class PlayerKernelService {
           playerConfiguration: MediaKitLiveProperties.playerConfiguration(),
           customInputOpener: openOwnedInputOnKernelPlayer,
           beforeOpen: (player, source) async {
-            attachMpvLogForwarder(player);
-            final initialVolume = OpenVolume.resolve(source);
-            if (initialVolume != null) {
-              try {
-                await player.setVolume(initialVolume * 100.0);
-              } catch (_) {}
+            // A throw here aborts the open before libmpv ever sees a loadfile,
+            // which leaves no mpv log, no loading event and a source that looks
+            // unplayable. Record the step and the error instead of losing them.
+            var step = 'attach-log';
+            try {
+              DouyuDiagnose.record('open-begin', <String, Object?>{
+                'uri': source.uri.toString(),
+                'headers': source.headers?.values.length ?? 0,
+              }, 400);
+              attachMpvLogForwarder(player);
+              attachEngineErrorRecorder(player);
+              step = 'volume';
+              final initialVolume = OpenVolume.resolve(source);
+              if (initialVolume != null) {
+                try {
+                  await player.setVolume(initialVolume * 100.0);
+                } catch (_) {}
+              }
+              step = 'source-properties';
+              await MediaKitLiveProperties.applyToSource(player, source);
+              // Saved loudness gain, if the user enabled it. This runs before the
+              // first loadfile, so the room opens already at the chosen level.
+              step = 'loudness';
+              await MediaKitLiveProperties.applyLoudnessCompensation(player, LoudnessCompensation.savedMode);
+              DouyuDiagnose.record('open-prepared', <String, Object?>{'host': source.uri.host});
+            } catch (error, stackTrace) {
+              DouyuDiagnose.record('open-failed', <String, Object?>{
+                'step': step,
+                'error': error,
+                'stack': stackTrace.toString().split('\n').take(4).join(' | '),
+              }, 900);
+              rethrow;
             }
-            await MediaKitLiveProperties.applyToSource(player, source);
-            // Saved loudness gain, if the user enabled it. This runs before the
-            // first loadfile, so the room opens already at the chosen level.
-            await MediaKitLiveProperties.applyLoudnessCompensation(player, LoudnessCompensation.savedMode);
           },
           videoControllerConfigurationBuilder: MediaKitLiveProperties.buildVideoControllerConfiguration,
           // The app declares every tuning value it wants; the adapter applies
@@ -123,9 +147,30 @@ class PlayerKernelService {
     };
 
     logRing = mlog.MediaCoreLog.attachMemorySink(capacity: 500);
+    // media_core reports an adapter failure once, with the reason, and then only
+    // a summary code reaches the app. Keep the reasons where a device report can
+    // carry them.
+    if (!_diagnosticSinkAttached) {
+      _diagnosticSinkAttached = true;
+      mlog.MediaCoreLog.addSink(_forwardKernelRecordToDiagnostics);
+    }
     if (!const bool.fromEnvironment('dart.vm.product')) {
       mlog.MediaCoreLog.level = mlog.LogLevel.debug;
     }
     await MediaSessionBootstrap.attachTo(instance.kernel, config: const MediaSessionConfig.video());
   }
+}
+
+/// Copies media_core's own warning/error records into the diagnostics file.
+void _forwardKernelRecordToDiagnostics(mlog.PlayerLogRecord record) {
+  if (record.level != mlog.LogLevel.error &&
+      record.level != mlog.LogLevel.warning &&
+      record.level != mlog.LogLevel.critical) {
+    return;
+  }
+  DouyuDiagnose.record('kernel', <String, Object?>{
+    'at': record.category.name,
+    'level': record.level.name,
+    'msg': record.message,
+  }, 700);
 }
