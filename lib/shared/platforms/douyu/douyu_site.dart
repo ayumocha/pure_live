@@ -402,11 +402,19 @@ class DouyuSite
             'native': DouyuNativeHttp.isSupported,
           },
         );
-        if (error is DouyuSessionExpiredException && !DouyuUtils.guestMode) {
-          // The stored login no longer exists on Douyu's side. Retry as a guest
-          // instead of failing the room: the viewer asked to watch, not to log in.
+        // A rejection means the presented identity will not be accepted for this
+        // room: 902 for a login Douyu no longer knows, 401/403 for a session it
+        // will not honour here. Guest playback is the state that worked before the
+        // viewer signed in, so fall back to it rather than failing the room.
+        final bool rejected = error is DouyuSessionExpiredException ||
+            (error is HttpError && (error.statusCode == 401 || error.statusCode == 403));
+        if (rejected && !DouyuUtils.guestMode) {
+          DouyuDiagnose.record('auth-rejected-guest-retry', <String, Object?>{
+            'room': roomId,
+            'error': error,
+          });
           DouyuUtils.guestMode = true;
-          CoreLog.w('Douyu session expired, retrying as guest');
+          CoreLog.w('Douyu rejected the session, retrying as guest: $error');
           continue;
         }
         CoreLog.w(

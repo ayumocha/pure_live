@@ -617,6 +617,7 @@ class PlayerController extends GetxController {
           'platform': site.id,
           'room': room.roomId,
         });
+        unawaited(DouyuDiagnose.flushToDisk());
         ToastUtil.show(i18n('cannot_read_video_info'));
         _main.updateRoom(success: false);
         return;
@@ -642,6 +643,7 @@ class PlayerController extends GetxController {
         'room': room.roomId,
         'error': error,
       });
+      unawaited(DouyuDiagnose.flushToDisk());
       ToastUtil.show(i18n(streamMetadataFailureKey(
         error: error,
         appProxyEnabled: SettingsService.to.proxy.enableAppProxy.v,
@@ -694,6 +696,7 @@ class PlayerController extends GetxController {
         'room': liveroom.roomId,
         'quality': playerState.qualites[playerState.currentQuality].quality,
       });
+      unawaited(DouyuDiagnose.flushToDisk());
       ToastUtil.show(i18n('cannot_read_play_url'));
       _main.updateRoom(success: false);
       return;
@@ -786,6 +789,7 @@ class PlayerController extends GetxController {
           'platform': site.id,
           'room': room.roomId,
         });
+        unawaited(DouyuDiagnose.flushToDisk());
         ToastUtil.show(i18n('cannot_read_play_url'));
         return false;
       }
