@@ -115,6 +115,7 @@ class PlayerKernelService {
 
   static Future<void> ensureInitialized() async {
     MediaKitPlayerAdapter.ensureInitialized();
+    DouyuDiagnose.record('kernel-init', <String, Object?>{'adapter': 'media_kit'});
 
     // The desktop chrome asks the window, not a player, whether the picture is
     // compact, and the driver is what makes it compact. Start mirroring it
