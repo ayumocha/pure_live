@@ -5,6 +5,7 @@ import 'dart:developer';
 import 'iptv_programme_policy.dart';
 
 import 'package:flutter/scheduler.dart';
+import 'package:pure_live/core/network/douyu_diagnose.dart';
 import 'package:pure_live/core/index.dart';
 import 'package:media_core/media_core.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -761,6 +762,14 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
 
   void _handlePlayerError(PlayerException error) {
     if (_isDisposed) return;
+    // The toast only says "decode failed"; the code behind it is what tells a
+    // decoder apart from a network, renderer or backend fault, so keep it in the
+    // diagnostics file instead of only on screen.
+    DouyuDiagnose.record('player-error', <String, Object?>{
+      'code': error.code,
+      'message': error.toString(),
+    });
+    unawaited(DouyuDiagnose.flushToDisk());
     _setStatus(PlayerStatus.error);
 
     final now = DateTime.now();
