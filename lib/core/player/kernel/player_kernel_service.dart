@@ -114,6 +114,14 @@ class PlayerKernelService {
   }
 
   static Future<void> ensureInitialized() async {
+    // Attach before anything else: a throw further down this function would
+    // otherwise leave the sink unregistered and lose every media_core reason.
+    logRing = mlog.MediaCoreLog.attachMemorySink(capacity: 500);
+    if (!_diagnosticSinkAttached) {
+      _diagnosticSinkAttached = true;
+      mlog.MediaCoreLog.addSink(_forwardKernelRecordToDiagnostics);
+    }
+    DouyuDiagnose.record('kernel-sink', <String, Object?>{'attached': true});
     MediaKitPlayerAdapter.ensureInitialized();
     DouyuDiagnose.record('kernel-init', <String, Object?>{'adapter': 'media_kit'});
 

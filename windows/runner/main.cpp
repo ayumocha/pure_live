@@ -35,8 +35,40 @@ void BringPrimaryWindowToFront() {
 
 }  // namespace
 
+// media_kit hands every open() a temp playlist file. When creating it is
+// denied (security software blocking %TEMP% writes, tightened ACLs), open()
+// throws before libmpv is ever asked and the player reports the source as
+// unplayable. Keep that file in a folder this app owns: the data directory
+// next to the executable, which the user installed and can write.
+void UsePrivateTempDirectory() {
+  wchar_t module_path[MAX_PATH];
+  const DWORD length = ::GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) {
+    return;
+  }
+  std::wstring directory(module_path, length);
+  const std::wstring::size_type slash = directory.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) {
+    return;
+  }
+  directory.erase(slash + 1);
+  std::wstring root = directory + L"AppData";
+  std::wstring temp = root + L"\\TEMP";
+  ::CreateDirectoryW(root.c_str(), nullptr);
+  ::CreateDirectoryW(temp.c_str(), nullptr);
+  const DWORD attributes = ::GetFileAttributesW(temp.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES ||
+      (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+    return;
+  }
+  ::SetEnvironmentVariableW(L"TEMP", temp.c_str());
+  ::SetEnvironmentVariableW(L"TMP", temp.c_str());
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  UsePrivateTempDirectory();
+
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
