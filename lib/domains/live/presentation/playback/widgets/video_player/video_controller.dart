@@ -768,7 +768,7 @@ class VideoController with ChangeNotifier implements DanmakuSettingsSource, Play
     DouyuDiagnose.record('player-error', <String, Object?>{
       'code': error.code,
       'message': error.toString(),
-    });
+    }, 1500);
     unawaited(DouyuDiagnose.flushToDisk());
     _setStatus(PlayerStatus.error);
 

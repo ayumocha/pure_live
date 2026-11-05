@@ -21,7 +21,12 @@ param(
     # the subfolder layout this switch used to produce.
     [switch] $WithoutAppLocalMsvc,
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$')]
-    [string] $CandidateLabel = ''
+    [string] $CandidateLabel = '',
+    # Copy the finished Windows package over this existing portable folder.
+    # Runtime state (AppData, the WebView2 profile) is preserved and files the
+    # new package no longer ships are removed, so an upgrade in place cannot
+    # leave the previous build's DLLs behind.
+    [string] $DeployTo = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -595,6 +600,40 @@ msvcp140.dll 是杀软判定的 DLL 侧载特征（卡巴斯基曾据此误删�
             '{0} *{1}' -f $hash.Hash.ToLowerInvariant(), $file.Name
         } | Set-Content -Path (Join-Path $output $checksumName) -Encoding ascii
         Get-ChildItem $output -File | Select-Object Name, Length, LastWriteTime
+    }
+
+    if ($DeployTo) {
+        if ($Target -ne 'WindowsX64') {
+            throw '-DeployTo applies only to WindowsX64.'
+        }
+        $deployRoot = [IO.Path]::GetFullPath($DeployTo)
+        if (-not (Test-Path -LiteralPath $deployRoot -PathType Container)) {
+            New-Item -ItemType Directory -Force -Path $deployRoot | Out-Null
+        }
+        # Runtime state belongs to the viewer, never to the package.
+        $deployKeep = @('AppData', 'pure_live.exe.WebView2')
+        $shipped = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        Get-ChildItem -LiteralPath $windowsPackageFull -Recurse -File | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($windowsPackageFull, $_.FullName)
+            [void]$shipped.Add($relative)
+            $destination = Join-Path $deployRoot $relative
+            $destinationParent = Split-Path -Parent $destination
+            if ($destinationParent) {
+                New-Item -ItemType Directory -Force -Path $destinationParent | Out-Null
+            }
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+        }
+        # Drop files this package no longer ships. The top-level check matters:
+        # an older build staged the MSVC runtime beside the exe, and leaving it
+        # there reintroduces the DLL side-loading shape antivirus deletes.
+        Get-ChildItem -LiteralPath $deployRoot -Recurse -File | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($deployRoot, $_.FullName)
+            $top = ($relative -split '[\\/]')[0]
+            if ($deployKeep -contains $top) { return }
+            if ($shipped.Contains($relative)) { return }
+            Remove-Item -LiteralPath $_.FullName -Force
+        }
+        Write-Host "Deployed to: $deployRoot"
     }
     Write-Host "Build record: $recordPath"
 

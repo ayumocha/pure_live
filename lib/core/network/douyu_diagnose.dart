@@ -24,12 +24,18 @@ class DouyuDiagnose {
   static void clear() => _events.clear();
 
   /// Appends one observation. `details` values are flattened into `k=v` pairs;
-  /// long bodies are truncated so the file stays readable.
-  static void record(String stage, [Map<String, Object?> details = const <String, Object?>{}]) {
+  /// long bodies are truncated so the file stays readable. [limit] raises that
+  /// bound for values whose tail carries the answer, such as the player's last
+  /// attempted URL.
+  static void record(
+    String stage, [
+    Map<String, Object?> details = const <String, Object?> {},
+    int limit = 180,
+  ]) {
     final stamp = DateTime.now().toIso8601String();
     final buffer = StringBuffer('$stamp  $stage');
     details.forEach((key, value) {
-      final text = _shorten(value);
+      final text = _shorten(value, limit);
       if (text.isEmpty) return;
       buffer.write('  $key=$text');
     });
@@ -38,10 +44,10 @@ class DouyuDiagnose {
     CoreLog.w('douyu: $buffer');
   }
 
-  static String _shorten(Object? value) {
+  static String _shorten(Object? value, int limit) {
     if (value == null) return '';
     final text = value.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
-    return text.length <= 180 ? text : '${text.substring(0, 180)}…';
+    return text.length <= limit ? text : '${text.substring(0, limit)}…';
   }
 
   static String dump() => _events.isEmpty ? 'no douyu events recorded' : _events.join('\n');
